@@ -22,9 +22,27 @@ function initialize(container) {
         return;
     }
 
-    if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    if (!Hls.isSupported() && video.canPlayType('application/vnd.apple.mpegurl')) {
+        const handleCanPlay = () => {
+            announce(container, 'Live stream ready.');
+            video.play().catch(() => {
+                announce(container, 'Press play to start the live stream.');
+            });
+        };
+        const handleError = () => {
+            announce(container, 'The live stream became unavailable.');
+        };
+
+        video.addEventListener('canplay', handleCanPlay, { once: true });
+        video.addEventListener('error', handleError, { once: true });
         video.src = manifestUrl;
-        players.set(container, { hls: null });
+        players.set(container, {
+            hls: null,
+            cleanup() {
+                video.removeEventListener('canplay', handleCanPlay);
+                video.removeEventListener('error', handleError);
+            },
+        });
         return;
     }
 
@@ -56,7 +74,7 @@ function initialize(container) {
         }
     });
 
-    players.set(container, { hls });
+    players.set(container, { hls, cleanup: null });
 }
 
 function initializeAll(root = document) {
@@ -76,6 +94,7 @@ function dispose(container) {
 
     const video = container.querySelector('video');
 
+    player.cleanup?.();
     player.hls?.destroy();
 
     if (video) {
