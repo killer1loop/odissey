@@ -59,6 +59,13 @@ HLS output uses tmpfs.
 For a local media library, add a read-only bind mount such as
 `/path/to/media:/media/movies:ro`; never mount source media read-write.
 
+## Deployment flow
+
+Dokploy builds the repository Dockerfile and deploys automatically whenever a
+commit reaches `main`. Feature branches do not deploy, and this repository does
+not use GitHub Actions. See the deployment guide for the single-replica SQLite
+and persistent-volume requirements.
+
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md)

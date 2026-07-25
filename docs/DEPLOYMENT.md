@@ -89,6 +89,10 @@ applied, `ok`, `wal`, and no foreign-key errors.
 
 Use an Application with:
 
+- source provider: the existing Dokploy GitHub App;
+- repository: `killer1loop/odissey`;
+- branch: `main`;
+- automatic deployment on GitHub push enabled;
 - build type: Dockerfile;
 - context: `.`;
 - Dockerfile: `Dockerfile`;
@@ -101,6 +105,28 @@ Use an Application with:
 Do not publish a Docker host port when Traefik routing is sufficient. A
 published port can bypass host firewall expectations.
 
+Dokploy is the deployment authority for this project. A merge or direct push
+to `main` triggers a fresh server-side Dockerfile build and deployment. Feature
+branches, including `codex/**`, do not deploy. GitHub Actions is intentionally
+not used, which keeps application build logs and rollout state in one place.
+The connected GitHub App supplies the push webhook; do not add a separate
+repository webhook.
+
+The API configuration for Dokploy `0.29.13` is:
+
+1. Save the existing GitHub provider with `branch: main`, `triggerType: push`,
+   `buildPath: /`, and no `watchPaths` restriction through
+   `POST /api/application.saveGithubProvider`.
+2. Set `autoDeploy: true` explicitly through
+   `POST /api/application.update`.
+3. Set `buildType: dockerfile`, `dockerfile: Dockerfile`, and
+   `dockerContextPath: .` through `POST /api/application.saveBuildType`.
+4. Read the application back through `GET /api/application.one` and verify the
+   provider, repository, branch, push trigger, build type, and auto-deploy flag
+   before merging to `main`.
+5. After the first merge, verify that the Dokploy deployment commit matches the
+   new `main` commit and that `/up` is healthy.
+
 Before API automation:
 
 1. Verify the panel runs Dokploy `0.29.13` or newer.
@@ -110,9 +136,10 @@ Before API automation:
 5. Merge, rather than replace, an existing application's runtime environment.
 6. Avoid any delete/remove endpoint during deployment testing.
 
-For private testing, building from the repository Dockerfile on the Dokploy
-server is acceptable. For public releases, CI should build a versioned image,
-push it to GHCR, and Dokploy should pull a pinned tag or digest.
+Before enabling the first automatic deployment, the Dokploy GitHub App must
+have access to this repository. Keep the repository private throughout testing.
+After the application is public, retain the same `main`-branch trigger and
+record the source commit for each release and rollback.
 
 ## Backup and restore
 

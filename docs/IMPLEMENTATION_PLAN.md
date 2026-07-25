@@ -29,7 +29,8 @@ Deliverables:
 - multi-stage single-image Docker build with FFmpeg;
 - supervised web, queue, and scheduler processes;
 - persistent data and transient-cache conventions;
-- health endpoint, CI, architecture, security, and deployment documentation.
+- health endpoint, architecture, security, and Dokploy deployment
+  documentation.
 
 Exit criteria:
 
@@ -173,8 +174,8 @@ Deliverables:
 - upgrade, rollback, backup, and restore drills;
 - accessibility and responsive-layout audit;
 - security disclosure policy, contribution guide, changelog, and release notes;
-- tagged image pushed to GHCR and Dokploy switched from server-side builds to a
-  pinned image.
+- tagged releases deployed from `main` by Dokploy's server-side Dockerfile
+  build, with the deployed Git commit recorded for rollback.
 
 Publication gate:
 
