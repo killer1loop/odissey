@@ -6,13 +6,17 @@ use App\Http\Controllers\Controller;
 use App\Models\MediaItem;
 use App\Models\PlaybackHistory;
 use App\Models\TranscodeSession;
+use App\Services\Media\TranscodeStorage;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
 
 class MediaPlayerController extends Controller
 {
-    public function __invoke(Request $request, string $media): View
-    {
+    public function __invoke(
+        Request $request,
+        TranscodeStorage $storage,
+        string $media,
+    ): View {
         $item = MediaItem::query()
             ->whereBelongsTo($request->user())
             ->findOrFail($media);
@@ -31,6 +35,12 @@ class MediaPlayerController extends Controller
             })
             ->latest()
             ->first();
+
+        if ($session?->isAvailable() && ! $storage->hasCompleteOutput($session)) {
+            $storage->delete($session);
+            $session->delete();
+            $session = null;
+        }
 
         $lastStart = $item->playbackHistory()
             ->whereBelongsTo($request->user())

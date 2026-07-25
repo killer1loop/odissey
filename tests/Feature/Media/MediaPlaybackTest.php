@@ -176,6 +176,79 @@ class MediaPlaybackTest extends TestCase
         );
     }
 
+    public function test_missing_ephemeral_output_does_not_leave_a_ready_session_stuck(): void
+    {
+        Queue::fake();
+        $owner = User::factory()->create(['is_active' => true]);
+        $item = $this->mediaItem(
+            $owner,
+            $this->temporaryPath.'/unsupported.mkv',
+            requiresTranscode: true,
+        );
+        $staleSession = TranscodeSession::query()->create([
+            'user_id' => $owner->getKey(),
+            'media_item_id' => $item->getKey(),
+            'status' => TranscodeSession::STATUS_READY,
+            'manifest_relative_path' => 'index.m3u8',
+            'expires_at' => now()->addMinute(),
+        ]);
+
+        $this->actingAs($owner)
+            ->get(route('media.show', $item))
+            ->assertOk()
+            ->assertSee('Prepare HLS stream');
+
+        $this->assertDatabaseMissing('transcode_sessions', [
+            'id' => $staleSession->getKey(),
+        ]);
+
+        $this->actingAs($owner)
+            ->post(route('media.transcodes.store', $item))
+            ->assertRedirect(route('media.show', $item));
+
+        $newSession = TranscodeSession::query()->sole();
+
+        $this->assertSame(TranscodeSession::STATUS_PENDING, $newSession->status);
+        Queue::assertPushed(
+            TranscodeMediaToHls::class,
+            fn (TranscodeMediaToHls $job): bool => $job->sessionId === $newSession->getKey(),
+        );
+    }
+
+    public function test_starting_a_transcode_replaces_ready_metadata_when_output_is_missing(): void
+    {
+        Queue::fake();
+        $owner = User::factory()->create(['is_active' => true]);
+        $item = $this->mediaItem(
+            $owner,
+            $this->temporaryPath.'/unsupported.mkv',
+            requiresTranscode: true,
+        );
+        $staleSession = TranscodeSession::query()->create([
+            'user_id' => $owner->getKey(),
+            'media_item_id' => $item->getKey(),
+            'status' => TranscodeSession::STATUS_READY,
+            'manifest_relative_path' => 'index.m3u8',
+            'expires_at' => now()->addMinute(),
+        ]);
+
+        $this->actingAs($owner)
+            ->post(route('media.transcodes.store', $item))
+            ->assertRedirect(route('media.show', $item));
+
+        $this->assertDatabaseMissing('transcode_sessions', [
+            'id' => $staleSession->getKey(),
+        ]);
+
+        $newSession = TranscodeSession::query()->sole();
+
+        $this->assertSame(TranscodeSession::STATUS_PENDING, $newSession->status);
+        Queue::assertPushed(
+            TranscodeMediaToHls::class,
+            fn (TranscodeMediaToHls $job): bool => $job->sessionId === $newSession->getKey(),
+        );
+    }
+
     public function test_hls_manifests_and_segments_require_session_ownership(): void
     {
         $owner = User::factory()->create(['is_active' => true]);

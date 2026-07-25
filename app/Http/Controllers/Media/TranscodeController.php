@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\Media\TranscodeMediaToHls;
 use App\Models\MediaItem;
 use App\Models\TranscodeSession;
+use App\Services\Media\TranscodeStorage;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -13,15 +14,18 @@ use Illuminate\Support\Facades\DB;
 
 class TranscodeController extends Controller
 {
-    public function __invoke(Request $request, string $media): View|RedirectResponse
-    {
+    public function __invoke(
+        Request $request,
+        TranscodeStorage $storage,
+        string $media,
+    ): View|RedirectResponse {
         $item = MediaItem::query()
             ->whereBelongsTo($request->user())
             ->findOrFail($media);
 
         abort_unless($item->requires_transcode, 409);
 
-        [$session, $created] = DB::transaction(function () use ($request, $item): array {
+        [$session, $created] = DB::transaction(function () use ($request, $item, $storage): array {
             $existing = TranscodeSession::query()
                 ->whereBelongsTo($request->user())
                 ->whereBelongsTo($item, 'mediaItem')
@@ -39,6 +43,12 @@ class TranscodeController extends Controller
                 ->lockForUpdate()
                 ->latest()
                 ->first();
+
+            if ($existing?->isAvailable() && ! $storage->hasCompleteOutput($existing)) {
+                $storage->delete($existing);
+                $existing->delete();
+                $existing = null;
+            }
 
             if ($existing !== null) {
                 return [$existing, false];
