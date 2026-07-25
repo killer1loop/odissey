@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'media_item_id',
     'event',
     'position_ms',
+    'watched_ms',
     'played_at',
 ])]
 class PlaybackHistory extends Model
@@ -34,6 +35,7 @@ class PlaybackHistory extends Model
     {
         return [
             'position_ms' => 'integer',
+            'watched_ms' => 'integer',
             'played_at' => 'immutable_datetime',
         ];
     }

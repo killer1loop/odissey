@@ -15,7 +15,7 @@ function initializePlayer(player) {
         return;
     }
 
-    const video = player.querySelector('video');
+    const video = player.querySelector('video, audio');
     const sourceUrl = player.dataset.sourceUrl;
     const sourceType = player.dataset.sourceType;
 

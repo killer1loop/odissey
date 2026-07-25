@@ -13,6 +13,7 @@ class ProviderCatalogSynchronizer
 {
     public function __construct(
         private readonly XtreamClient $client,
+        private readonly M3uClient $m3u,
     ) {}
 
     /**
@@ -25,9 +26,13 @@ class ProviderCatalogSynchronizer
             'last_error_code' => null,
         ])->save();
 
-        $this->client->authenticate($provider);
-        $categories = $this->client->categories($provider);
-        $streams = $this->client->liveStreams($provider);
+        if (($provider->config['api'] ?? 'xtream') === 'm3u') {
+            [$categories, $streams] = $this->m3u->catalog($provider);
+        } else {
+            $this->client->authenticate($provider);
+            $categories = $this->client->categories($provider);
+            $streams = $this->client->liveStreams($provider);
+        }
         $now = now();
         $groupRows = [];
 
@@ -83,10 +88,12 @@ class ProviderCatalogSynchronizer
                     $this->nullableUrl($stream['stream_icon'] ?? null),
                 ),
                 'stream_extension' => 'm3u8',
-                'metadata' => Crypt::encryptString(json_encode([
+                'metadata' => Crypt::encryptString(json_encode(array_merge([
                     'archive' => (bool) ($stream['tv_archive'] ?? false),
                     'added' => $this->nullableText($stream['added'] ?? null, 64),
-                ], JSON_THROW_ON_ERROR)),
+                ], isset($stream['stream_url']) ? [
+                    'stream_url' => $this->nullableUrl($stream['stream_url']),
+                ] : []), JSON_THROW_ON_ERROR)),
                 'is_active' => true,
                 'created_at' => $now,
                 'updated_at' => $now,

@@ -1,0 +1,5 @@
+@extends('layouts.app')
+@section('title','Preferences · Odissey')
+@section('content')
+<section class="page-section narrow"><p class="eyebrow">Account</p><h1>Playback preferences</h1>@if(session('status'))<p class="notice">{{ session('status') }}</p>@endif<form class="settings-form" method="POST" action="{{ route('preferences.update') }}">@csrf @method('PUT')<label>Timezone<select name="timezone">@foreach($timezones as $timezone)<option @selected(auth()->user()->timezone===$timezone)>{{ $timezone }}</option>@endforeach</select></label><label>Preferred quality<select name="preferred_quality">@foreach(['auto','original','1080p','720p'] as $quality)<option @selected((auth()->user()->preferences['preferred_quality'] ?? 'auto')===$quality)>{{ $quality }}</option>@endforeach</select></label><label class="checkbox-row"><input name="autoplay" type="checkbox" value="1" @checked(auth()->user()->preferences['autoplay'] ?? false)> Autoplay the next queued item</label><button class="button button-primary">Save preferences</button></form></section>
+@endsection

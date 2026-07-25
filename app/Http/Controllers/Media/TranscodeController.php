@@ -19,13 +19,17 @@ class TranscodeController extends Controller
         TranscodeStorage $storage,
         string $media,
     ): View|RedirectResponse {
+        $selection = $request->validate([
+            'profile' => ['nullable', 'in:auto,1080p,720p'],
+            'audio_track' => ['nullable', 'integer', 'min:0', 'max:31'],
+        ]);
         $item = MediaItem::query()
-            ->whereBelongsTo($request->user())
+            ->accessibleTo($request->user())
             ->findOrFail($media);
 
         abort_unless($item->requires_transcode, 409);
 
-        [$session, $created] = DB::transaction(function () use ($request, $item, $storage): array {
+        [$session, $created] = DB::transaction(function () use ($request, $item, $storage, $selection): array {
             $existing = TranscodeSession::query()
                 ->whereBelongsTo($request->user())
                 ->whereBelongsTo($item, 'mediaItem')
@@ -59,6 +63,8 @@ class TranscodeController extends Controller
                     'user_id' => $request->user()->getKey(),
                     'media_item_id' => $item->getKey(),
                     'status' => TranscodeSession::STATUS_PENDING,
+                    'profile' => $selection['profile'] ?? 'auto',
+                    'audio_track' => $selection['audio_track'] ?? null,
                 ]),
                 true,
             ];

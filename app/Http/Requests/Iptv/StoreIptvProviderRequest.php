@@ -15,6 +15,7 @@ class StoreIptvProviderRequest extends FormRequest
     protected function prepareForValidation(): void
     {
         $this->merge([
+            'provider_type' => $this->input('provider_type', 'xtream'),
             'allow_insecure_http' => $this->boolean('allow_insecure_http'),
             'enabled' => $this->boolean('enabled'),
         ]);
@@ -24,9 +25,13 @@ class StoreIptvProviderRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255', 'unique:iptv_providers,name'],
-            'base_url' => ['required', 'string', 'max:2048', 'url:http,https'],
-            'username' => ['required', 'string', 'max:1024'],
-            'password' => ['required', 'string', 'max:1024'],
+            'provider_type' => ['required', 'in:xtream,m3u'],
+            'base_url' => ['required_if:provider_type,xtream', 'nullable', 'string', 'max:2048', 'url:http,https'],
+            'playlist_url' => ['required_if:provider_type,m3u', 'nullable', 'string', 'max:4096', 'url:http,https'],
+            'xmltv_url' => ['nullable', 'string', 'max:4096', 'url:http,https'],
+            'max_connections' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'username' => ['required_if:provider_type,xtream', 'nullable', 'string', 'max:1024'],
+            'password' => ['required_if:provider_type,xtream', 'nullable', 'string', 'max:1024'],
             'allow_insecure_http' => ['boolean'],
             'enabled' => ['boolean'],
         ];
@@ -37,7 +42,7 @@ class StoreIptvProviderRequest extends FormRequest
         return [
             function (Validator $validator): void {
                 if (
-                    str_starts_with(strtolower((string) $this->input('base_url')), 'http://')
+                    str_starts_with(strtolower((string) ($this->input('base_url') ?: $this->input('playlist_url'))), 'http://')
                     && ! $this->boolean('allow_insecure_http')
                 ) {
                     $validator->errors()->add(

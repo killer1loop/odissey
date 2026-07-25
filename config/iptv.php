@@ -1,6 +1,9 @@
 <?php
 
 return [
+    'playlist_max_bytes' => (int) env('IPTV_PLAYLIST_MAX_BYTES', 32 * 1024 * 1024),
+    'playlist_max_channels' => (int) env('IPTV_PLAYLIST_MAX_CHANNELS', 50000),
+    'xmltv_max_bytes' => (int) env('IPTV_XMLTV_MAX_BYTES', 128 * 1024 * 1024),
     'connect_timeout_seconds' => (int) env('IPTV_CONNECT_TIMEOUT_SECONDS', 5),
     'request_timeout_seconds' => (int) env('IPTV_REQUEST_TIMEOUT_SECONDS', 20),
     'stream_timeout_seconds' => (int) env('IPTV_STREAM_TIMEOUT_SECONDS', 45),
@@ -17,4 +20,5 @@ return [
     'guide_channel_limit' => (int) env('IPTV_GUIDE_CHANNEL_LIMIT', 20),
     'guide_program_limit' => (int) env('IPTV_GUIDE_PROGRAM_LIMIT', 4),
     'playback_session_minutes' => (int) env('IPTV_PLAYBACK_SESSION_MINUTES', 30),
+    'provider_max_connections' => (int) env('IPTV_PROVIDER_MAX_CONNECTIONS', 1),
 ];

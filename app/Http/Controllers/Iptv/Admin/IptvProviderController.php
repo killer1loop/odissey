@@ -38,11 +38,18 @@ class IptvProviderController extends Controller
     ): RedirectResponse {
         $validated = $request->validated();
 
+        $providerType = $validated['provider_type'];
+        $connectionUrl = $providerType === 'm3u' ? $validated['playlist_url'] : $validated['base_url'];
         try {
-            $baseUrl = $urlGuard->normalizeBaseUrl(
-                $validated['base_url'],
-                $validated['allow_insecure_http'],
-            );
+            if ($providerType === 'm3u') {
+                $urlGuard->assertPublicTarget($connectionUrl, $validated['allow_insecure_http']);
+                $baseUrl = preg_replace('#^(.+?//[^/]+).*$#', '$1', $connectionUrl);
+            } else {
+                $baseUrl = $urlGuard->normalizeBaseUrl(
+                    $connectionUrl,
+                    $validated['allow_insecure_http'],
+                );
+            }
         } catch (SanitizedIptvException) {
             throw ValidationException::withMessages([
                 'base_url' => 'The provider address cannot be used.',
@@ -52,11 +59,14 @@ class IptvProviderController extends Controller
         $provider = IptvProvider::query()->create([
             'name' => $validated['name'],
             'base_url' => $baseUrl,
-            'username' => $validated['username'],
-            'password' => $validated['password'],
+            'username' => $validated['username'] ?? '',
+            'password' => $validated['password'] ?? '',
             'config' => [
-                'api' => 'xtream',
+                'api' => $providerType,
                 'stream_format' => 'hls',
+                'playlist_url' => $providerType === 'm3u' ? $validated['playlist_url'] : null,
+                'xmltv_url' => $validated['xmltv_url'] ?? null,
+                'max_connections' => $validated['max_connections'] ?? (int) config('iptv.provider_max_connections'),
             ],
             'allow_insecure_http' => $validated['allow_insecure_http'],
             'enabled' => $validated['enabled'],
@@ -89,6 +99,24 @@ class IptvProviderController extends Controller
             'allow_insecure_http' => $validated['allow_insecure_http'],
             'enabled' => $validated['enabled'],
         ];
+        $config = $provider->config;
+        $config['api'] = $validated['provider_type'];
+        if (! empty($validated['playlist_url'])) {
+            try {
+                $urlGuard->assertPublicTarget($validated['playlist_url'], $validated['allow_insecure_http']);
+            } catch (SanitizedIptvException) {
+                throw ValidationException::withMessages(['playlist_url' => 'The playlist address cannot be used.']);
+            }
+            $config['playlist_url'] = $validated['playlist_url'];
+            $invalidatePlayback = true;
+        }
+        if (array_key_exists('xmltv_url', $validated)) {
+            $config['xmltv_url'] = $validated['xmltv_url'];
+        }
+        if (! empty($validated['max_connections'])) {
+            $config['max_connections'] = (int) $validated['max_connections'];
+        }
+        $changes['config'] = $config;
 
         if (! empty($validated['base_url'])) {
             $invalidatePlayback = true;

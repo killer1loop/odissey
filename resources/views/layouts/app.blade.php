@@ -50,14 +50,14 @@
                         </svg>
                         <span>Video</span>
                     </a>
-                    <span class="nav-item is-planned" aria-disabled="true">
+                    <a class="nav-item {{ request('kind') === 'music' ? 'is-active' : '' }}" href="{{ route('media.index',['kind'=>'music']) }}">
                         <svg aria-hidden="true" viewBox="0 0 24 24">
                             <path d="M9 18V5l10-2v13"/>
                             <circle cx="6" cy="18" r="3"/>
                             <circle cx="16" cy="16" r="3"/>
                         </svg>
                         <span>Music</span>
-                    </span>
+                    </a>
                     <a
                         class="nav-item {{ request()->routeIs('iptv.*') && ! request()->routeIs('iptv.admin.*') ? 'is-active' : '' }}"
                         href="{{ route('iptv.channels.index') }}"
@@ -69,6 +69,7 @@
                         </svg>
                         <span>Live TV</span>
                     </a>
+                    <a class="nav-item {{ request()->routeIs('iptv.guide') ? 'is-active' : '' }}" href="{{ route('iptv.guide') }}"><span>Guide</span></a>
 
                     <p class="nav-label">Your media</p>
                     <a
@@ -80,13 +81,13 @@
                         </svg>
                         <span>Favorites</span>
                     </a>
-                    <span class="nav-item is-planned" aria-disabled="true">
+                    <a class="nav-item {{ request()->routeIs('media.history') ? 'is-active' : '' }}" href="{{ route('media.history') }}">
                         <svg aria-hidden="true" viewBox="0 0 24 24">
                             <circle cx="12" cy="12" r="9"/>
                             <path d="M12 7v5l3.5 2"/>
                         </svg>
                         <span>History</span>
-                    </span>
+                    </a>
 
                     @if ($signedInUser?->isAdmin())
                         <p class="nav-label">Administration</p>
@@ -100,6 +101,8 @@
                             </svg>
                             <span>IPTV providers</span>
                         </a>
+                        <a class="nav-item {{ request()->routeIs('media.admin.*') ? 'is-active' : '' }}" href="{{ route('media.admin.sources.index') }}"><span>Media sources</span></a>
+                        <a class="nav-item {{ request()->routeIs('media.admin.integrations.*') ? 'is-active' : '' }}" href="{{ route('media.admin.integrations.edit') }}"><span>Metadata & captions</span></a>
                         <a
                             class="nav-item {{ request()->routeIs('admin.users.*') ? 'is-active' : '' }}"
                             href="{{ route('admin.users.index') }}"
@@ -117,7 +120,7 @@
                 <div class="sidebar-footer">
                     <div class="avatar" aria-hidden="true">{{ $avatarLetter }}</div>
                     <div class="account-copy">
-                        <strong>{{ $signedInUser?->name }}</strong>
+                        <strong><a href="{{ route('preferences.edit') }}">{{ $signedInUser?->name }}</a></strong>
                         <span>{{ $signedInUser?->isAdmin() ? 'Administrator' : 'Viewer' }}</span>
                     </div>
                     <form method="POST" action="{{ route('logout') }}">

@@ -6,6 +6,7 @@ use App\Models\TranscodeSession;
 use App\Services\Media\Exceptions\TranscodeQuotaExceeded;
 use App\Services\Media\FfmpegArguments;
 use App\Services\Media\FfmpegRunner;
+use App\Services\Media\SourceMaterializer;
 use App\Services\Media\TranscodeConcurrencyGate;
 use App\Services\Media\TranscodeStorage;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -78,7 +79,8 @@ class TranscodeMediaToHls implements ShouldQueue
             ]);
 
             try {
-                $sourcePath = $session->mediaItem->source_locator;
+                $materialized = app(SourceMaterializer::class)->materialize($session->mediaItem);
+                $sourcePath = $materialized['path'];
 
                 if (! File::isFile($sourcePath) || ! File::isReadable($sourcePath)) {
                     $this->markFailed($session, 'source_unavailable', $storage);
@@ -93,6 +95,8 @@ class TranscodeMediaToHls implements ShouldQueue
                         $sourcePath,
                         $storage->manifestPath($session),
                         $storage->segmentPattern($session),
+                        $session->profile,
+                        $session->audio_track,
                     ),
                     $this->timeout - 20,
                     fn (): bool => $storage->isWithinQuota(),
@@ -114,6 +118,9 @@ class TranscodeMediaToHls implements ShouldQueue
                         max(1, (int) config('odissey.transcode_ttl_minutes', 30)),
                     ),
                 ]);
+                if ($materialized['temporary']) {
+                    File::delete($sourcePath);
+                }
             } catch (TranscodeQuotaExceeded) {
                 $this->markFailed($session, 'cache_quota_exceeded', $storage);
             } catch (ProcessTimedOutException) {

@@ -21,12 +21,22 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->dontFlash([
+            'access_key',
             'base_url',
             'current_password',
+            'endpoint',
+            'tmdb_api_token',
+            'subdl_api_key',
+            'opensubtitles_api_key',
             'password',
             'password_confirmation',
+            'path',
+            'playlist_url',
+            'secret_key',
             'setup_token',
+            'url',
             'username',
+            'xmltv_url',
         ]);
 
         $exceptions->shouldRenderJsonWhen(

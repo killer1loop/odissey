@@ -21,7 +21,7 @@ class HlsSegmentController extends Controller
         string $segment,
     ): BinaryFileResponse {
         $item = MediaItem::query()
-            ->whereBelongsTo($request->user())
+            ->accessibleTo($request->user())
             ->findOrFail($media);
         $session = TranscodeSession::query()
             ->whereBelongsTo($request->user())

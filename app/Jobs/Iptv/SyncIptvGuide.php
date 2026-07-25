@@ -5,6 +5,7 @@ namespace App\Jobs\Iptv;
 use App\Models\Iptv\IptvProvider;
 use App\Services\Iptv\Exceptions\SanitizedIptvException;
 use App\Services\Iptv\ShortEpgGuideImporter;
+use App\Services\Iptv\XmltvGuideImporter;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -40,10 +41,11 @@ class SyncIptvGuide implements ShouldBeUnique, ShouldQueue
         }
 
         try {
-            $importer->import(
-                $provider,
-                $this->channelLimit ?? (int) config('iptv.guide_channel_limit'),
-            );
+            if (($provider->config['api'] ?? 'xtream') === 'm3u') {
+                app(XmltvGuideImporter::class)->import($provider);
+            } else {
+                $importer->import($provider, $this->channelLimit ?? (int) config('iptv.guide_channel_limit'));
+            }
 
             $provider->forceFill([
                 'last_guide_synced_at' => now(),

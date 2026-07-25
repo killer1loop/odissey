@@ -4,10 +4,17 @@
 @endif
 
 <label class="iptv-label">
+    Provider type
+    <select class="iptv-input" name="provider_type"><option value="xtream" @selected(($provider?->config['api'] ?? old('provider_type','xtream')) === 'xtream')>Xtream-compatible</option><option value="m3u" @selected(($provider?->config['api'] ?? old('provider_type')) === 'm3u')>Generic M3U + XMLTV</option></select>
+</label>
+<label class="iptv-label">
     Provider name
     <input class="iptv-input" name="name" required maxlength="255" value="{{ old('name', $provider?->name) }}">
     @error('name') <span class="iptv-error">{{ $message }}</span> @enderror
 </label>
+<label class="iptv-label">M3U playlist URL<input class="iptv-input" name="playlist_url" type="url" autocomplete="off" value=""></label>
+<label class="iptv-label">XMLTV guide URL (optional)<input class="iptv-input" name="xmltv_url" type="url" autocomplete="off" value=""></label>
+<label class="iptv-label">Maximum simultaneous streams<input class="iptv-input" name="max_connections" type="number" min="1" max="100" value="{{ old('max_connections',$provider?->config['max_connections'] ?? 1) }}"></label>
 
 <label class="iptv-label">
     {{ $provider ? 'New provider base address (leave blank to keep stored value)' : 'Provider base address' }}

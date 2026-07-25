@@ -15,3 +15,11 @@ Schedule::command('iptv:prune')
 Schedule::command('media:transcodes:prune')
     ->everyTenMinutes()
     ->withoutOverlapping(15);
+
+Schedule::command('iptv:epg:prune')
+    ->daily()
+    ->withoutOverlapping();
+
+Schedule::command('media:sources:scan')
+    ->weekly()
+    ->withoutOverlapping();

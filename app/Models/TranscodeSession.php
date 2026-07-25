@@ -16,6 +16,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'started_at',
     'finished_at',
     'expires_at',
+    'profile',
+    'audio_track',
 ])]
 class TranscodeSession extends Model
 {

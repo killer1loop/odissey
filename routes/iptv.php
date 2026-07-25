@@ -3,6 +3,7 @@
 use App\Http\Controllers\Iptv\Admin\IptvProviderController;
 use App\Http\Controllers\Iptv\ChannelBrowserController;
 use App\Http\Controllers\Iptv\ChannelFavoriteController;
+use App\Http\Controllers\Iptv\GuideController;
 use App\Http\Controllers\Iptv\PlaybackManifestController;
 use App\Http\Controllers\Iptv\PlaybackResourceController;
 use App\Http\Controllers\Iptv\PlaybackSessionController;
@@ -15,6 +16,7 @@ Route::middleware(['auth', EnsureUserIsActive::class])
     ->name('iptv.')
     ->group(function (): void {
         Route::get('/', ChannelBrowserController::class)->name('channels.index');
+        Route::get('/guide', GuideController::class)->name('guide');
 
         Route::post('/channels/{channel}/favorite', [ChannelFavoriteController::class, 'store'])
             ->name('favorites.store');

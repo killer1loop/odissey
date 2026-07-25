@@ -18,7 +18,8 @@ class MediaPlayerController extends Controller
         string $media,
     ): View {
         $item = MediaItem::query()
-            ->whereBelongsTo($request->user())
+            ->accessibleTo($request->user())
+            ->with('subtitles')
             ->findOrFail($media);
 
         $progress = $item->progress()

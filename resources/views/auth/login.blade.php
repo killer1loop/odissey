@@ -35,6 +35,7 @@
                 <span>Keep me signed in</span>
             </label>
 
+            <a href="{{ route('password.request') }}">Forgot your password?</a>
             <button class="button" type="submit">Sign in</button>
         </form>
     </section>

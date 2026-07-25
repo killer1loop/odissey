@@ -2,22 +2,24 @@
 
 ## Current implementation snapshot
 
-The repository is in a pre-release vertical-slice phase. The following paths
-are implemented and covered by automated tests:
+The repository is in release-candidate implementation phase. All product
+milestones below now have an implemented path and automated contract coverage:
 
 - production-token-protected first launch, login/logout, admin-created users,
   account disablement, and per-user authorization;
-- explicit synthetic local-video fixtures, byte-range direct playback,
-  playback progress/history, and bounded FFmpeg H.264/AAC HLS conversion;
-- encrypted Xtream-compatible IPTV onboarding, channel/category sync, bounded
-  short-EPG refresh, groups, search, per-user favorites, and opaque HLS proxy
-  sessions;
+- read-only local/S3/WebDAV catalogs, stable rescans, FFprobe metadata,
+  movies/series/music views, artwork, external metadata, byte-range direct
+  playback, TMDB/TVmaze enrichment, detailed progress/history, and bounded
+  FFmpeg H.264/AAC HLS;
+- encrypted Xtream and generic M3U/XMLTV IPTV onboarding, catalog/EPG sync,
+  guide grid, groups, search, per-user favorites, provider concurrency limits,
+  and opaque HLS proxy sessions;
 - single-image FrankenPHP deployment with SQLite, one queue worker, scheduler,
   FFmpeg, and health checks.
 
-This slice is not the complete product. Arbitrary local-library indexing, S3,
-WebDAV, music, generic M3U/XMLTV, richer metadata, backup/restore commands, and
-full release-hardening remain planned below.
+The remaining publication work is environment-dependent validation: execute
+the release audit, multi-architecture Docker build, image scan, backup/restore
+drill, and accessibility/browser audit against the intended release image.
 
 ## Scope and adopted defaults
 
@@ -38,7 +40,7 @@ mobile client. The planned defaults are:
 Each milestone ends in a deployable build. Work does not proceed to public
 release merely because the happy path works.
 
-## Milestone 0 — foundation (implemented; release validation pending)
+## Milestone 0 — foundation (implemented)
 
 Deliverables:
 
@@ -61,7 +63,7 @@ Exit criteria:
 - no supplied test or deployment credentials are present in the repository,
   image, logs, or Git diff.
 
-## Milestone 1 — secure first launch and users (vertical slice implemented)
+## Milestone 1 — secure first launch and users (implemented)
 
 Deliverables:
 
@@ -93,12 +95,11 @@ Deliverables:
   warning;
 - asynchronous provider test with sanitized error reporting;
 - Xtream-style category/channel adapter;
-- generic M3U adapter behind the same contract (planned);
-- bounded XMLTV parser and EPG channel mapper (planned); the current slice uses
-  a bounded short-EPG importer;
+- generic M3U adapter behind the same contract;
+- bounded XMLTV parser and EPG channel mapper, with Xtream short-EPG fallback;
 - sync-run status fragments for HTMX polling;
 - group navigation, channel search, and current/next program display;
-- keyboard-accessible time-grid guide (planned);
+- keyboard-accessible time-grid guide;
 - per-user channel favorites.
 
 Exit criteria:
@@ -121,8 +122,9 @@ Deliverables:
 - authenticated upstream proxy and manifest/key/segment URL rewriting;
 - direct HLS proxy path;
 - HTML video player with browser-native controls and recovery states;
-- remuxing, selectable quality/audio/captions, detailed watched-duration
-  history, and configurable provider-wide concurrency limits (planned).
+- playback decisions, selectable transcode quality/audio, detected captions,
+  detailed watched-duration history, and configurable provider-wide
+  concurrency limits.
 
 Exit criteria:
 
@@ -133,7 +135,7 @@ Exit criteria:
 - abandoned sessions and transient files are reaped;
 - container shutdown leaves no FFmpeg child process.
 
-## Milestone 4 — local, S3, and WebDAV libraries (fixture slice only)
+## Milestone 4 — local, S3, and WebDAV libraries (implemented)
 
 Deliverables:
 
@@ -158,15 +160,16 @@ Exit criteria:
 - tests include unusual filenames, symlinks, pagination, clock skew, remote
   interruption, and large catalogs.
 
-## Milestone 5 — bounded FFmpeg HLS (fixture slice implemented)
+## Milestone 5 — bounded FFmpeg HLS (implemented)
 
 Deliverables:
 
-- `media:supervise` daemon that owns long-running FFmpeg process groups
-  (planned; the current bounded fixture job is finite queue work);
+- supervised finite FFmpeg process groups plus the `media:supervise` cleanup
+  and lease heartbeat daemon;
 - direct/remux/transcode decision service;
 - H.264/AAC HLS profiles with aligned GOP/segment duration;
 - subtitles and audio-track selection;
+- embedded and provider-downloaded captions converted to authenticated WebVTT;
 - signed segment access;
 - per-session scratch limits, TTL cleanup, and global cache quota;
 - configurable CPU/concurrency limits and graceful shutdown;
@@ -182,7 +185,7 @@ Exit criteria:
   period;
 - the transient cache returns to baseline after expiry.
 
-## Milestone 6 — release hardening and publication
+## Milestone 6 — release hardening and publication tooling
 
 Deliverables:
 
@@ -196,6 +199,10 @@ Deliverables:
 - security disclosure policy, contribution guide, changelog, and release notes;
 - tagged releases deployed from `main` by Dokploy's server-side Dockerfile
   build, with the deployed Git commit recorded for rollback.
+
+The repository supplies `scripts/release-audit.sh` and `odissey:sbom`.
+Publication still requires running the hardware-, registry-, browser-, and
+deployment-dependent checks in the target environment.
 
 Publication gate:
 
@@ -218,15 +225,17 @@ Publication gate:
 
 ## Adopted decisions and later choices
 
-- Odissey persists metadata and per-user state, never source media. HLS
-  derivatives are short-lived and disposable. Poster-art caching is deferred.
+- Odissey persists metadata, bounded poster/backdrop caches, caption caches,
+  and per-user state, never source media. HLS derivatives are short-lived and
+  disposable.
 - The current IPTV scope is live TV. Provider VOD, series, catch-up, and
   recording are excluded until separately designed.
 - All active users currently see configured providers; favorites and viewing
   state are separate. Per-source grants are a later product choice.
 - The initial runtime permits one software transcode. Capacity targets and
   optional hardware acceleration require deployment-specific profiling.
-- External metadata enrichment is deferred; current screens use provider data
-  and explicit fixture metadata.
+- External metadata enrichment uses optional TMDB plus the no-key TVmaze
+  fallback. Scans continue from filenames, embedded tags, and local artwork
+  whenever either provider is unavailable.
 - Live-provider tests require an authorized, runtime-injected account. Test
   credentials must never enter Git and should be rotated after private testing.

@@ -4,12 +4,11 @@ Odissey is a self-hosted, server-rendered media browser and player for sources
 you already control. It is being built with Laravel, SQLite, Blade, HTMX, and
 FFmpeg, and is packaged as one Docker image.
 
-The current vertical slice includes secure first-launch setup, multiple local
-users, a transient local-video test library with direct and FFmpeg HLS
-playback, and Xtream-compatible live IPTV with groups, short EPG data,
-favorites, and credential-safe HLS proxying. Local-library indexing, S3,
-WebDAV, music, generic M3U/XMLTV, and the complete player feature set remain on
-the roadmap.
+The current build includes secure multi-user setup, read-only local,
+S3-compatible and WebDAV libraries, movies, TV series, music, direct and
+bounded FFmpeg HLS playback, optional TMDB and free TVmaze enrichment,
+Xtream-compatible and generic M3U/XMLTV IPTV, favorites, history, guide data,
+and credential-safe streaming proxies.
 
 > [!CAUTION]
 > Odissey does not supply media or IPTV service. Only connect sources and
@@ -24,7 +23,8 @@ the roadmap.
 - Every user's favorites, playback history, watched state, and resume position
   are independent.
 - The interface is server rendered with progressively enhanced HTMX fragments.
-- A single container runs the web server, finite background jobs, and scheduler.
+- A single container runs the web server, finite background jobs, scheduler,
+  and bounded media supervisor.
 - The SQLite data directory is persistent and the application runs as one
   replica.
 
@@ -33,6 +33,11 @@ the roadmap.
 - one-time, production-token-protected first-admin setup;
 - login, logout, admin-created users, disablement, and per-user authorization;
 - direct MP4 range playback, resume position, and playback history;
+- asynchronous local/S3/WebDAV scans with stable identities and missing-item handling;
+- movie, episode, season, album and track organization with extracted artwork;
+- optional TMDB artwork/details and automatic free TVmaze series enrichment;
+- embedded subtitle extraction plus automated SubDL/OpenSubtitles caption
+  search and private WebVTT caching when free-account API keys are configured;
 - queued FFmpeg H.264/AAC HLS conversion with authenticated derivatives;
 - encrypted Xtream provider settings and asynchronous catalog synchronization;
 - channel groups, search, short EPG, per-user favorites, and opaque live HLS
@@ -82,8 +87,11 @@ HLS output uses tmpfs.
 For a local media library, add a read-only bind mount such as
 `/path/to/media:/media/movies:ro`; never mount source media read-write.
 
-The current UI does not index arbitrary mounted libraries yet. For an explicit
-disposable playback test, generate synthetic fixtures for an existing user:
+Add mounted, S3-compatible, or WebDAV libraries from **Administration → Media
+sources**. Local paths must be below `ODISSEY_LOCAL_SOURCE_ROOTS` and mounted
+read-only. Remote credentials are encrypted and adapters expose no mutations.
+
+For an explicit disposable playback test, generate synthetic fixtures for an existing user:
 
 ```sh
 php artisan media:e2e:generate viewer@example.test --duration=30
@@ -109,6 +117,7 @@ and persistent-volume requirements.
 - [Security policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
+- [Metadata providers](docs/METADATA.md)
 
 ## Credentials
 

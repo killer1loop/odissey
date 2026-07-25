@@ -15,7 +15,7 @@ class PlaybackProgressController extends Controller
     public function __invoke(PlaybackHeartbeatRequest $request, string $media): JsonResponse
     {
         $item = MediaItem::query()
-            ->whereBelongsTo($request->user())
+            ->accessibleTo($request->user())
             ->findOrFail($media);
         $validated = $request->validated();
 
@@ -36,6 +36,7 @@ class PlaybackProgressController extends Controller
                 : min($validated['position_ms'], $durationMs);
             $completed = (bool) ($validated['completed'] ?? false);
             $wasCompleted = $progress?->completed ?? false;
+            $previousPosition = (int) ($progress?->position_ms ?? 0);
 
             if ($progress === null) {
                 $progress = new PlaybackProgress([
@@ -51,12 +52,29 @@ class PlaybackProgressController extends Controller
                 'completed' => $completed,
             ])->save();
 
+            $watchedMs = min(
+                max(0, $positionMs - $previousPosition),
+                120000,
+            );
+
+            if ($watchedMs > 0) {
+                PlaybackHistory::query()->create([
+                    'user_id' => $request->user()->getKey(),
+                    'media_item_id' => $item->getKey(),
+                    'event' => 'progress',
+                    'position_ms' => $positionMs,
+                    'watched_ms' => $watchedMs,
+                    'played_at' => now(),
+                ]);
+            }
+
             if ($completed && ! $wasCompleted) {
                 PlaybackHistory::query()->create([
                     'user_id' => $request->user()->getKey(),
                     'media_item_id' => $item->getKey(),
                     'event' => 'completed',
                     'position_ms' => $positionMs,
+                    'watched_ms' => $watchedMs,
                     'played_at' => now(),
                 ]);
             }

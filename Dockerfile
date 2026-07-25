@@ -70,6 +70,7 @@ RUN apt-get update \
         pcntl \
         pdo_sqlite \
         sqlite3 \
+        xml \
         zip \
     && rm -rf /var/lib/apt/lists/*
 

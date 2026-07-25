@@ -5,7 +5,8 @@
 The production image:
 
 - listens on `0.0.0.0:8000`;
-- runs FrankenPHP, one finite database queue worker, and Laravel's scheduler;
+- runs FrankenPHP, one finite database queue worker, Laravel's scheduler, and
+  the media cleanup/lease supervisor;
 - includes FFmpeg, FFprobe, SQLite, and the required PHP extensions;
 - runs application processes as `www-data`;
 - performs migrations and Laravel optimization at startup;
@@ -17,8 +18,8 @@ Required persistent mount:
 /var/lib/odissey
 ```
 
-This directory contains the SQLite database, WAL/SHM neighbors, and a generated
-application key when `APP_KEY` is not supplied. Mount the directory, not only
+This directory contains the SQLite database, WAL/SHM neighbors, generated
+application key, and bounded cached artwork. Mount the directory, not only
 the database file. Use local block storage or a Docker volume, never NFS.
 
 Recommended transient mount:
@@ -36,6 +37,11 @@ Optional local media mounts are read-only:
 /host/movies:/media/movies:ro
 /host/music:/media/music:ro
 ```
+
+Set `ODISSEY_LOCAL_SOURCE_ROOTS=/media` (or a comma-separated narrower set),
+then add the mounted path under **Administration → Media sources**. S3 and
+WebDAV sources are configured in the same screen and are probed for range/seek
+capability before their first asynchronous scan.
 
 ## Environment
 
@@ -124,7 +130,7 @@ docker exec odissey sqlite3 /var/lib/odissey/database.sqlite \
   'PRAGMA integrity_check; PRAGMA journal_mode; PRAGMA foreign_key_check;'
 ```
 
-Expected results are HTTP 200, three `RUNNING` processes, all migrations
+Expected results are HTTP 200, four `RUNNING` processes, all migrations
 applied, `ok`, `wal`, and no foreign-key errors.
 
 ## Dokploy
@@ -195,3 +201,13 @@ live main database file. A usable backup consists of:
 Restore into a new data volume, run migrations, perform
 `PRAGMA integrity_check`, and verify an encrypted test setting before switching
 traffic.
+
+Built-in commands create and validate the database/key pair:
+
+```sh
+php artisan odissey:backup /safe/off-host/odissey.zip
+php artisan odissey:restore /safe/off-host/odissey.zip --force
+```
+
+Restart the container immediately after restore. The restore keeps the replaced
+database as `.before-restore` until the operator completes validation.

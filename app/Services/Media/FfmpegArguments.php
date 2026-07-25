@@ -7,9 +7,9 @@ class FfmpegArguments
     /**
      * @return list<string>
      */
-    public function hls(string $sourcePath, string $manifestPath, string $segmentPattern): array
+    public function hls(string $sourcePath, string $manifestPath, string $segmentPattern, string $profile = 'auto', ?int $audioTrack = null): array
     {
-        return [
+        $arguments = [
             $this->binary(),
             '-hide_banner',
             '-loglevel',
@@ -21,7 +21,7 @@ class FfmpegArguments
             '-map',
             '0:v:0?',
             '-map',
-            '0:a:0?',
+            '0:a:'.($audioTrack ?? 0).'?',
             '-c:v',
             'libx264',
             '-preset',
@@ -30,6 +30,18 @@ class FfmpegArguments
             'main',
             '-pix_fmt',
             'yuv420p',
+        ];
+        if (in_array($profile, ['1080p', '720p'], true)) {
+            $arguments = array_merge($arguments, ['-vf', $profile === '720p' ? 'scale=-2:720' : 'scale=-2:1080']);
+        }
+
+        return array_merge($arguments, [
+            '-g',
+            '100',
+            '-keyint_min',
+            '100',
+            '-sc_threshold',
+            '0',
             '-c:a',
             'aac',
             '-b:a',
@@ -47,7 +59,7 @@ class FfmpegArguments
             '-hls_segment_filename',
             $segmentPattern,
             $manifestPath,
-        ];
+        ]);
     }
 
     /**

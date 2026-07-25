@@ -10,6 +10,8 @@
     >
         @csrf
         <p>This fixture uses codecs browsers do not play directly.</p>
+        <label>Quality <select name="profile"><option value="auto">Automatic</option><option value="1080p">1080p</option><option value="720p">720p</option></select></label>
+        @if(count($item->metadata['technical']['audio_tracks'] ?? []) > 1)<label>Audio <select name="audio_track">@foreach($item->metadata['technical']['audio_tracks'] as $track)<option value="{{ $track['index'] }}">{{ $track['title'] ?? $track['language'] ?? 'Track '.($track['index']+1) }}</option>@endforeach</select></label>@endif
         <button class="button button-primary" type="submit">Prepare HLS stream</button>
     </form>
 @elseif (in_array($status, [\App\Models\TranscodeSession::STATUS_PENDING, \App\Models\TranscodeSession::STATUS_PROCESSING], true))

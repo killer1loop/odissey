@@ -1,6 +1,17 @@
 <?php
 
 return [
+    'tmdb' => [
+        'token' => env('TMDB_API_TOKEN'),
+        'language' => env('TMDB_LANGUAGE', 'en-US'),
+    ],
+    'subdl' => [
+        'api_key' => env('SUBDL_API_KEY'),
+    ],
+    'opensubtitles' => [
+        'api_key' => env('OPENSUBTITLES_API_KEY'),
+        'user_agent' => env('OPENSUBTITLES_USER_AGENT', 'Odissey v1'),
+    ],
 
     /*
     |--------------------------------------------------------------------------

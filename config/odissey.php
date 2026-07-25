@@ -41,5 +41,16 @@ return [
     |
     */
     'ffmpeg_binary' => env('ODISSEY_FFMPEG_BINARY', 'ffmpeg'),
+    'ffprobe_binary' => env('ODISSEY_FFPROBE_BINARY', 'ffprobe'),
     'e2e_path' => env('ODISSEY_E2E_PATH') ?: '/var/cache/odissey/e2e',
+    'artwork_path' => env('ODISSEY_ARTWORK_PATH') ?: rtrim(env('ODISSEY_DATA_PATH') ?: storage_path('app/odissey'), '/').'/artwork',
+    'artwork_max_bytes' => (int) env('ODISSEY_ARTWORK_MAX_BYTES', 10 * 1024 * 1024),
+    'caption_path' => env('ODISSEY_CAPTION_PATH') ?: rtrim(env('ODISSEY_DATA_PATH') ?: storage_path('app/odissey'), '/').'/captions',
+    'caption_max_bytes' => (int) env('ODISSEY_CAPTION_MAX_BYTES', 20 * 1024 * 1024),
+    'caption_languages' => array_values(array_filter(array_map(fn ($language) => strtolower(trim($language)), explode(',', env('ODISSEY_CAPTION_LANGUAGES', 'en'))), fn ($language) => preg_match('/^[a-z]{2,3}$/', $language))),
+    'source_catalog_max_bytes' => (int) env('ODISSEY_SOURCE_CATALOG_MAX_BYTES', 64 * 1024 * 1024),
+    'remote_transcode_max_source_bytes' => (int) env('ODISSEY_REMOTE_TRANSCODE_MAX_SOURCE_BYTES', 8 * 1024 * 1024 * 1024),
+    'local_source_roots' => array_values(array_filter(explode(',', env('ODISSEY_LOCAL_SOURCE_ROOTS', '/media')))),
+    'video_extensions' => ['mp4', 'm4v', 'mkv', 'avi', 'mov', 'webm', 'mpeg', 'mpg', 'ts', 'm2ts'],
+    'audio_extensions' => ['mp3', 'm4a', 'aac', 'flac', 'ogg', 'opus', 'wav'],
 ];

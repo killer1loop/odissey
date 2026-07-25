@@ -6,6 +6,7 @@ use App\Models\Iptv\Channel;
 use App\Models\Iptv\IptvPlaybackResource;
 use App\Models\Iptv\IptvPlaybackSession;
 use App\Models\User;
+use App\Services\Iptv\Exceptions\SanitizedIptvException;
 use Illuminate\Support\Facades\DB;
 
 class PlaybackSessionManager
@@ -20,6 +21,19 @@ class PlaybackSessionManager
         $channel->loadMissing('provider');
 
         return DB::transaction(function () use ($user, $channel): IptvPlaybackSession {
+            $configuredLimit = $channel->provider->config['max_connections'] ?? null;
+            if ($configuredLimit !== null) {
+                $limit = min(100, max(1, (int) $configuredLimit));
+                $active = IptvPlaybackSession::query()
+                    ->whereHas('channel', fn ($query) => $query->where('iptv_provider_id', $channel->provider->id))
+                    ->where('expires_at', '>', now())
+                    ->whereNot('status', 'invalidated')
+                    ->lockForUpdate()
+                    ->count();
+                if ($active >= $limit) {
+                    throw new SanitizedIptvException('provider_connection_limit', 429);
+                }
+            }
             $session = IptvPlaybackSession::query()->create([
                 'user_id' => $user->id,
                 'channel_id' => $channel->id,
