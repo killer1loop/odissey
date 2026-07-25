@@ -27,17 +27,17 @@ flowchart LR
     A --> O["S3-compatible storage"]
     A --> V["WebDAV"]
     A --> I["External IPTV provider"]
-    W --> M["Media supervisor<br>milestone 5"]
+    Q --> M["Bounded transcode job<br>current vertical slice"]
     M --> F["FFmpeg / FFprobe"]
     F --> T[("Transient HLS cache")]
     T --> W
 ```
 
-The initial Docker image supervises the web process, one finite queue worker,
-and the scheduler. A dedicated media supervisor is added with transcoding. Live
-FFmpeg processes must not be ordinary queue jobs: a queue retry could create a
-duplicate stream, while a supervisor can own leases, process groups, resource
-limits, and graceful shutdown.
+The Docker image supervises the web process, one finite queue worker, and the
+scheduler. The current vertical slice runs a bounded, idempotently keyed VOD
+transcode as a finite high-priority queue job. A dedicated media supervisor is
+still planned for long-running, on-demand sessions because it can own leases,
+process groups, resource limits, and graceful shutdown more directly.
 
 ## Request and job model
 
@@ -48,9 +48,8 @@ redirects and authorization.
 
 Finite work runs on the database queue:
 
-- provider connectivity and capability tests;
-- channel/category synchronization;
-- XMLTV/EPG import;
+- provider connectivity and channel/category synchronization;
+- bounded short-EPG refresh;
 - library scans;
 - `ffprobe` analysis;
 - cleanup and retention tasks.
@@ -84,8 +83,8 @@ source bytes.
 
 ### IPTV providers
 
-Provider adapters normalize an Xtream-style API and generic M3U/XMLTV into the
-same domain objects:
+The implemented adapter normalizes an Xtream-style API into the following
+domain objects; generic M3U/XMLTV support will implement the same contract:
 
 - provider;
 - channel group;
@@ -98,7 +97,8 @@ The IPTV-first flow is:
 1. An admin enters a display name, base URL, username, and password.
 2. The server validates the URL and tests authentication asynchronously.
 3. Categories and channels are upserted by stable provider identifiers.
-4. EPG is streamed through a bounded XML parser and normalized to UTC.
+4. Current/next guide rows are fetched with bounded short-EPG requests and
+   normalized to UTC. A streaming XMLTV importer is planned.
 5. Missing channels become inactive instead of being deleted.
 6. Users filter by provider/group and maintain their own favorites.
 

@@ -4,10 +4,16 @@ Odissey is a self-hosted, server-rendered media browser and player for sources
 you already control. It is being built with Laravel, SQLite, Blade, HTMX, and
 FFmpeg, and is packaged as one Docker image.
 
-> [!IMPORTANT]
-> This repository currently contains the tested project foundation and
-> implementation plan. Authentication, source adapters, catalog sync, and
-> playback are not implemented yet.
+The current vertical slice includes secure first-launch setup, multiple local
+users, a transient local-video test library with direct and FFmpeg HLS
+playback, and Xtream-compatible live IPTV with groups, short EPG data,
+favorites, and credential-safe HLS proxying. Local-library indexing, S3,
+WebDAV, music, generic M3U/XMLTV, and the complete player feature set remain on
+the roadmap.
+
+> [!CAUTION]
+> Odissey does not supply media or IPTV service. Only connect sources and
+> providers you are authorized to use.
 
 ## Product principles
 
@@ -21,6 +27,19 @@ FFmpeg, and is packaged as one Docker image.
 - A single container runs the web server, finite background jobs, and scheduler.
 - The SQLite data directory is persistent and the application runs as one
   replica.
+
+## Implemented now
+
+- one-time, production-token-protected first-admin setup;
+- login, logout, admin-created users, disablement, and per-user authorization;
+- direct MP4 range playback, resume position, and playback history;
+- queued FFmpeg H.264/AAC HLS conversion with authenticated derivatives;
+- encrypted Xtream provider settings and asynchronous catalog synchronization;
+- channel groups, search, short EPG, per-user favorites, and opaque live HLS
+  sessions;
+- a Plex-inspired dark Blade interface enhanced with HTMX and hls.js;
+- one Docker image containing FrankenPHP, SQLite, FFmpeg, the queue worker, and
+  the scheduler.
 
 ## Local development
 
@@ -46,6 +65,10 @@ npm run build
 vendor/bin/pint --test
 ```
 
+In production, `ODISSEY_SETUP_TOKEN` is mandatory and setup fails closed when
+it is missing. Development and test environments allow local first launch
+without it.
+
 ## Docker
 
 ```sh
@@ -58,6 +81,17 @@ HLS output uses tmpfs.
 
 For a local media library, add a read-only bind mount such as
 `/path/to/media:/media/movies:ro`; never mount source media read-write.
+
+The current UI does not index arbitrary mounted libraries yet. For an explicit
+disposable playback test, generate synthetic fixtures for an existing user:
+
+```sh
+php artisan media:e2e:generate viewer@example.test --duration=30
+php artisan media:e2e:clean
+```
+
+Both commands require `--force` in production. Fixtures and HLS derivatives
+live outside the persistent data volume.
 
 ## Deployment flow
 
@@ -72,6 +106,9 @@ and persistent-volume requirements.
 - [Implementation plan](docs/IMPLEMENTATION_PLAN.md)
 - [Deployment](docs/DEPLOYMENT.md)
 - [Security model](docs/SECURITY.md)
+- [Security policy](SECURITY.md)
+- [Contributing](CONTRIBUTING.md)
+- [Changelog](CHANGELOG.md)
 
 ## Credentials
 

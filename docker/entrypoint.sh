@@ -7,6 +7,33 @@ database_path="${DB_DATABASE:-${data_path}/database.sqlite}"
 transcode_path="${ODISSEY_TRANSCODE_PATH:-/var/cache/odissey/transcodes}"
 app_key_path="${ODISSEY_APP_KEY_FILE:-${data_path}/app.key}"
 
+validate_managed_path() {
+    variable_name="$1"
+    candidate="$2"
+
+    case "${candidate}" in
+        ""|/|/app|/app/|/var|/var/)
+            echo "${variable_name} must point to a dedicated directory, not ${candidate:-an empty path}." >&2
+            exit 1
+            ;;
+        /*) ;;
+        *)
+            echo "${variable_name} must be an absolute path inside the container." >&2
+            exit 1
+            ;;
+    esac
+
+    case "${candidate}" in
+        *//*|*/./*|*/.|*/../*|*/..)
+            echo "${variable_name} must be normalized without '.', '..', or repeated slash segments." >&2
+            exit 1
+            ;;
+    esac
+}
+
+validate_managed_path ODISSEY_DATA_PATH "${data_path}"
+validate_managed_path ODISSEY_TRANSCODE_PATH "${transcode_path}"
+
 case "${database_path}" in
     /*) ;;
     *)

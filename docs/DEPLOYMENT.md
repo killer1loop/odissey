@@ -43,21 +43,62 @@ The image supplies secure production defaults. Set at least:
 
 ```text
 APP_URL=https://media.example.com
+ODISSEY_SETUP_TOKEN=a-long-random-one-time-secret
 ```
 
 You may supply `APP_KEY` through a secret manager. If omitted, the entrypoint
 creates `/var/lib/odissey/app.key` with mode `0600`; preserve it with the data
 volume.
 
+Production first launch fails closed when `ODISSEY_SETUP_TOKEN` is empty. Keep
+the token in the runtime environment until the first administrator has been
+created. It is never accepted again after setup completes.
+
+Odissey trusts forwarded request metadata only from private reverse-proxy
+networks. The default covers RFC 1918 and IPv6 ULA container networks. Narrow it
+to the actual Traefik network when practical, or override it with a
+comma-separated list:
+
+```text
+ODISSEY_TRUSTED_PROXIES=172.20.0.0/16
+```
+
+The proxy must overwrite or append the real client address to
+`X-Forwarded-For`. Direct public access to port `8000` is unsupported because it
+bypasses the TLS boundary; untrusted direct peers cannot influence Laravel's
+client IP with forwarded headers.
+
 Useful limits:
 
 ```text
 ODISSEY_MAX_TRANSCODES=1
 ODISSEY_TRANSCODE_TTL_MINUTES=30
+ODISSEY_TRANSCODE_MAX_BYTES=5368709120
+IPTV_GUIDE_CHANNEL_LIMIT=20
 ```
+
+Transient HLS is also pruned every ten minutes. The byte quota is enforced
+during conversion even when the deployment platform does not mount the
+transcode path as tmpfs.
 
 Never use provider or storage secrets as Docker build arguments. They must be
 runtime secrets and later be stored encrypted through Odissey's admin UI.
+
+## Legacy user recovery
+
+The access-control migration intentionally does not guess which account on an
+existing installation should become administrator. It closes anonymous setup
+when legacy users exist. Promote one explicitly selected account from the
+server:
+
+```sh
+docker exec odissey php artisan \
+  odissey:user:promote-admin existing-user@example.com --force
+```
+
+Production requires `--force`. The command fails when the email is missing or
+ambiguous, reactivates only the named account, and marks first-launch setup
+complete. It never promotes the first user implicitly.
 
 ## Docker
 
@@ -65,10 +106,11 @@ runtime secrets and later be stored encrypted through Odissey's admin UI.
 docker build -t odissey:test .
 docker run --detach \
   --name odissey \
-  --publish 8000:8000 \
+  --publish 127.0.0.1:8000:8000 \
   --volume odissey-data:/var/lib/odissey \
   --tmpfs /var/cache/odissey/transcodes:uid=33,gid=33,mode=0750,size=4g \
   --env APP_URL=http://localhost:8000 \
+  --env ODISSEY_SETUP_TOKEN=replace-with-a-long-random-secret \
   odissey:test
 ```
 

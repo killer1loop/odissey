@@ -1,5 +1,24 @@
 # Implementation plan
 
+## Current implementation snapshot
+
+The repository is in a pre-release vertical-slice phase. The following paths
+are implemented and covered by automated tests:
+
+- production-token-protected first launch, login/logout, admin-created users,
+  account disablement, and per-user authorization;
+- explicit synthetic local-video fixtures, byte-range direct playback,
+  playback progress/history, and bounded FFmpeg H.264/AAC HLS conversion;
+- encrypted Xtream-compatible IPTV onboarding, channel/category sync, bounded
+  short-EPG refresh, groups, search, per-user favorites, and opaque HLS proxy
+  sessions;
+- single-image FrankenPHP deployment with SQLite, one queue worker, scheduler,
+  FFmpeg, and health checks.
+
+This slice is not the complete product. Arbitrary local-library indexing, S3,
+WebDAV, music, generic M3U/XMLTV, richer metadata, backup/restore commands, and
+full release-hardening remain planned below.
+
 ## Scope and adopted defaults
 
 The first public release is a responsive web application, not a native TV or
@@ -19,7 +38,7 @@ mobile client. The planned defaults are:
 Each milestone ends in a deployable build. Work does not proceed to public
 release merely because the happy path works.
 
-## Milestone 0 — foundation (initialized)
+## Milestone 0 — foundation (implemented; release validation pending)
 
 Deliverables:
 
@@ -42,18 +61,18 @@ Exit criteria:
 - no supplied test or deployment credentials are present in the repository,
   image, logs, or Git diff.
 
-## Milestone 1 — secure first launch and users
+## Milestone 1 — secure first launch and users (vertical slice implemented)
 
 Deliverables:
 
 - installation-state middleware;
-- one-time setup token supplied by environment or generated to container logs;
+- one-time setup token supplied by environment, with production failing closed
+  when it is missing;
 - atomic first-admin creation guarded by both the token and `users = 0`;
-- login, logout, password reset/recovery policy, session regeneration, and rate
-  limiting;
-- `admin` and `user` roles with Laravel policies;
-- admin-only user creation, disablement, and password reset;
-- user preferences and timezone;
+- login, logout, session regeneration, and rate limiting;
+- `admin` and `user` authorization;
+- admin-only user creation and disablement;
+- password recovery/reset, user preferences, and timezone;
 - database/key backup and restore commands.
 
 Exit criteria:
@@ -65,7 +84,7 @@ Exit criteria:
 - backup/restore preserves users and the ability to decrypt a test setting;
 - authorization tests cover every admin route.
 
-## Milestone 2 — IPTV catalog, groups, guide, and favorites
+## Milestone 2 — IPTV catalog, groups, guide, and favorites (Xtream slice implemented)
 
 Deliverables:
 
@@ -74,11 +93,12 @@ Deliverables:
   warning;
 - asynchronous provider test with sanitized error reporting;
 - Xtream-style category/channel adapter;
-- generic M3U adapter behind the same contract;
-- bounded XMLTV parser, EPG channel mapper, retention, and scheduled refresh;
+- generic M3U adapter behind the same contract (planned);
+- bounded XMLTV parser and EPG channel mapper (planned); the current slice uses
+  a bounded short-EPG importer;
 - sync-run status fragments for HTMX polling;
-- group navigation, channel search, current/next program display, and a
-  keyboard-accessible time-grid guide;
+- group navigation, channel search, and current/next program display;
+- keyboard-accessible time-grid guide (planned);
 - per-user channel favorites.
 
 Exit criteria:
@@ -93,17 +113,16 @@ Exit criteria:
 - the approved live test provider passes only through injected secrets and its
   credentials are rotated before repository publication.
 
-## Milestone 3 — live IPTV playback and history
+## Milestone 3 — live IPTV playback (vertical slice implemented)
 
 Deliverables:
 
 - opaque stream sessions with owner, lease, heartbeat, and expiry;
 - authenticated upstream proxy and manifest/key/segment URL rewriting;
-- direct-stream and remux paths;
-- HTML video player with quality, audio, captions, fullscreen, and recovery
-  states;
-- per-user playback session history and watched duration;
-- connection and stream concurrency limits.
+- direct HLS proxy path;
+- HTML video player with browser-native controls and recovery states;
+- remuxing, selectable quality/audio/captions, detailed watched-duration
+  history, and configurable provider-wide concurrency limits (planned).
 
 Exit criteria:
 
@@ -114,7 +133,7 @@ Exit criteria:
 - abandoned sessions and transient files are reaped;
 - container shutdown leaves no FFmpeg child process.
 
-## Milestone 4 — local, S3, and WebDAV libraries
+## Milestone 4 — local, S3, and WebDAV libraries (fixture slice only)
 
 Deliverables:
 
@@ -139,11 +158,12 @@ Exit criteria:
 - tests include unusual filenames, symlinks, pagination, clock skew, remote
   interruption, and large catalogs.
 
-## Milestone 5 — bounded FFmpeg HLS
+## Milestone 5 — bounded FFmpeg HLS (fixture slice implemented)
 
 Deliverables:
 
-- `media:supervise` daemon that owns FFmpeg process groups;
+- `media:supervise` daemon that owns long-running FFmpeg process groups
+  (planned; the current bounded fixture job is finite queue work);
 - direct/remux/transcode decision service;
 - H.264/AAC HLS profiles with aligned GOP/segment duration;
 - subtitles and audio-track selection;
@@ -196,22 +216,17 @@ Publication gate:
 | Browser | Keyboard/touch navigation, HTMX history/focus/errors, EPG grid, player, responsive layouts. |
 | Container | Fresh boot, health, process recovery, persistence, graceful shutdown, backup/restore, resource bounds. |
 
-## Questions to confirm
+## Adopted decisions and later choices
 
-These do not block the initialized foundation, but they change later schema,
-security, and infrastructure decisions:
-
-1. Does “does not store any file” allow persistent catalog/EPG metadata and
-   short-lived HLS segments? May Odissey cache poster art or only proxy it?
-2. Should the IPTV MVP be live TV only, or also include provider VOD, series,
-   and catch-up? Recording is excluded by default.
-3. Should every user see every configured source, with only state separated, or
-   should admins grant sources and channel groups per user?
-4. What is the expected simultaneous-user count, maximum input resolution, and
-   target hardware? The default is one software transcode and unlimited
-   practical direct plays subject to bandwidth.
-5. Should metadata enrichment use external services such as TMDB/MusicBrainz,
-   or should the first release use only source filenames, embedded tags, and
-   IPTV EPG data?
-6. Please confirm the test IPTV account is authorized for this use and can be
-   rotated before the repository becomes public.
+- Odissey persists metadata and per-user state, never source media. HLS
+  derivatives are short-lived and disposable. Poster-art caching is deferred.
+- The current IPTV scope is live TV. Provider VOD, series, catch-up, and
+  recording are excluded until separately designed.
+- All active users currently see configured providers; favorites and viewing
+  state are separate. Per-source grants are a later product choice.
+- The initial runtime permits one software transcode. Capacity targets and
+  optional hardware acceleration require deployment-specific profiling.
+- External metadata enrichment is deferred; current screens use provider data
+  and explicit fixture metadata.
+- Live-provider tests require an authorized, runtime-injected account. Test
+  credentials must never enter Git and should be rotated after private testing.

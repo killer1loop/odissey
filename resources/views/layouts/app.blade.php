@@ -1,3 +1,7 @@
+@php
+    $signedInUser = auth()->user();
+    $avatarLetter = mb_strtoupper(mb_substr($signedInUser?->name ?? 'O', 0, 1));
+@endphp
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
     <head>
@@ -24,20 +28,28 @@
 
                 <nav class="primary-nav">
                     <p class="nav-label">Browse</p>
-                    <a class="nav-item is-active" href="{{ route('home') }}" aria-current="page">
+                    <a
+                        class="nav-item {{ request()->routeIs('home') ? 'is-active' : '' }}"
+                        href="{{ route('home') }}"
+                        @if (request()->routeIs('home')) aria-current="page" @endif
+                    >
                         <svg aria-hidden="true" viewBox="0 0 24 24">
                             <path d="M3 10.5 12 3l9 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 19.5z"/>
                             <path d="M9 21v-6h6v6"/>
                         </svg>
                         <span>Home</span>
                     </a>
-                    <span class="nav-item is-planned" aria-disabled="true">
+                    <a
+                        class="nav-item {{ request()->routeIs('media.*') ? 'is-active' : '' }}"
+                        href="{{ route('media.index') }}"
+                        @if (request()->routeIs('media.*')) aria-current="page" @endif
+                    >
                         <svg aria-hidden="true" viewBox="0 0 24 24">
                             <rect x="3" y="5" width="18" height="14" rx="2"/>
                             <path d="m9 10 5 3-5 3z"/>
                         </svg>
                         <span>Video</span>
-                    </span>
+                    </a>
                     <span class="nav-item is-planned" aria-disabled="true">
                         <svg aria-hidden="true" viewBox="0 0 24 24">
                             <path d="M9 18V5l10-2v13"/>
@@ -46,21 +58,28 @@
                         </svg>
                         <span>Music</span>
                     </span>
-                    <span class="nav-item is-planned" aria-disabled="true">
+                    <a
+                        class="nav-item {{ request()->routeIs('iptv.*') && ! request()->routeIs('iptv.admin.*') ? 'is-active' : '' }}"
+                        href="{{ route('iptv.channels.index') }}"
+                        @if (request()->routeIs('iptv.*') && ! request()->routeIs('iptv.admin.*')) aria-current="page" @endif
+                    >
                         <svg aria-hidden="true" viewBox="0 0 24 24">
                             <rect x="3" y="6" width="18" height="13" rx="2"/>
                             <path d="M8 3h8M12 3v3M7 11h4M7 15h7"/>
                         </svg>
                         <span>Live TV</span>
-                    </span>
+                    </a>
 
                     <p class="nav-label">Your media</p>
-                    <span class="nav-item is-planned" aria-disabled="true">
+                    <a
+                        class="nav-item {{ request()->boolean('favorites') ? 'is-active' : '' }}"
+                        href="{{ route('iptv.channels.index', ['favorites' => 1]) }}"
+                    >
                         <svg aria-hidden="true" viewBox="0 0 24 24">
                             <path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>
                         </svg>
                         <span>Favorites</span>
-                    </span>
+                    </a>
                     <span class="nav-item is-planned" aria-disabled="true">
                         <svg aria-hidden="true" viewBox="0 0 24 24">
                             <circle cx="12" cy="12" r="9"/>
@@ -68,14 +87,43 @@
                         </svg>
                         <span>History</span>
                     </span>
+
+                    @if ($signedInUser?->isAdmin())
+                        <p class="nav-label">Administration</p>
+                        <a
+                            class="nav-item {{ request()->routeIs('iptv.admin.*') ? 'is-active' : '' }}"
+                            href="{{ route('iptv.admin.providers.index') }}"
+                            @if (request()->routeIs('iptv.admin.*')) aria-current="page" @endif
+                        >
+                            <svg aria-hidden="true" viewBox="0 0 24 24">
+                                <path d="M4 7h16M7 12h10M9 17h6"/>
+                            </svg>
+                            <span>IPTV providers</span>
+                        </a>
+                        <a
+                            class="nav-item {{ request()->routeIs('admin.users.*') ? 'is-active' : '' }}"
+                            href="{{ route('admin.users.index') }}"
+                            @if (request()->routeIs('admin.users.*')) aria-current="page" @endif
+                        >
+                            <svg aria-hidden="true" viewBox="0 0 24 24">
+                                <circle cx="9" cy="8" r="3"/>
+                                <path d="M3.5 20a5.5 5.5 0 0 1 11 0M16 11h5M18.5 8.5v5"/>
+                            </svg>
+                            <span>Users</span>
+                        </a>
+                    @endif
                 </nav>
 
                 <div class="sidebar-footer">
-                    <div class="avatar" aria-hidden="true">A</div>
-                    <div>
-                        <strong>First launch</strong>
-                        <span>Admin setup planned</span>
+                    <div class="avatar" aria-hidden="true">{{ $avatarLetter }}</div>
+                    <div class="account-copy">
+                        <strong>{{ $signedInUser?->name }}</strong>
+                        <span>{{ $signedInUser?->isAdmin() ? 'Administrator' : 'Viewer' }}</span>
                     </div>
+                    <form method="POST" action="{{ route('logout') }}">
+                        @csrf
+                        <button class="logout-button" type="submit" aria-label="Sign out">↗</button>
+                    </form>
                 </div>
             </aside>
 
@@ -86,23 +134,30 @@
                         <span>Odissey</span>
                     </div>
 
-                    <label class="search-shell">
+                    <form class="search-shell" method="GET" action="{{ route('iptv.channels.index') }}" role="search">
                         <svg aria-hidden="true" viewBox="0 0 24 24">
                             <circle cx="11" cy="11" r="6.5"/>
                             <path d="m16 16 4 4"/>
                         </svg>
-                        <span class="sr-only">Search</span>
-                        <input type="search" placeholder="Search is coming in the IPTV milestone" disabled>
-                    </label>
+                        <label class="sr-only" for="global-search">Search live channels</label>
+                        <input
+                            id="global-search"
+                            name="q"
+                            type="search"
+                            maxlength="100"
+                            value="{{ request()->routeIs('iptv.channels.index') ? request('q') : '' }}"
+                            placeholder="Search live channels"
+                        >
+                    </form>
 
                     <div class="topbar-actions">
-                        <a class="icon-button" href="#roadmap" aria-label="View implementation roadmap">
+                        <a class="icon-button" href="{{ route('media.index') }}" aria-label="Open video library">
                             <svg aria-hidden="true" viewBox="0 0 24 24">
-                                <circle cx="12" cy="12" r="9"/>
-                                <path d="M12 16v-4M12 8h.01"/>
+                                <rect x="3" y="5" width="18" height="14" rx="2"/>
+                                <path d="m9 10 5 3-5 3z"/>
                             </svg>
                         </a>
-                        <span class="foundation-pill">Foundation</span>
+                        <span class="foundation-pill">Self-hosted</span>
                     </div>
                 </header>
 
@@ -113,33 +168,47 @@
         </div>
 
         <nav class="mobile-nav" aria-label="Mobile navigation">
-            <a class="is-active" href="{{ route('home') }}" aria-current="page">
+            <a
+                class="{{ request()->routeIs('home') ? 'is-active' : '' }}"
+                href="{{ route('home') }}"
+                @if (request()->routeIs('home')) aria-current="page" @endif
+            >
                 <svg aria-hidden="true" viewBox="0 0 24 24">
                     <path d="M3 10.5 12 3l9 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 19.5z"/>
                     <path d="M9 21v-6h6v6"/>
                 </svg>
                 <span>Home</span>
             </a>
-            <span aria-disabled="true">
+            <a
+                class="{{ request()->routeIs('media.*') ? 'is-active' : '' }}"
+                href="{{ route('media.index') }}"
+                @if (request()->routeIs('media.*')) aria-current="page" @endif
+            >
+                <svg aria-hidden="true" viewBox="0 0 24 24">
+                    <rect x="3" y="5" width="18" height="14" rx="2"/>
+                    <path d="m9 10 5 3-5 3z"/>
+                </svg>
+                <span>Video</span>
+            </a>
+            <a
+                class="{{ request()->routeIs('iptv.*') && ! request()->boolean('favorites') ? 'is-active' : '' }}"
+                href="{{ route('iptv.channels.index') }}"
+            >
                 <svg aria-hidden="true" viewBox="0 0 24 24">
                     <rect x="3" y="6" width="18" height="13" rx="2"/>
                     <path d="M8 3h8M12 3v3"/>
                 </svg>
                 <span>Live TV</span>
-            </span>
-            <span aria-disabled="true">
+            </a>
+            <a
+                class="{{ request()->boolean('favorites') ? 'is-active' : '' }}"
+                href="{{ route('iptv.channels.index', ['favorites' => 1]) }}"
+            >
                 <svg aria-hidden="true" viewBox="0 0 24 24">
                     <path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>
                 </svg>
                 <span>Favorites</span>
-            </span>
-            <span aria-disabled="true">
-                <svg aria-hidden="true" viewBox="0 0 24 24">
-                    <circle cx="12" cy="12" r="9"/>
-                    <path d="M12 7v5l3.5 2"/>
-                </svg>
-                <span>History</span>
-            </span>
+            </a>
         </nav>
 
         <div class="request-indicator" aria-hidden="true"></div>

@@ -1,11 +1,18 @@
-//
 import htmx from 'htmx.org';
+import './iptv-player';
+import './media-player';
 
 window.htmx = htmx;
 
 htmx.config.allowEval = false;
 htmx.config.allowScriptTags = false;
 htmx.config.selfRequestsOnly = true;
+
+let visibleRequests = 0;
+
+function isBackgroundRequest(event) {
+    return Boolean(event.detail.elt?.closest?.('[data-background-request]'));
+}
 
 document.addEventListener('htmx:configRequest', (event) => {
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
@@ -15,12 +22,25 @@ document.addEventListener('htmx:configRequest', (event) => {
     }
 });
 
-document.addEventListener('htmx:beforeRequest', () => {
+document.addEventListener('htmx:beforeRequest', (event) => {
+    if (isBackgroundRequest(event)) {
+        return;
+    }
+
+    visibleRequests += 1;
     document.documentElement.dataset.loading = 'true';
 });
 
-document.addEventListener('htmx:afterRequest', () => {
-    delete document.documentElement.dataset.loading;
+document.addEventListener('htmx:afterRequest', (event) => {
+    if (isBackgroundRequest(event)) {
+        return;
+    }
+
+    visibleRequests = Math.max(0, visibleRequests - 1);
+
+    if (visibleRequests === 0) {
+        delete document.documentElement.dataset.loading;
+    }
 });
 
 document.addEventListener('htmx:responseError', () => {

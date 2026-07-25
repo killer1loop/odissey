@@ -25,8 +25,21 @@ class User extends Authenticatable
     protected function casts(): array
     {
         return [
+            'disabled_at' => 'datetime',
             'email_verified_at' => 'datetime',
+            'is_active' => 'boolean',
+            'is_admin' => 'boolean',
             'password' => 'hashed',
         ];
+    }
+
+    public function isAdmin(): bool
+    {
+        return $this->is_admin && $this->is_active;
+    }
+
+    public function isActive(): bool
+    {
+        return $this->is_active;
     }
 }

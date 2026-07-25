@@ -12,8 +12,8 @@ class FoundationStatusController extends Controller
             'checks' => [
                 ['label' => 'Laravel', 'value' => app()->version()],
                 ['label' => 'Database', 'value' => 'SQLite'],
-                ['label' => 'Interface', 'value' => 'Blade + HTMX'],
-                ['label' => 'Streaming', 'value' => 'FFmpeg planned'],
+                ['label' => 'Interface', 'value' => 'Blade + HTMX 2'],
+                ['label' => 'Streaming', 'value' => 'Direct + FFmpeg HLS'],
             ],
         ]);
     }

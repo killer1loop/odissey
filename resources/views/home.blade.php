@@ -1,24 +1,25 @@
 @extends('layouts.app')
 
-@section('title', 'Odissey · Foundation')
+@section('title', 'Home · Odissey')
 
 @section('content')
-    <section class="hero">
+    <section class="hero dashboard-hero">
         <div class="hero-copy">
-            <p class="eyebrow">Self-hosted media, without the media lock-in</p>
-            <h1>Your media.<br><span>One fast interface.</span></h1>
+            <p class="eyebrow">Your self-hosted media home</p>
+            <h1>Welcome back,<br><span>{{ auth()->user()->name }}.</span></h1>
             <p class="hero-summary">
-                Odissey is being built as a server-rendered home for live TV, video, and music
-                already stored in the places you control.
+                Browse live television or continue with video already connected to this server.
+                Source media stays outside Odissey; only encrypted settings, catalog metadata,
+                and your private viewing state are kept here.
             </p>
             <div class="hero-actions">
-                <a class="button button-primary" href="#roadmap">
-                    Explore the roadmap
+                <a class="button button-primary" href="{{ route('iptv.channels.index') }}">
+                    Watch live TV
                     <svg aria-hidden="true" viewBox="0 0 24 24">
                         <path d="M5 12h14M13 6l6 6-6 6"/>
                     </svg>
                 </a>
-                <span class="button button-muted" aria-disabled="true">Setup unlocks in milestone 1</span>
+                <a class="button button-muted" href="{{ route('media.index') }}">Open video library</a>
             </div>
         </div>
 
@@ -30,110 +31,126 @@
             </div>
             <span class="orbit-node node-live">Live</span>
             <span class="orbit-node node-video">Video</span>
-            <span class="orbit-node node-music">Music</span>
+            <span class="orbit-node node-music">HLS</span>
         </div>
     </section>
 
-    <section class="content-section" aria-labelledby="source-heading">
+    @if (session('status'))
+        <div class="content-section dashboard-notice">
+            <p class="notice-success" role="status">{{ session('status') }}</p>
+        </div>
+    @endif
+
+    <section class="content-section dashboard-section" aria-labelledby="browse-heading">
         <div class="section-heading">
             <div>
-                <p class="eyebrow">Read-only by design</p>
-                <h2 id="source-heading">Bring the sources you already use</h2>
+                <p class="eyebrow">Browse</p>
+                <h2 id="browse-heading">Choose what to watch</h2>
             </div>
-            <span>Metadata is indexed; source media stays in place.</span>
+            <span>Fast server-rendered screens, progressively enhanced for playback and filtering.</span>
         </div>
 
         <div class="media-shelf">
-            <article class="source-card source-card-iptv">
+            <a class="source-card source-card-iptv" href="{{ route('iptv.channels.index') }}">
                 <div class="source-art">
                     <svg aria-hidden="true" viewBox="0 0 64 64">
                         <rect x="8" y="14" width="48" height="36" rx="7"/>
                         <path d="M22 8h20M32 8v6M20 26h11M20 35h24M20 43h17"/>
                     </svg>
-                    <span class="source-badge">Milestone 2</span>
+                    <span class="source-badge">Live now</span>
                 </div>
                 <div class="card-copy">
-                    <h3>IPTV providers</h3>
-                    <p>EPG, channel groups, favorites, and a fast live guide.</p>
+                    <h3>Live TV</h3>
+                    <p>Groups, current guide data, channel search, and personal favorites.</p>
                 </div>
-            </article>
+            </a>
 
-            <article class="source-card source-card-local">
+            <a class="source-card source-card-local" href="{{ route('media.index') }}">
                 <div class="source-art">
                     <svg aria-hidden="true" viewBox="0 0 64 64">
-                        <rect x="10" y="12" width="44" height="40" rx="8"/>
-                        <circle cx="32" cy="32" r="12"/>
-                        <circle cx="32" cy="32" r="3"/>
+                        <rect x="9" y="13" width="46" height="38" rx="7"/>
+                        <path d="m26 24 15 8-15 8z"/>
                     </svg>
-                    <span class="source-badge">Read-only</span>
+                    <span class="source-badge">Direct + HLS</span>
                 </div>
                 <div class="card-copy">
-                    <h3>Local mounts</h3>
-                    <p>Browse media mounted into the container without copying it.</p>
+                    <h3>Video</h3>
+                    <p>Seekable direct play and temporary H.264/AAC conversion through FFmpeg.</p>
                 </div>
-            </article>
+            </a>
 
-            <article class="source-card source-card-s3">
+            <a class="source-card source-card-webdav" href="{{ route('iptv.channels.index', ['favorites' => 1]) }}">
                 <div class="source-art">
                     <svg aria-hidden="true" viewBox="0 0 64 64">
-                        <path d="M19 48h29a11 11 0 0 0 1-22 17 17 0 0 0-32-3 13 13 0 0 0 2 25z"/>
-                        <path d="M25 37h14M32 30v14"/>
+                        <path d="m32 10 6.4 13 14.4 2.1-10.4 10.1 2.5 14.3L32 42.8l-12.9 6.7 2.5-14.3L11.2 25.1 25.6 23z"/>
                     </svg>
-                    <span class="source-badge">S3-compatible</span>
+                    <span class="source-badge">Per user</span>
                 </div>
                 <div class="card-copy">
-                    <h3>Object storage</h3>
-                    <p>Use scoped, read-only credentials and short-lived playback URLs.</p>
+                    <h3>Favorites</h3>
+                    <p>Your saved live channels remain separate from every other account.</p>
                 </div>
-            </article>
+            </a>
 
-            <article class="source-card source-card-webdav">
-                <div class="source-art">
-                    <svg aria-hidden="true" viewBox="0 0 64 64">
-                        <path d="M12 25h40v27H12z"/>
-                        <path d="M12 25l8-13h24l8 13M24 37h16M24 44h10"/>
-                    </svg>
-                    <span class="source-badge">Capability-tested</span>
-                </div>
-                <div class="card-copy">
-                    <h3>WebDAV shares</h3>
-                    <p>Validate range support before enabling seekable playback.</p>
-                </div>
-            </article>
+            @if (auth()->user()->isAdmin())
+                <a class="source-card source-card-s3" href="{{ route('iptv.admin.providers.index') }}">
+                    <div class="source-art">
+                        <svg aria-hidden="true" viewBox="0 0 64 64">
+                            <path d="M12 20h40M17 32h30M22 44h20"/>
+                            <circle cx="17" cy="20" r="3"/>
+                            <circle cx="47" cy="32" r="3"/>
+                            <circle cx="27" cy="44" r="3"/>
+                        </svg>
+                        <span class="source-badge">Administrator</span>
+                    </div>
+                    <div class="card-copy">
+                        <h3>IPTV providers</h3>
+                        <p>Add encrypted provider details, sync channels, and refresh the guide.</p>
+                    </div>
+                </a>
+            @else
+                <article class="source-card source-card-s3">
+                    <div class="source-art">
+                        <svg aria-hidden="true" viewBox="0 0 64 64">
+                            <circle cx="32" cy="32" r="20"/>
+                            <path d="M32 20v13l9 5"/>
+                        </svg>
+                        <span class="source-badge">Private</span>
+                    </div>
+                    <div class="card-copy">
+                        <h3>Viewing state</h3>
+                        <p>Resume positions and playback history are scoped only to this account.</p>
+                    </div>
+                </article>
+            @endif
         </div>
     </section>
 
-    <section class="content-section split-section">
-        <div class="panel" aria-labelledby="user-state-heading">
+    <section class="content-section split-section dashboard-panels">
+        <div class="panel" aria-labelledby="privacy-heading">
             <div class="panel-heading">
                 <div>
-                    <p class="eyebrow">Independent profiles</p>
-                    <h2 id="user-state-heading">Every viewer keeps their place</h2>
+                    <p class="eyebrow">Private by default</p>
+                    <h2 id="privacy-heading">Your place is yours</h2>
                 </div>
-                <div class="avatar-stack" aria-label="Example user profiles">
-                    <span>A</span><span>M</span><span>S</span>
-                </div>
-            </div>
-            <div class="progress-preview">
-                <div class="progress-art" aria-hidden="true">
-                    <span class="play-glyph">▶</span>
-                </div>
-                <div class="progress-copy">
-                    <strong>Continue watching</strong>
-                    <span>Resume positions, history, and favorites are scoped to each user.</span>
-                    <div class="progress-track" aria-hidden="true"><span></span></div>
-                    <small>42 minutes remaining</small>
+                <div class="avatar-stack" aria-label="Independent user profiles">
+                    <span>{{ mb_strtoupper(mb_substr(auth()->user()->name, 0, 1)) }}</span>
+                    <span>+</span>
                 </div>
             </div>
+            <p class="panel-copy">
+                Odissey records resume position and playback events per signed-in user.
+                IPTV favorites are independent, even when accounts share the same provider.
+            </p>
         </div>
 
         <div class="panel status-panel" aria-labelledby="runtime-heading">
             <div class="panel-heading">
                 <div>
-                    <p class="eyebrow">Live server fragment</p>
-                    <h2 id="runtime-heading">Foundation status</h2>
+                    <p class="eyebrow">Server runtime</p>
+                    <h2 id="runtime-heading">Ready to stream</h2>
                 </div>
-                <span class="live-dot">HTMX</span>
+                <span class="live-dot">Online</span>
             </div>
             <div
                 id="foundation-status"
@@ -146,59 +163,6 @@
                 <p class="status-loading">Checking the application runtime…</p>
             </div>
         </div>
-    </section>
-
-    <section id="roadmap" class="content-section roadmap-section" aria-labelledby="roadmap-heading">
-        <div class="section-heading">
-            <div>
-                <p class="eyebrow">Build sequence</p>
-                <h2 id="roadmap-heading">IPTV first, then the wider library</h2>
-            </div>
-            <span>Each milestone has a testable release gate.</span>
-        </div>
-
-        <ol class="roadmap">
-            <li class="is-current">
-                <span class="roadmap-number">01</span>
-                <div>
-                    <strong>Secure foundation</strong>
-                    <p>First-admin bootstrap, multi-user auth, policies, container lifecycle, and backups.</p>
-                </div>
-                <span class="roadmap-state">Next</span>
-            </li>
-            <li>
-                <span class="roadmap-number">02</span>
-                <div>
-                    <strong>IPTV catalog and EPG</strong>
-                    <p>Provider onboarding, background sync, channel groups, guide, search, and favorites.</p>
-                </div>
-                <span class="roadmap-state">Planned</span>
-            </li>
-            <li>
-                <span class="roadmap-number">03</span>
-                <div>
-                    <strong>Live playback</strong>
-                    <p>Credential-safe stream sessions, direct play, remuxing, history, and recovery.</p>
-                </div>
-                <span class="roadmap-state">Planned</span>
-            </li>
-            <li>
-                <span class="roadmap-number">04</span>
-                <div>
-                    <strong>Local, S3, and WebDAV</strong>
-                    <p>Read-only adapters, indexed catalogs, music, video, and per-user resume state.</p>
-                </div>
-                <span class="roadmap-state">Planned</span>
-            </li>
-            <li>
-                <span class="roadmap-number">05</span>
-                <div>
-                    <strong>FFmpeg HLS</strong>
-                    <p>Bounded transcoding, transient segments, cleanup, concurrency limits, and graceful shutdown.</p>
-                </div>
-                <span class="roadmap-state">Planned</span>
-            </li>
-        </ol>
     </section>
 
     <footer class="app-footer">

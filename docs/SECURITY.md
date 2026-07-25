@@ -18,8 +18,8 @@ ingestion.
 ## First launch
 
 Allowing the first anonymous visitor to become admin is unsafe on an
-Internet-facing deployment. First launch will require a one-time setup token
-supplied as an environment secret or generated to container logs.
+Internet-facing deployment. First launch requires a one-time setup token
+supplied as an environment secret. Production fails closed when it is absent.
 
 Admin creation is a transaction guarded by:
 
@@ -80,7 +80,6 @@ and streams can otherwise be intercepted between Odissey and the provider.
 
 ## Reporting vulnerabilities
 
-Before the repository is public, establish a private GitHub security-advisory
-channel and add `SECURITY.md` at the repository root with supported versions and
-contact details. Do not report live credentials or exploitable details in a
+Use the private vulnerability-reporting instructions in the repository-root
+`SECURITY.md`. Do not report live credentials or exploitable details in a
 public issue.

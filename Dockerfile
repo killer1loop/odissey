@@ -45,7 +45,9 @@ ENV APP_NAME=Odissey \
     DB_BUSY_TIMEOUT=5000 \
     DB_JOURNAL_MODE=WAL \
     DB_SYNCHRONOUS=NORMAL \
+    DB_QUEUE_RETRY_AFTER=720 \
     SESSION_DRIVER=database \
+    SESSION_ENCRYPT=true \
     CACHE_STORE=database \
     QUEUE_CONNECTION=database \
     SERVER_NAME=:8000 \
@@ -84,6 +86,7 @@ COPY docker/supervisord.conf /etc/supervisor/conf.d/odissey.conf
 RUN mkdir -p \
         /var/lib/odissey \
         /var/cache/odissey/transcodes \
+        /var/cache/odissey/e2e \
         /config/caddy \
         /data/caddy \
         bootstrap/cache \

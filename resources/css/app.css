@@ -246,6 +246,36 @@ svg {
     font-size: 0.68rem;
 }
 
+.account-copy {
+    min-width: 0;
+    flex: 1;
+}
+
+.account-copy strong,
+.account-copy span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.logout-button {
+    display: grid;
+    width: 32px;
+    height: 32px;
+    flex: 0 0 auto;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.035);
+    color: var(--muted);
+    cursor: pointer;
+}
+
+.logout-button:hover {
+    border-color: var(--line-strong);
+    color: var(--text);
+}
+
 .avatar {
     display: grid;
     width: 36px;
@@ -426,6 +456,26 @@ svg {
     margin: 1.5rem 0 0;
     color: var(--muted);
     font-size: clamp(1rem, 1.6vw, 1.2rem);
+    line-height: 1.7;
+}
+
+.dashboard-notice {
+    padding-top: 1.25rem;
+    padding-bottom: 0;
+}
+
+.notice-success {
+    margin: 0;
+    padding: 0.85rem 1rem;
+    border: 1px solid rgba(96, 214, 165, 0.3);
+    border-radius: 0.75rem;
+    background: rgba(96, 214, 165, 0.08);
+    color: var(--success);
+}
+
+.panel-copy {
+    margin: 1.5rem 0 0;
+    color: var(--muted);
     line-height: 1.7;
 }
 
