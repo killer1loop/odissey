@@ -199,5 +199,5 @@ function disposePlayers(root) {
 }
 
 document.addEventListener('DOMContentLoaded', () => initializePlayers());
-document.addEventListener('htmx:afterSwap', (event) => initializePlayers(event.detail.target));
+document.addEventListener('htmx:afterSwap', (event) => initializePlayers(event.detail.elt));
 document.addEventListener('htmx:beforeCleanupElement', (event) => disposePlayers(event.detail.elt));

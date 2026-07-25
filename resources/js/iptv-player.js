@@ -97,7 +97,7 @@ function disposeAll(root = document) {
 }
 
 document.addEventListener('DOMContentLoaded', () => initializeAll());
-document.addEventListener('htmx:afterSwap', (event) => initializeAll(event.detail.target));
+document.addEventListener('htmx:afterSwap', (event) => initializeAll(event.detail.elt));
 document.addEventListener('htmx:beforeCleanupElement', (event) => disposeAll(event.detail.elt));
 window.addEventListener('pagehide', () => disposeAll());
 window.addEventListener('pageshow', () => initializeAll());
