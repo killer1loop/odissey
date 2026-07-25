@@ -92,6 +92,12 @@ class IptvProxyFetcher
             );
         }
 
+        if ($redirects > 0 && $resource->upstream_url !== $target->url) {
+            $resource->forceFill([
+                'upstream_url' => $target->url,
+            ])->saveQuietly();
+        }
+
         return $response;
     }
 

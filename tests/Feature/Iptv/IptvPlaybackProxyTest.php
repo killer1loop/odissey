@@ -167,7 +167,12 @@ class IptvPlaybackProxyTest extends TestCase
                 ]);
             }
 
-            return Http::response("#EXTM3U\n#EXT-X-ENDLIST", 200, [
+            return Http::response(implode("\n", [
+                '#EXTM3U',
+                '#EXTINF:6.0,',
+                '/hls/segment.ts',
+                '#EXT-X-ENDLIST',
+            ]), 200, [
                 'Content-Type' => 'application/vnd.apple.mpegurl',
             ]);
         });
@@ -183,6 +188,26 @@ class IptvPlaybackProxyTest extends TestCase
         $this->assertSame(
             ['iptv.example.test', 'stream.example.test'],
             $requestedHosts,
+        );
+        $root = IptvPlaybackResource::query()
+            ->whereNull('parent_resource_id')
+            ->sole();
+        $segment = IptvPlaybackResource::query()
+            ->where('resource_type', 'segment')
+            ->sole();
+        $this->assertSame(
+            'http://stream.example.test/live/redirected/101',
+            $root->upstream_url,
+        );
+        $this->assertSame(
+            'http://stream.example.test/hls/segment.ts',
+            $segment->upstream_url,
+        );
+        $this->assertStringNotContainsString(
+            'stream.example.test',
+            (string) DB::table('iptv_playback_resources')
+                ->where('id', $root->id)
+                ->value('upstream_url'),
         );
         $this->assertDatabaseHas('iptv_playback_attempts', [
             'iptv_playback_session_id' => $session->id,
