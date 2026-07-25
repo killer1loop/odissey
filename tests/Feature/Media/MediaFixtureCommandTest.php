@@ -67,6 +67,9 @@ class MediaFixtureCommandTest extends TestCase
 
         $this->assertTrue(File::isFile(config('odissey.e2e_path').'/direct-play.mp4'));
         $this->assertTrue(File::isFile(config('odissey.e2e_path').'/requires-transcode.mkv'));
+        $this->assertSame(0755, fileperms(config('odissey.e2e_path')) & 0777);
+        $this->assertSame(0644, fileperms(config('odissey.e2e_path').'/direct-play.mp4') & 0777);
+        $this->assertSame(0644, fileperms(config('odissey.e2e_path').'/requires-transcode.mkv') & 0777);
         $this->assertDatabaseHas('media_items', [
             'user_id' => $user->getKey(),
             'title' => 'E2E Direct Play',

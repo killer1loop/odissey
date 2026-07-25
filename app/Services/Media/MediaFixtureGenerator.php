@@ -23,7 +23,8 @@ class MediaFixtureGenerator
     {
         $root = $this->root();
         $this->clean();
-        File::ensureDirectoryExists($root, 0750, true);
+        File::ensureDirectoryExists($root, 0755, true);
+        File::chmod($root, 0755);
 
         $directPath = $root.DIRECTORY_SEPARATOR.'direct-play.mp4';
         $incompatiblePath = $root.DIRECTORY_SEPARATOR.'requires-transcode.mkv';
@@ -40,6 +41,9 @@ class MediaFixtureGenerator
         if (! File::isFile($directPath) || ! File::isFile($incompatiblePath)) {
             throw new RuntimeException('FFmpeg did not produce both media fixtures.');
         }
+
+        File::chmod($directPath, 0644);
+        File::chmod($incompatiblePath, 0644);
 
         $durationMs = $durationSeconds * 1000;
 
