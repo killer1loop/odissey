@@ -8,9 +8,9 @@ services:
     restart: unless-stopped
     stop_grace_period: 6m
     ports:
-      - "8080:8080"
+      - "8000:8000"
     environment:
-      APP_URL: http://localhost:8080
+      APP_URL: http://localhost:8000
     volumes:
       - odissey-data:/var/lib/odissey
     tmpfs:

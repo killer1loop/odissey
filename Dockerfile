@@ -48,7 +48,7 @@ ENV APP_NAME=Odissey \
     SESSION_DRIVER=database \
     CACHE_STORE=database \
     QUEUE_CONNECTION=database \
-    SERVER_NAME=:8080 \
+    SERVER_NAME=:8000 \
     ODISSEY_DATA_PATH=/var/lib/odissey \
     ODISSEY_TRANSCODE_PATH=/var/cache/odissey/transcodes
 
@@ -96,7 +96,7 @@ RUN mkdir -p \
         bootstrap/cache \
         storage
 
-EXPOSE 8080
+EXPOSE 8000
 
 STOPSIGNAL SIGTERM
 

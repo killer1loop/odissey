@@ -52,7 +52,7 @@ vendor/bin/pint --test
 docker compose up --build
 ```
 
-The application listens on port `8080`. The Compose file persists the SQLite
+The application listens on port `8000`. The Compose file persists the SQLite
 database and generated application key in the `odissey-data` volume. Transient
 HLS output uses tmpfs.
 

@@ -2,7 +2,7 @@
 
 set -eu
 
-curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8080/up > /dev/null
+curl --fail --silent --show-error --max-time 3 http://127.0.0.1:8000/up > /dev/null
 
 running_processes="$(
     supervisorctl -c /etc/supervisor/conf.d/odissey.conf status 2>/dev/null \

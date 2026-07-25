@@ -4,7 +4,7 @@
 
 The production image:
 
-- listens on `0.0.0.0:8080`;
+- listens on `0.0.0.0:8000`;
 - runs FrankenPHP, one finite database queue worker, and Laravel's scheduler;
 - includes FFmpeg, FFprobe, SQLite, and the required PHP extensions;
 - runs application processes as `www-data`;
@@ -65,17 +65,17 @@ runtime secrets and later be stored encrypted through Odissey's admin UI.
 docker build -t odissey:test .
 docker run --detach \
   --name odissey \
-  --publish 8080:8080 \
+  --publish 8000:8000 \
   --volume odissey-data:/var/lib/odissey \
   --tmpfs /var/cache/odissey/transcodes:uid=33,gid=33,mode=0750,size=4g \
-  --env APP_URL=http://localhost:8080 \
+  --env APP_URL=http://localhost:8000 \
   odissey:test
 ```
 
 Verify:
 
 ```sh
-curl --fail http://127.0.0.1:8080/up
+curl --fail http://127.0.0.1:8000/up
 docker exec odissey supervisorctl -c /etc/supervisor/conf.d/odissey.conf status
 docker exec odissey php artisan migrate:status
 docker exec odissey sqlite3 /var/lib/odissey/database.sqlite \
@@ -96,7 +96,7 @@ Use an Application with:
 - build type: Dockerfile;
 - context: `.`;
 - Dockerfile: `Dockerfile`;
-- internal port: `8080`;
+- internal port: `8000`;
 - one replica;
 - a named volume mounted at `/var/lib/odissey`;
 - a TLS-enabled domain routed through Traefik;
