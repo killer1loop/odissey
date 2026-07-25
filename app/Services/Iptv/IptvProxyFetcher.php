@@ -5,6 +5,8 @@ namespace App\Services\Iptv;
 use App\Models\Iptv\IptvPlaybackResource;
 use App\Services\Iptv\Exceptions\SanitizedIptvException;
 use App\Services\Iptv\Exceptions\UpstreamResponseException;
+use GuzzleHttp\Psr7\Uri;
+use GuzzleHttp\Psr7\UriResolver;
 use Illuminate\Http\Client\Response;
 use Throwable;
 
@@ -31,11 +33,70 @@ class IptvProxyFetcher
             throw new SanitizedIptvException('playback_source_disabled', 410);
         }
 
+        if ($range !== null) {
+            if (preg_match('/^bytes=(?:\d+-\d*|-\d+)$/', $range) !== 1) {
+                throw new SanitizedIptvException('invalid_range', 416);
+            }
+        }
+
+        $allowInsecureHttp = $provider->allow_insecure_http;
         $target = $this->urlGuard->pin(
             $resource->upstream_url,
-            $provider->allow_insecure_http,
+            $allowInsecureHttp,
         );
+        $maxRedirects = min(
+            3,
+            max(0, (int) config('iptv.playback_max_redirects')),
+        );
+        $redirects = 0;
 
+        while (true) {
+            $response = $this->request($target, $range);
+
+            if (! $this->isRedirect($response->status())) {
+                break;
+            }
+
+            if ($redirects >= $maxRedirects) {
+                $response->toPsrResponse()->getBody()->close();
+
+                throw new SanitizedIptvException('upstream_redirect_limit');
+            }
+
+            $location = $response->header('Location');
+            $response->toPsrResponse()->getBody()->close();
+
+            if (! is_string($location) || $location === '') {
+                throw new SanitizedIptvException('invalid_upstream_redirect');
+            }
+
+            try {
+                $redirectUrl = (string) UriResolver::resolve(
+                    new Uri($target->url),
+                    new Uri($location),
+                );
+            } catch (Throwable) {
+                throw new SanitizedIptvException('invalid_upstream_redirect');
+            }
+
+            $target = $this->urlGuard->pin($redirectUrl, $allowInsecureHttp);
+            $redirects++;
+        }
+
+        if (! in_array($response->status(), [200, 206], true)) {
+            $response->toPsrResponse()->getBody()->close();
+
+            throw new UpstreamResponseException(
+                'upstream_stream_unavailable',
+                $response->status(),
+            );
+        }
+
+        return $response;
+    }
+
+    private function request(PinnedUpstreamTarget $target, ?string $range): Response
+    {
         $request = $this->http
             ->withHeaders([
                 'Accept' => '*/*',
@@ -51,27 +112,19 @@ class IptvProxyFetcher
             ]);
 
         if ($range !== null) {
-            if (preg_match('/^bytes=(?:\d+-\d*|-\d+)$/', $range) !== 1) {
-                throw new SanitizedIptvException('invalid_range', 416);
-            }
-
             $request = $request->withHeader('Range', $range);
         }
 
         try {
-            $response = $request->get($target->url);
+            return $request->get($target->url);
         } catch (Throwable) {
             throw new SanitizedIptvException('upstream_connection_failed');
         }
+    }
 
-        if (! in_array($response->status(), [200, 206], true)) {
-            throw new UpstreamResponseException(
-                'upstream_stream_unavailable',
-                $response->status(),
-            );
-        }
-
-        return $response;
+    private function isRedirect(int $status): bool
+    {
+        return in_array($status, [301, 302, 303, 307, 308], true);
     }
 
     public function bodyWithinLimit(Response $response, int $maxBytes): string

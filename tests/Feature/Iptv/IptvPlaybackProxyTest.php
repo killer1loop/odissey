@@ -5,6 +5,7 @@ namespace Tests\Feature\Iptv;
 use App\Models\Iptv\IptvPlaybackResource;
 use App\Models\Iptv\IptvPlaybackSession;
 use App\Models\User;
+use App\Services\Iptv\HostAddressResolver;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request as ClientRequest;
 use Illuminate\Support\Facades\DB;
@@ -144,6 +145,116 @@ class IptvPlaybackProxyTest extends TestCase
             'error_code' => null,
         ]);
         $this->assertNotEmpty($page->getContent());
+    }
+
+    public function test_bounded_redirects_are_manually_revalidated_before_fetching(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $provider = $this->makeProvider([
+            'base_url' => 'http://iptv.example.test',
+            'allow_insecure_http' => true,
+        ]);
+        $channel = $this->makeChannel($provider);
+        $requestedHosts = [];
+
+        Http::fake(function (ClientRequest $request) use (&$requestedHosts) {
+            $host = (string) parse_url($request->url(), PHP_URL_HOST);
+            $requestedHosts[] = $host;
+
+            if ($host === 'iptv.example.test') {
+                return Http::response('', 302, [
+                    'Location' => 'http://stream.example.test/live/redirected/101',
+                ]);
+            }
+
+            return Http::response("#EXTM3U\n#EXT-X-ENDLIST", 200, [
+                'Content-Type' => 'application/vnd.apple.mpegurl',
+            ]);
+        });
+
+        $this->actingAs($user)->post(route('iptv.playback.store', $channel));
+        $session = IptvPlaybackSession::query()->sole();
+
+        $this->actingAs($user)
+            ->get(route('iptv.playback.manifest', $session))
+            ->assertOk()
+            ->assertSee('#EXTM3U');
+
+        $this->assertSame(
+            ['iptv.example.test', 'stream.example.test'],
+            $requestedHosts,
+        );
+        $this->assertDatabaseHas('iptv_playback_attempts', [
+            'iptv_playback_session_id' => $session->id,
+            'outcome' => 'started',
+            'upstream_status' => 200,
+        ]);
+    }
+
+    public function test_redirects_to_non_public_targets_are_rejected_before_contact(): void
+    {
+        $this->app->instance(HostAddressResolver::class, new class extends HostAddressResolver
+        {
+            public function resolve(string $host): array
+            {
+                return $host === '127.0.0.1'
+                    ? ['127.0.0.1']
+                    : ['8.8.8.8'];
+            }
+        });
+        $user = User::factory()->create(['is_active' => true]);
+        $provider = $this->makeProvider([
+            'base_url' => 'http://iptv.example.test',
+            'allow_insecure_http' => true,
+        ]);
+        $channel = $this->makeChannel($provider);
+
+        Http::fake(fn () => Http::response('', 302, [
+            'Location' => 'http://127.0.0.1/internal',
+        ]));
+
+        $this->actingAs($user)->post(route('iptv.playback.store', $channel));
+        $session = IptvPlaybackSession::query()->sole();
+
+        $this->actingAs($user)
+            ->get(route('iptv.playback.manifest', $session))
+            ->assertStatus(502);
+
+        Http::assertSentCount(1);
+        $this->assertDatabaseHas('iptv_playback_attempts', [
+            'iptv_playback_session_id' => $session->id,
+            'outcome' => 'failed',
+            'error_code' => 'blocked_upstream_target',
+        ]);
+    }
+
+    public function test_redirect_hops_are_strictly_bounded(): void
+    {
+        config()->set('iptv.playback_max_redirects', 1);
+        $user = User::factory()->create(['is_active' => true]);
+        $provider = $this->makeProvider([
+            'base_url' => 'http://iptv.example.test',
+            'allow_insecure_http' => true,
+        ]);
+        $channel = $this->makeChannel($provider);
+
+        Http::fake(fn () => Http::response('', 302, [
+            'Location' => 'http://stream.example.test/another-hop',
+        ]));
+
+        $this->actingAs($user)->post(route('iptv.playback.store', $channel));
+        $session = IptvPlaybackSession::query()->sole();
+
+        $this->actingAs($user)
+            ->get(route('iptv.playback.manifest', $session))
+            ->assertStatus(502);
+
+        Http::assertSentCount(2);
+        $this->assertDatabaseHas('iptv_playback_attempts', [
+            'iptv_playback_session_id' => $session->id,
+            'outcome' => 'failed',
+            'error_code' => 'upstream_redirect_limit',
+        ]);
     }
 
     public function test_invalid_range_is_rejected_without_contacting_upstream(): void

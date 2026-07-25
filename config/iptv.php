@@ -9,6 +9,7 @@ return [
     'manifest_max_resources' => (int) env('IPTV_MANIFEST_MAX_RESOURCES', 256),
     'playback_max_resources' => (int) env('IPTV_PLAYBACK_MAX_RESOURCES', 2048),
     'playback_max_attempts' => (int) env('IPTV_PLAYBACK_MAX_ATTEMPTS', 100),
+    'playback_max_redirects' => (int) env('IPTV_PLAYBACK_MAX_REDIRECTS', 2),
     'playlist_max_depth' => (int) env('IPTV_PLAYLIST_MAX_DEPTH', 6),
     'api_max_response_bytes' => (int) env('IPTV_API_MAX_RESPONSE_BYTES', 64 * 1024 * 1024),
     'category_max_rows' => (int) env('IPTV_CATEGORY_MAX_ROWS', 5000),
