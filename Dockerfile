@@ -78,11 +78,14 @@ COPY --from=vendor --chown=www-data:www-data /app/vendor ./vendor
 COPY --from=frontend --chown=www-data:www-data /app/public/build ./public/build
 COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/odissey-entrypoint
 COPY --chmod=755 docker/healthcheck.sh /usr/local/bin/odissey-healthcheck
+COPY docker/Caddyfile /etc/frankenphp/Caddyfile
 COPY docker/supervisord.conf /etc/supervisor/conf.d/odissey.conf
 
 RUN mkdir -p \
         /var/lib/odissey \
         /var/cache/odissey/transcodes \
+        /config/caddy \
+        /data/caddy \
         bootstrap/cache \
         storage/app/private \
         storage/app/public \
@@ -93,6 +96,8 @@ RUN mkdir -p \
     && chown -R www-data:www-data \
         /var/lib/odissey \
         /var/cache/odissey \
+        /config/caddy \
+        /data/caddy \
         bootstrap/cache \
         storage
 

@@ -1,0 +1,14 @@
+{
+	admin off
+	auto_https off
+	frankenphp
+}
+
+{$SERVER_NAME} {
+	root * /app/public
+	encode zstd br gzip
+
+	php_server {
+		try_files {path} index.php
+	}
+}
