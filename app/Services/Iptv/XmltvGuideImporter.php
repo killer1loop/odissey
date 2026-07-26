@@ -172,7 +172,7 @@ class XmltvGuideImporter
         libxml_clear_errors();
 
         try {
-            if ($this->containsDoctype($path)) {
+            if ($this->containsUnsafeDoctype($path)) {
                 throw new SanitizedIptvException('xmltv_invalid', 422);
             }
 
@@ -393,7 +393,7 @@ class XmltvGuideImporter
         )->utc();
     }
 
-    private function containsDoctype(string $path): bool
+    private function containsUnsafeDoctype(string $path): bool
     {
         $handle = fopen($path, 'rb');
 
@@ -412,12 +412,20 @@ class XmltvGuideImporter
                 }
 
                 $candidate = $carry.$chunk;
+                $candidate = preg_replace(
+                    '/<!DOCTYPE\s+tv\s+SYSTEM\s+(["\'])xmltv\.dtd\1\s*>/i',
+                    '',
+                    $candidate,
+                );
 
-                if (preg_match('/<!DOCTYPE/i', $candidate) === 1) {
+                if (
+                    ! is_string($candidate)
+                    || preg_match('/<!DOCTYPE/i', $candidate) === 1
+                ) {
                     return true;
                 }
 
-                $carry = substr($candidate, -16);
+                $carry = substr($candidate, -256);
             }
         } finally {
             fclose($handle);

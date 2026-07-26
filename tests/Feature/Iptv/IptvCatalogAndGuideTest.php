@@ -309,7 +309,7 @@ class IptvCatalogAndGuideTest extends TestCase
             ));
 
             return Http::response(
-                "<?xml version=\"1.0\"?><tv>{$programmes}</tv>",
+                "<?xml version=\"1.0\"?><!DOCTYPE tv SYSTEM \"xmltv.dtd\"><tv>{$programmes}</tv>",
                 200,
                 ['Content-Type' => 'application/xml'],
             );
