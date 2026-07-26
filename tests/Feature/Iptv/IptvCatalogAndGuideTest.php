@@ -431,6 +431,22 @@ class IptvCatalogAndGuideTest extends TestCase
         $this->assertDatabaseCount('channels', 0);
     }
 
+    public function test_large_provider_catalogs_within_the_bounded_live_channel_limit_are_accepted(): void
+    {
+        $provider = $this->makeProvider();
+        $channels = array_map(
+            static fn (int $streamId): array => ['stream_id' => $streamId],
+            range(1, 21313),
+        );
+
+        Http::fake(fn () => Http::response($channels));
+
+        $this->assertCount(
+            21313,
+            app(XtreamClient::class)->liveStreams($provider),
+        );
+    }
+
     public function test_decoded_xtream_payload_is_bounded_during_response_writes(): void
     {
         config()->set('iptv.api_max_response_bytes', 1024 * 1024);

@@ -17,7 +17,7 @@ class XtreamClient
      */
     private const MAX_BUFFERED_JSON_BYTES = 32 * 1024 * 1024;
 
-    private const MAX_CHANNEL_ROWS = 20000;
+    private const MAX_CHANNEL_ROWS = 50000;
 
     private const MAX_VOD_ROWS = 50000;
 

@@ -24,7 +24,7 @@ return [
     'playlist_max_depth' => (int) env('IPTV_PLAYLIST_MAX_DEPTH', 6),
     'api_max_response_bytes' => (int) env('IPTV_API_MAX_RESPONSE_BYTES', 32 * 1024 * 1024),
     'category_max_rows' => (int) env('IPTV_CATEGORY_MAX_ROWS', 5000),
-    'channel_max_rows' => (int) env('IPTV_CHANNEL_MAX_ROWS', 10000),
+    'channel_max_rows' => (int) env('IPTV_CHANNEL_MAX_ROWS', 50000),
     'vod_category_max_rows' => (int) env('IPTV_VOD_CATEGORY_MAX_ROWS', 5000),
     'vod_movie_max_rows' => (int) env('IPTV_VOD_MOVIE_MAX_ROWS', 50000),
     'vod_series_max_rows' => (int) env('IPTV_VOD_SERIES_MAX_ROWS', 20000),
