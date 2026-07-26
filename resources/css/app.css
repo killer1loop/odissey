@@ -2942,14 +2942,6 @@ input[type="radio"] {
     transform: translateX(0);
 }
 
-@media (hover: hover) {
-    .live-player-viewport:hover .player-channel-rail {
-        opacity: 1;
-        pointer-events: auto;
-        transform: translateX(0);
-    }
-}
-
 .player-rail-header {
     display: flex;
     min-width: 0;
