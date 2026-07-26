@@ -42,6 +42,13 @@
     >
         <div class="live-player-viewport">
             <div class="live-video-stage">
+                <canvas
+                    class="live-ambient-light"
+                    data-player-ambient
+                    width="48"
+                    height="27"
+                    aria-hidden="true"
+                ></canvas>
                 <video playsinline preload="metadata" aria-label="{{ $session->channel->name }} live stream"></video>
                 <div class="live-video-message" data-iptv-player-status role="status" aria-live="polite">
                     Connecting to live stream…

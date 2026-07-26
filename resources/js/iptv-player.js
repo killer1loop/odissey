@@ -36,6 +36,8 @@ function initialize(container) {
     const railClose = container.querySelector('[data-player-rail-close]');
     const favoriteForms = [...container.querySelectorAll('[data-favorite-channel]')];
     const navigationStatus = container.querySelector('[data-player-navigation-status]');
+    const ambientCanvas = container.querySelector('[data-player-ambient]');
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
 
     if (!video || !manifestUrl) {
         return;
@@ -43,6 +45,72 @@ function initialize(container) {
 
     let hls = null;
     let disposed = false;
+    let ambientTimer = null;
+    let ambientUnavailable = false;
+
+    const stopAmbientLighting = () => {
+        if (ambientTimer !== null) {
+            window.clearInterval(ambientTimer);
+            ambientTimer = null;
+        }
+    };
+    const drawAmbientFrame = () => {
+        if (
+            ambientUnavailable
+            || !ambientCanvas
+            || video.readyState < 2
+            || video.videoWidth === 0
+            || video.videoHeight === 0
+        ) {
+            return;
+        }
+
+        try {
+            const context = ambientCanvas.getContext('2d', {
+                alpha: false,
+            });
+
+            if (!context) {
+                ambientUnavailable = true;
+
+                return;
+            }
+
+            context.drawImage(
+                video,
+                0,
+                0,
+                ambientCanvas.width,
+                ambientCanvas.height,
+            );
+            ambientCanvas.dataset.ready = 'true';
+        } catch {
+            ambientUnavailable = true;
+            ambientCanvas.hidden = true;
+            stopAmbientLighting();
+        }
+    };
+    const startAmbientLighting = () => {
+        stopAmbientLighting();
+
+        if (!ambientCanvas || ambientUnavailable || document.hidden || video.paused) {
+            return;
+        }
+
+        drawAmbientFrame();
+
+        if (!reducedMotion?.matches) {
+            ambientTimer = window.setInterval(drawAmbientFrame, 750);
+        }
+    };
+    const handleVisibilityChange = () => {
+        if (document.hidden) {
+            stopAmbientLighting();
+        } else {
+            startAmbientLighting();
+        }
+    };
+    const handleMotionPreferenceChange = () => startAmbientLighting();
 
     const setStatus = (state, message) => {
         container.dataset.playerState = state;
@@ -106,9 +174,11 @@ function initialize(container) {
         updateControls();
         updateResolution();
         updateBitrate();
+        startAmbientLighting();
         setStatus('healthy', 'Live stream is playing.');
     };
     const handlePause = () => {
+        stopAmbientLighting();
         updateControls();
         setStatus('paused', 'Live stream paused.');
     };
@@ -117,7 +187,10 @@ function initialize(container) {
         updateResolution();
         updateControls();
     };
-    const handleVideoError = () => setStatus('unavailable', 'The live stream became unavailable.');
+    const handleVideoError = () => {
+        stopAmbientLighting();
+        setStatus('unavailable', 'The live stream became unavailable.');
+    };
     const handleFullscreenChange = () => {
         const active = document.fullscreenElement === container
             || document.webkitFullscreenElement === container;
@@ -266,8 +339,10 @@ function initialize(container) {
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
     video.addEventListener('resize', updateResolution);
     video.addEventListener('error', handleVideoError);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    reducedMotion?.addEventListener?.('change', handleMotionPreferenceChange);
     updateControls();
     handleFullscreenChange();
     setStatus('connecting', 'Connecting to live stream…');
@@ -338,8 +413,11 @@ function initialize(container) {
         video.removeEventListener('loadedmetadata', handleLoadedMetadata);
         video.removeEventListener('resize', updateResolution);
         video.removeEventListener('error', handleVideoError);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
         document.removeEventListener('fullscreenchange', handleFullscreenChange);
         document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+        reducedMotion?.removeEventListener?.('change', handleMotionPreferenceChange);
+        stopAmbientLighting();
         hls?.destroy();
         video.pause();
         video.removeAttribute('src');

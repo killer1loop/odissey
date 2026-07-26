@@ -2857,6 +2857,37 @@ input[type="radio"] {
     background: #000;
 }
 
+.live-ambient-light {
+    position: absolute;
+    z-index: 0;
+    inset: -10%;
+    width: 120%;
+    height: 120%;
+    opacity: 0;
+    pointer-events: none;
+    transform: scale(1.08);
+    filter: blur(clamp(42px, 6vw, 82px)) saturate(1.32) brightness(0.68);
+    transition: opacity 700ms ease;
+}
+
+.live-ambient-light[data-ready="true"] {
+    opacity: 0.27;
+}
+
+.live-video-stage::after {
+    position: absolute;
+    z-index: 1;
+    inset: 0;
+    background: radial-gradient(
+        ellipse at center,
+        rgba(0, 0, 0, 0) 46%,
+        rgba(0, 0, 0, 0.2) 72%,
+        rgba(0, 0, 0, 0.46) 100%
+    );
+    content: "";
+    pointer-events: none;
+}
+
 .player-rail-trigger {
     position: absolute;
     z-index: 8;
@@ -3111,15 +3142,18 @@ input[type="radio"] {
 }
 
 .live-video-stage video {
+    position: relative;
+    z-index: 2;
     display: block;
     width: 100%;
     height: 100%;
     object-fit: contain;
-    background: #000;
+    background: transparent;
 }
 
 .live-video-message {
     position: absolute;
+    z-index: 4;
     inset: 50% auto auto 50%;
     max-width: min(90%, 420px);
     padding: 0.65rem 0.8rem;
@@ -3776,5 +3810,23 @@ html[data-tv-navigation="true"] .epg-program-block:focus-within {
     .player-control {
         width: 36px;
         height: 36px;
+    }
+}
+
+@media (max-width: 580px) {
+    .live-ambient-light[data-ready="true"] {
+        opacity: 0.22;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .live-ambient-light {
+        transition: none;
+    }
+}
+
+@media (prefers-contrast: more) {
+    .live-ambient-light {
+        display: none;
     }
 }
