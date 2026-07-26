@@ -301,6 +301,16 @@ class IptvCatalogAndGuideTest extends TestCase
                 $index,
             );
         }
+        Channel::query()->create([
+            'iptv_provider_id' => $provider->id,
+            'channel_group_id' => $group->id,
+            'external_id' => 'duplicate-quality-variant',
+            'epg_channel_id' => 'bulk.25',
+            'name' => 'Bulk channel 25 UHD',
+            'stream_extension' => 'm3u8',
+            'metadata' => [],
+            'is_active' => true,
+        ]);
 
         Http::fake(function (Request $request) use ($programmes) {
             $this->assertStringEndsWith('/xmltv.php', (string) parse_url(
@@ -318,10 +328,17 @@ class IptvCatalogAndGuideTest extends TestCase
         (new SyncIptvGuide($provider->id))
             ->handle(app(XmltvGuideImporter::class));
 
-        $this->assertDatabaseCount('epg_programs', 25);
+        $this->assertDatabaseCount('epg_programs', 26);
         $this->assertDatabaseHas('epg_programs', [
             'title' => 'Programme 25',
         ]);
+        $this->assertSame(
+            2,
+            Channel::query()
+                ->where('epg_channel_id', 'bulk.25')
+                ->get()
+                ->sum(fn (Channel $channel): int => $channel->programs()->count()),
+        );
         $this->assertNotNull($provider->fresh()->last_guide_synced_at);
     }
 

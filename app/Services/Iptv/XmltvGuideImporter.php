@@ -165,7 +165,14 @@ class XmltvGuideImporter
             ->where('epg_channel_id', '!=', '')
             ->orderBy('id')
             ->limit($channelLimit)
-            ->pluck('id', 'epg_channel_id');
+            ->get(['id', 'epg_channel_id'])
+            ->groupBy('epg_channel_id')
+            ->map(
+                fn ($variants): array => $variants
+                    ->pluck('id')
+                    ->map(fn ($id): int => (int) $id)
+                    ->all(),
+            );
         $syncToken = (string) Str::ulid();
         $reader = new XMLReader;
         $previousInternalErrors = libxml_use_internal_errors(true);
@@ -212,17 +219,16 @@ class XmltvGuideImporter
                         continue;
                     }
 
-                    $channelId = $channels->get(
+                    $channelIds = $channels->get(
                         $reader->getAttribute('channel'),
                     );
 
-                    if (! $channelId) {
+                    if (! is_array($channelIds) || $channelIds === []) {
                         continue;
                     }
 
                     $program = $this->programFromReader(
                         $reader,
-                        $channelId,
                         $windowStart,
                         $windowEnd,
                     );
@@ -231,32 +237,37 @@ class XmltvGuideImporter
                         continue;
                     }
 
-                    if (
-                        $count >= $programLimit
-                        || ($channelCounts[$channelId] ?? 0) >= $programsPerChannel
-                    ) {
-                        $capped = true;
+                    foreach ($channelIds as $channelId) {
+                        if (
+                            $count >= $programLimit
+                            || ($channelCounts[$channelId] ?? 0) >= $programsPerChannel
+                        ) {
+                            $capped = true;
 
-                        continue;
+                            continue;
+                        }
+
+                        EpgProgram::query()->updateOrCreate(
+                            [
+                                'channel_id' => $channelId,
+                                'fingerprint' => hash(
+                                    'sha256',
+                                    "{$channelId}|{$program['starts_at']->timestamp}|{$program['ends_at']->timestamp}|{$program['title']}",
+                                ),
+                            ],
+                            [
+                                'iptv_provider_id' => $provider->id,
+                                'sync_token' => $syncToken,
+                                'title' => $program['title'],
+                                'description' => $program['description'],
+                                'category' => $program['category'],
+                                'starts_at' => $program['starts_at'],
+                                'ends_at' => $program['ends_at'],
+                            ],
+                        );
+                        $count++;
+                        $channelCounts[$channelId] = ($channelCounts[$channelId] ?? 0) + 1;
                     }
-
-                    EpgProgram::query()->updateOrCreate(
-                        [
-                            'channel_id' => $channelId,
-                            'fingerprint' => $program['fingerprint'],
-                        ],
-                        [
-                            'iptv_provider_id' => $provider->id,
-                            'sync_token' => $syncToken,
-                            'title' => $program['title'],
-                            'description' => $program['description'],
-                            'category' => $program['category'],
-                            'starts_at' => $program['starts_at'],
-                            'ends_at' => $program['ends_at'],
-                        ],
-                    );
-                    $count++;
-                    $channelCounts[$channelId] = ($channelCounts[$channelId] ?? 0) + 1;
                 }
 
                 if (libxml_get_errors() !== []) {
@@ -284,7 +295,6 @@ class XmltvGuideImporter
 
     /**
      * @return array{
-     *   fingerprint: string,
      *   title: string,
      *   description: ?string,
      *   category: ?string,
@@ -294,7 +304,6 @@ class XmltvGuideImporter
      */
     private function programFromReader(
         XMLReader $reader,
-        int $channelId,
         CarbonImmutable $windowStart,
         CarbonImmutable $windowEnd,
     ): ?array {
@@ -334,10 +343,6 @@ class XmltvGuideImporter
         }
 
         return [
-            'fingerprint' => hash(
-                'sha256',
-                "{$channelId}|{$start->timestamp}|{$end->timestamp}|{$title}",
-            ),
             'title' => mb_substr($title, 0, 255),
             'description' => mb_substr(
                 trim((string) ($node->desc[0] ?? '')),
