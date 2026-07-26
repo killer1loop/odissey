@@ -26,7 +26,7 @@ class TranscodeMediaToHls implements ShouldQueue
 
     public int $timeout = 300;
 
-    public int $tries = 120;
+    public int $tries = 60;
 
     public function __construct(public readonly string $sessionId)
     {
@@ -78,6 +78,8 @@ class TranscodeMediaToHls implements ShouldQueue
                 'expires_at' => null,
             ]);
 
+            $materialized = null;
+
             try {
                 $materialized = app(SourceMaterializer::class)->materialize($session->mediaItem);
                 $sourcePath = $materialized['path'];
@@ -99,7 +101,7 @@ class TranscodeMediaToHls implements ShouldQueue
                         $session->audio_track,
                     ),
                     $this->timeout - 20,
-                    fn (): bool => $storage->isWithinQuota(),
+                    fn (): bool => $storage->isWithinStorageLimits(),
                 );
                 $storage->assertWithinQuota();
 
@@ -118,9 +120,6 @@ class TranscodeMediaToHls implements ShouldQueue
                         max(1, (int) config('odissey.transcode_ttl_minutes', 30)),
                     ),
                 ]);
-                if ($materialized['temporary']) {
-                    File::delete($sourcePath);
-                }
             } catch (TranscodeQuotaExceeded) {
                 $this->markFailed($session, 'cache_quota_exceeded', $storage);
             } catch (ProcessTimedOutException) {
@@ -133,6 +132,10 @@ class TranscodeMediaToHls implements ShouldQueue
                     'exception' => $exception::class,
                 ]);
                 $this->markFailed($session, 'transcode_internal', $storage);
+            } finally {
+                if (($materialized['temporary'] ?? false) === true) {
+                    File::delete($materialized['path']);
+                }
             }
         } finally {
             try {

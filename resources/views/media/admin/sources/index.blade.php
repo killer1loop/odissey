@@ -2,8 +2,8 @@
 @section('title', 'Media sources · Odissey')
 @section('content')
 <section class="page-section">
-    <div class="section-heading"><div><p class="eyebrow">Administration</p><h1>Media sources</h1><p>Read-only local, S3-compatible, and WebDAV libraries.</p></div><a class="button button-primary" href="{{ route('media.admin.sources.create') }}">Add source</a></div>
-    @if(session('status')) <p class="notice">{{ session('status') }}</p> @endif
+    <header class="page-header"><div><p class="eyebrow">Administration</p><h1>Media sources</h1><p>Read-only local, S3-compatible, and WebDAV libraries.</p></div><a class="button button-primary" href="{{ route('media.admin.sources.create') }}">Add source</a></header>
+    @if(session('status')) <p class="notice notice-success">{{ session('status') }}</p> @endif
     <div class="admin-list">
     @forelse($sources as $source)
         <article class="admin-card"><div><strong>{{ $source->name }}</strong><p>{{ strtoupper($source->type) }} · {{ $source->items_count }} items · {{ $source->scan_status }}</p>@if($source->last_error_code)<p role="alert">The last scan failed safely.</p>@endif</div>

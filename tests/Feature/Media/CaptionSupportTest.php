@@ -5,20 +5,30 @@ namespace Tests\Feature\Media;
 use App\Models\MediaItem;
 use App\Models\MediaSubtitle;
 use App\Models\User;
+use App\Services\Iptv\ConfidentialHttpFactory;
+use App\Services\Iptv\HostAddressResolver;
 use App\Services\Media\Captions\CaptionCandidate;
 use App\Services\Media\Captions\CaptionStorage;
+use App\Services\Media\Captions\OpenSubtitlesCaptionProvider;
 use App\Services\Media\Captions\SubdlCaptionProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Events\RequestSending;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
+use Mockery\MockInterface;
+use RuntimeException;
 use Tests\TestCase;
+use ZipArchive;
 
 class CaptionSupportTest extends TestCase
 {
     use RefreshDatabase;
 
     private string $directory;
+
+    private string $transcodeDirectory;
 
     protected function setUp(): void
     {
@@ -27,12 +37,28 @@ class CaptionSupportTest extends TestCase
             config(['app.key' => 'base64:'.base64_encode(random_bytes(32))]);
         }
         $this->directory = sys_get_temp_dir().'/odissey-captions-'.bin2hex(random_bytes(5));
-        config(['odissey.caption_path' => $this->directory, 'services.subdl.api_key' => 'free-key']);
+        $this->transcodeDirectory = $this->directory.'-transcodes';
+        config([
+            'odissey.caption_path' => $this->directory,
+            'odissey.transcode_min_free_bytes' => 0,
+            'odissey.transcode_path' => $this->transcodeDirectory,
+            'services.subdl.api_key' => 'free-key',
+        ]);
+        $http = new ConfidentialHttpFactory;
+        Http::swap($http);
+        $this->app->instance(ConfidentialHttpFactory::class, $http);
+        $this->mock(
+            HostAddressResolver::class,
+            fn (MockInterface $mock) => $mock
+                ->shouldReceive('resolve')
+                ->andReturn(['93.184.216.34']),
+        );
     }
 
     protected function tearDown(): void
     {
         File::deleteDirectory($this->directory);
+        File::deleteDirectory($this->transcodeDirectory);
         parent::tearDown();
     }
 
@@ -52,6 +78,115 @@ class CaptionSupportTest extends TestCase
         $this->assertSame('https://dl.subdl.com/subtitle/pack/caption-1', $results[0]->downloadUrl);
     }
 
+    public function test_opensubtitles_api_headers_are_not_attached_to_download_candidates(): void
+    {
+        config(['services.opensubtitles.api_key' => 'private-open-key']);
+        $requestEvents = 0;
+        Event::listen(
+            RequestSending::class,
+            function () use (&$requestEvents): void {
+                $requestEvents++;
+            },
+        );
+        Http::fake([
+            'api.opensubtitles.com/api/v1/subtitles*' => Http::response([
+                'data' => [[
+                    'attributes' => [
+                        'language' => 'en',
+                        'release' => 'Example release',
+                        'files' => [['file_id' => 42]],
+                    ],
+                ]],
+            ]),
+            'api.opensubtitles.com/api/v1/download' => Http::response([
+                'link' => 'https://dl.opensubtitles.com/file/42',
+            ]),
+        ]);
+
+        $results = app(OpenSubtitlesCaptionProvider::class)->search(
+            $this->item(),
+            ['en'],
+        );
+
+        $this->assertCount(1, $results);
+        $this->assertSame([], $results[0]->headers);
+        $this->assertSame(0, $requestEvents);
+        Http::assertSent(function ($request): bool {
+            if (
+                $request->method() !== 'GET'
+                || ! str_starts_with(
+                    $request->url(),
+                    'https://api.opensubtitles.com/api/v1/subtitles?',
+                )
+            ) {
+                return false;
+            }
+
+            parse_str(
+                (string) parse_url($request->url(), PHP_URL_QUERY),
+                $query,
+            );
+
+            return ($query['languages'] ?? null) === 'en'
+                && ($query['query'] ?? null) === 'Example';
+        });
+        Http::assertSent(
+            fn ($request): bool => $request->method() === 'POST'
+                && $request->url()
+                    === 'https://api.opensubtitles.com/api/v1/download'
+                && ($request->data()['file_id'] ?? null) === 42,
+        );
+    }
+
+    public function test_caption_provider_json_is_bounded_before_parsing(): void
+    {
+        config(['odissey.provider_json_max_bytes' => 1024]);
+        Http::fake([
+            'api.subdl.com/*' => Http::response([
+                'status' => true,
+                'padding' => str_repeat('x', 2048),
+                'subtitles' => [[
+                    'unpack_files' => [[
+                        'file_n_id' => 'caption-oversized',
+                        'language' => 'EN',
+                        'name' => 'Oversized.srt',
+                        'url' => '/subtitle/pack/caption-oversized',
+                    ]],
+                ]],
+            ]),
+        ]);
+
+        $this->assertSame(
+            [],
+            app(SubdlCaptionProvider::class)->search($this->item(), ['en']),
+        );
+    }
+
+    public function test_opensubtitles_api_redirect_is_not_followed_with_provider_headers(): void
+    {
+        config(['services.opensubtitles.api_key' => 'private-open-key']);
+        Http::fake([
+            'api.opensubtitles.com/*' => Http::response('', 302, [
+                'Location' => 'https://untrusted.example.test/collect',
+            ]),
+            'untrusted.example.test/*' => Http::response(['data' => []]),
+        ]);
+
+        $results = app(OpenSubtitlesCaptionProvider::class)->search(
+            $this->item(),
+            ['en'],
+        );
+
+        $this->assertSame([], $results);
+        Http::assertSentCount(1);
+        Http::assertNotSent(
+            fn ($request): bool => str_contains(
+                $request->url(),
+                'untrusted.example.test',
+            ),
+        );
+    }
+
     public function test_downloaded_webvtt_is_private_and_available_to_the_media_owner(): void
     {
         $user = User::factory()->create();
@@ -62,6 +197,135 @@ class CaptionSupportTest extends TestCase
         $this->get(route('media.captions.show', [$item, $caption]))->assertRedirect(route('login'));
         $this->actingAs($user)->get(route('media.captions.show', [$item, $caption]))->assertOk()->assertHeader('Content-Type', 'text/vtt; charset=UTF-8');
         $this->assertStringNotContainsString($path, $caption->getRawOriginal('path'));
+    }
+
+    public function test_caption_storage_enforces_the_global_media_asset_quota(): void
+    {
+        config(['odissey.media_asset_max_bytes' => 8]);
+        $candidate = new CaptionCandidate(
+            'subdl',
+            'caption-quota',
+            'en',
+            'English',
+            'https://dl.subdl.com/subtitle/quota',
+        );
+
+        try {
+            app(CaptionStorage::class)->store(
+                $this->item(),
+                $candidate,
+                "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHello\n",
+            );
+            $this->fail('Expected the media asset quota to reject the caption.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame(
+                'media_asset_storage_quota_exceeded',
+                $exception->getMessage(),
+            );
+        }
+
+        $this->assertSame([], File::allFiles($this->directory));
+    }
+
+    public function test_caption_staging_files_are_not_double_counted_against_the_quota(): void
+    {
+        config(['odissey.media_asset_max_bytes' => 100]);
+        $candidate = new CaptionCandidate(
+            'subdl',
+            'caption-tight-quota',
+            'en',
+            'English',
+            'https://dl.subdl.com/subtitle/tight-quota',
+        );
+
+        $path = app(CaptionStorage::class)->store(
+            $this->item(),
+            $candidate,
+            "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nHello\n",
+        );
+
+        $this->assertFileExists($path);
+        $this->assertLessThanOrEqual(100, File::size($path));
+        $this->assertCount(1, File::allFiles($this->directory));
+    }
+
+    public function test_caption_storage_cleans_up_an_invalid_archive(): void
+    {
+        $candidate = new CaptionCandidate(
+            'subdl',
+            'caption-invalid-archive',
+            'en',
+            'English',
+            'https://dl.subdl.com/subtitle/archive',
+        );
+
+        try {
+            app(CaptionStorage::class)->store(
+                $this->item(),
+                $candidate,
+                "PK\x03\x04not-a-valid-zip",
+            );
+            $this->fail('Expected the invalid archive to be rejected.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('caption_archive_invalid', $exception->getMessage());
+        }
+
+        $this->assertSame([], File::allFiles($this->directory));
+    }
+
+    public function test_caption_storage_streams_a_valid_archive_entry_and_cleans_staging_files(): void
+    {
+        $caption = "WEBVTT\n\n"
+            ."00:00:00.000 --> 00:00:01.000\n"
+            ."Hello from a compressed archive\n"
+            .str_repeat("NOTE test payload\n", 4096);
+        $archivePath = tempnam(
+            sys_get_temp_dir(),
+            'odissey-caption-archive-',
+        );
+        $zip = new ZipArchive;
+        $archiveOpen = false;
+
+        try {
+            $openResult = $zip->open(
+                $archivePath,
+                ZipArchive::CREATE | ZipArchive::OVERWRITE,
+            );
+            $this->assertTrue($openResult);
+            $archiveOpen = $openResult === true;
+            $this->assertTrue(
+                $zip->addFromString('nested/english.vtt', $caption),
+            );
+            $this->assertTrue($zip->close());
+            $archiveOpen = false;
+            $candidate = new CaptionCandidate(
+                'subdl',
+                'caption-valid-archive',
+                'en',
+                'English',
+                'https://dl.subdl.com/subtitle/archive',
+            );
+
+            $path = app(CaptionStorage::class)->store(
+                $this->item(),
+                $candidate,
+                File::get($archivePath),
+            );
+
+            $this->assertSame($caption, File::get($path));
+            $this->assertCount(1, File::allFiles($this->directory));
+            $this->assertSame(
+                [],
+                File::isDirectory($this->transcodeDirectory)
+                    ? File::allFiles($this->transcodeDirectory)
+                    : [],
+            );
+        } finally {
+            if ($archiveOpen) {
+                $zip->close();
+            }
+            File::delete($archivePath);
+        }
     }
 
     public function test_admin_can_store_provider_keys_encrypted_without_readback(): void

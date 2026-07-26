@@ -3,7 +3,9 @@
 namespace App\Services\Iptv;
 
 use App\Services\Iptv\Exceptions\SanitizedIptvException;
+use App\Services\Network\GloballyRoutableIp;
 use Illuminate\Container\Container;
+use Throwable;
 
 class UpstreamUrlGuard
 {
@@ -14,12 +16,21 @@ class UpstreamUrlGuard
     public function normalizeBaseUrl(string $url, bool $allowInsecureHttp): string
     {
         $url = rtrim(trim($url), '/');
-        $parts = parse_url($url);
+
+        try {
+            $parts = parse_url($url);
+        } catch (Throwable) {
+            throw new SanitizedIptvException('invalid_provider_url', 422);
+        }
+
+        if (! is_array($parts)) {
+            throw new SanitizedIptvException('invalid_provider_url', 422);
+        }
+
         $scheme = strtolower((string) ($parts['scheme'] ?? ''));
 
         if (
-            ! is_array($parts)
-            || ! in_array($scheme, ['http', 'https'], true)
+            ! in_array($scheme, ['http', 'https'], true)
             || empty($parts['host'])
             || isset($parts['user'])
             || isset($parts['pass'])
@@ -43,8 +54,48 @@ class UpstreamUrlGuard
         $this->pin($url, $allowInsecureHttp);
     }
 
+    public function normalizedOrigin(
+        string $url,
+        bool $allowInsecureHttp,
+    ): string {
+        $parts = $this->resourceParts($url, $allowInsecureHttp);
+        $host = str_contains($parts['host'], ':')
+            ? '['.$parts['host'].']'
+            : $parts['host'];
+
+        return $parts['scheme'].'://'.$host.':'.$parts['port'];
+    }
+
     public function pin(string $url, bool $allowInsecureHttp): PinnedUpstreamTarget
     {
+        $parts = $this->resourceParts($url, $allowInsecureHttp);
+        $addresses = $this->resolver->resolve($parts['host']);
+
+        if ($addresses === []) {
+            throw new SanitizedIptvException('unresolved_upstream_target', 502);
+        }
+
+        foreach ($addresses as $address) {
+            if ($this->isNonPublicIp($address)) {
+                throw new SanitizedIptvException('blocked_upstream_target', 502);
+            }
+        }
+
+        return new PinnedUpstreamTarget(
+            url: $url,
+            host: $parts['host'],
+            port: $parts['port'],
+            address: $addresses[0],
+        );
+    }
+
+    /**
+     * @return array{scheme: string, host: string, port: int}
+     */
+    private function resourceParts(
+        string $url,
+        bool $allowInsecureHttp,
+    ): array {
         $container = Container::getInstance();
         $configuredMaxBytes = $container?->bound('config')
             ? (int) config('iptv.resource_url_max_bytes')
@@ -61,16 +112,28 @@ class UpstreamUrlGuard
             throw new SanitizedIptvException('invalid_upstream_resource', 502);
         }
 
-        $parts = parse_url($url);
+        try {
+            $parts = parse_url($url);
+        } catch (Throwable) {
+            throw new SanitizedIptvException('invalid_upstream_resource', 502);
+        }
+
+        if (! is_array($parts)) {
+            throw new SanitizedIptvException('invalid_upstream_resource', 502);
+        }
+
         $scheme = strtolower((string) ($parts['scheme'] ?? ''));
-        $host = strtolower(rtrim((string) ($parts['host'] ?? ''), '.'));
+        $rawHost = (string) ($parts['host'] ?? '');
+        $unwrappedHost = trim($rawHost, '[]');
+        $host = strtolower(rtrim($unwrappedHost, '.'));
 
         if (
-            ! is_array($parts)
-            || ! in_array($scheme, ['http', 'https'], true)
+            ! in_array($scheme, ['http', 'https'], true)
             || $host === ''
+            || str_ends_with($unwrappedHost, '.')
             || isset($parts['user'])
             || isset($parts['pass'])
+            || isset($parts['fragment'])
         ) {
             throw new SanitizedIptvException('invalid_upstream_resource', 502);
         }
@@ -87,40 +150,23 @@ class UpstreamUrlGuard
             throw new SanitizedIptvException('blocked_upstream_target', 502);
         }
 
-        $addresses = $this->resolver->resolve($host);
-
-        if ($addresses === []) {
-            throw new SanitizedIptvException('unresolved_upstream_target', 502);
-        }
-
-        foreach ($addresses as $address) {
-            if ($this->isNonPublicIp($address)) {
-                throw new SanitizedIptvException('blocked_upstream_target', 502);
-            }
-        }
-
         $port = isset($parts['port'])
             ? (int) $parts['port']
             : ($scheme === 'https' ? 443 : 80);
 
-        return new PinnedUpstreamTarget(
-            url: $url,
-            host: $host,
-            port: $port,
-            address: $addresses[0],
-        );
+        if ($port < 1 || $port > 65535) {
+            throw new SanitizedIptvException('invalid_upstream_resource', 502);
+        }
+
+        return [
+            'scheme' => $scheme,
+            'host' => $host,
+            'port' => $port,
+        ];
     }
 
     private function isNonPublicIp(string $host): bool
     {
-        if (filter_var($host, FILTER_VALIDATE_IP) === false) {
-            return true;
-        }
-
-        return filter_var(
-            $host,
-            FILTER_VALIDATE_IP,
-            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE,
-        ) === false;
+        return ! GloballyRoutableIp::allows($host);
     }
 }

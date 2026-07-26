@@ -3,7 +3,10 @@
 namespace App\Services\Media;
 
 use App\Models\TranscodeSession;
+use FilesystemIterator;
 use Illuminate\Support\Facades\Log;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
 use Throwable;
 
 class TranscodePruner
@@ -11,7 +14,7 @@ class TranscodePruner
     public function __construct(private readonly TranscodeStorage $storage) {}
 
     /**
-     * @return array{sessions: int, orphan_directories: int, bytes: int}
+     * @return array{sessions: int, orphan_directories: int, transient_files: int, bytes: int}
      */
     public function prune(bool $dryRun = false): array
     {
@@ -39,7 +42,10 @@ class TranscodePruner
                     })
                     ->orWhere(function ($query) use ($staleCutoff): void {
                         $query
-                            ->where('status', TranscodeSession::STATUS_PROCESSING)
+                            ->whereIn('status', [
+                                TranscodeSession::STATUS_PENDING,
+                                TranscodeSession::STATUS_PROCESSING,
+                            ])
                             ->where(function ($query) use ($staleCutoff): void {
                                 $query
                                     ->where('started_at', '<=', $staleCutoff)
@@ -56,6 +62,7 @@ class TranscodePruner
         $result = [
             'sessions' => 0,
             'orphan_directories' => 0,
+            'transient_files' => 0,
             'bytes' => 0,
         ];
 
@@ -111,6 +118,113 @@ class TranscodePruner
             }
         }
 
+        $this->pruneTransientFiles(
+            'sources',
+            $staleCutoff->timestamp,
+            $dryRun,
+            $result,
+        );
+        $this->pruneTransientFiles(
+            'subtitles',
+            $now->copy()->subMinutes(
+                min(
+                    43200,
+                    max(10, (int) config('odissey.embedded_subtitle_cache_minutes', 1440)),
+                ),
+            )->timestamp,
+            $dryRun,
+            $result,
+        );
+
         return $result;
+    }
+
+    /**
+     * @param  array{sessions: int, orphan_directories: int, transient_files: int, bytes: int}  $result
+     */
+    private function pruneTransientFiles(
+        string $area,
+        int $cutoff,
+        bool $dryRun,
+        array &$result,
+    ): void {
+        $directory = $this->storage->transientDirectory($area);
+        if (! is_dir($directory)) {
+            return;
+        }
+
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::CHILD_FIRST,
+        );
+
+        foreach ($iterator as $entry) {
+            try {
+                if ($entry->isLink()) {
+                    continue;
+                }
+
+                if ($entry->isDir()) {
+                    if (! $dryRun) {
+                        @rmdir($entry->getPathname());
+                    }
+
+                    continue;
+                }
+
+                if (! $entry->isFile() || $entry->getMTime() > $cutoff) {
+                    continue;
+                }
+
+                $reservationHandle = null;
+                if (str_ends_with($entry->getFilename(), '.reserve')) {
+                    $reservationHandle = @fopen(
+                        $entry->getPathname(),
+                        'rb',
+                    );
+                    if (
+                        ! is_resource($reservationHandle)
+                        || ! flock(
+                            $reservationHandle,
+                            LOCK_EX | LOCK_NB,
+                        )
+                    ) {
+                        if (is_resource($reservationHandle)) {
+                            fclose($reservationHandle);
+                        }
+
+                        continue;
+                    }
+                }
+
+                try {
+                    $bytes = $entry->getSize();
+                    $result['transient_files']++;
+                    $result['bytes'] += $bytes;
+
+                    if (! $dryRun && ! @unlink($entry->getPathname())) {
+                        Log::warning(
+                            'Transient media file cleanup failed.',
+                            [
+                                'area' => $area,
+                                'file' => basename(
+                                    $entry->getPathname(),
+                                ),
+                            ],
+                        );
+                    }
+                } finally {
+                    if (is_resource($reservationHandle)) {
+                        flock($reservationHandle, LOCK_UN);
+                        fclose($reservationHandle);
+                    }
+                }
+            } catch (Throwable $exception) {
+                Log::warning('Transient media file inspection failed.', [
+                    'area' => $area,
+                    'exception' => $exception::class,
+                ]);
+            }
+        }
     }
 }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\Auth\SessionRevoker;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -33,12 +34,13 @@ class PasswordResetController extends Controller
         return view('auth.reset-password', ['token' => $token, 'email' => $request->string('email')]);
     }
 
-    public function update(Request $request): RedirectResponse
+    public function update(Request $request, SessionRevoker $sessions): RedirectResponse
     {
-        $data = $request->validate(['token' => ['required'], 'email' => ['required', 'email'], 'password' => ['required', 'confirmed', Rules\Password::defaults()]]);
-        $status = Password::reset($data, function (User $user, string $password): void {
+        $data = $request->validate(['token' => ['required'], 'email' => ['required', 'email'], 'password' => ['required', 'confirmed', 'max:255', Rules\Password::defaults()]]);
+        $status = Password::reset($data, function (User $user, string $password) use ($sessions): void {
             abort_unless($user->isActive(), 403);
             $user->forceFill(['password' => Hash::make($password), 'remember_token' => Str::random(60)])->save();
+            $sessions->revokeDatabaseSessions($user);
             event(new PasswordReset($user));
         });
 

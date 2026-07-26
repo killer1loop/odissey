@@ -16,6 +16,8 @@ class AuthenticatedSessionController extends Controller
 {
     private const MAX_ATTEMPTS = 5;
 
+    private const IP_MAX_ATTEMPTS = 20;
+
     private const DECAY_SECONDS = 60;
 
     public function create(): View
@@ -26,9 +28,16 @@ class AuthenticatedSessionController extends Controller
     public function store(LoginRequest $request): RedirectResponse
     {
         $throttleKey = $this->throttleKey($request);
+        $ipThrottleKey = $this->ipThrottleKey($request);
 
-        if (RateLimiter::tooManyAttempts($throttleKey, self::MAX_ATTEMPTS)) {
-            $seconds = RateLimiter::availableIn($throttleKey);
+        if (
+            RateLimiter::tooManyAttempts($throttleKey, self::MAX_ATTEMPTS)
+            || RateLimiter::tooManyAttempts($ipThrottleKey, self::IP_MAX_ATTEMPTS)
+        ) {
+            $seconds = max(
+                RateLimiter::availableIn($throttleKey),
+                RateLimiter::availableIn($ipThrottleKey),
+            );
 
             throw ValidationException::withMessages([
                 'email' => trans('auth.throttle', [
@@ -46,6 +55,7 @@ class AuthenticatedSessionController extends Controller
 
         if (! $authenticated) {
             RateLimiter::hit($throttleKey, self::DECAY_SECONDS);
+            RateLimiter::hit($ipThrottleKey, self::DECAY_SECONDS);
 
             throw ValidationException::withMessages([
                 'email' => trans('auth.failed'),
@@ -72,5 +82,10 @@ class AuthenticatedSessionController extends Controller
         return Str::transliterate(
             Str::lower($request->string('email')->toString()).'|'.$request->ip()
         );
+    }
+
+    private function ipThrottleKey(LoginRequest $request): string
+    {
+        return 'login-ip|'.$request->ip();
     }
 }

@@ -10,6 +10,7 @@ use App\Services\Iptv\HlsPlaylistRewriter;
 use App\Services\Iptv\IptvProxyFetcher;
 use App\Services\Iptv\PlaybackAccess;
 use App\Services\Iptv\PlaybackAttemptRecorder;
+use App\Services\Iptv\PlaybackConcurrencyGate;
 use App\Services\Iptv\PlaybackSessionManager;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -25,10 +26,21 @@ class PlaybackManifestController extends Controller
         IptvProxyFetcher $fetcher,
         HlsPlaylistRewriter $rewriter,
         PlaybackAttemptRecorder $attempts,
+        PlaybackConcurrencyGate $concurrency,
     ): Response {
         $access->assertSession($request->user(), $session);
         $root = $sessions->rootResource($session);
+        $concurrencyLease = $concurrency->acquire($session);
 
+        if ($concurrencyLease === null) {
+            return response('Too many concurrent playback requests.', 429, [
+                'Cache-Control' => 'no-store',
+                'Content-Type' => 'text/plain; charset=UTF-8',
+                'Retry-After' => '1',
+            ]);
+        }
+
+        $upstream = null;
         try {
             $upstream = $fetcher->fetch($root);
             $body = $fetcher->bodyWithinLimit(
@@ -69,6 +81,12 @@ class PlaybackManifestController extends Controller
                 'Cache-Control' => 'no-store',
                 'Content-Type' => 'text/plain; charset=UTF-8',
             ]);
+        } finally {
+            if ($upstream !== null) {
+                $upstream->toPsrResponse()->getBody()->close();
+            }
+
+            $concurrencyLease->release();
         }
     }
 }

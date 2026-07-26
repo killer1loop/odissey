@@ -7,10 +7,20 @@ services:
       context: .
     restart: unless-stopped
     stop_grace_period: 12m
+    cpus: "${ODISSEY_CONTAINER_CPUS:-4.0}"
+    mem_limit: "${ODISSEY_CONTAINER_MEMORY:-6g}"
+    pids_limit: "${ODISSEY_CONTAINER_PIDS:-512}"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     ports:
       - "127.0.0.1:8000:8000"
     environment:
       APP_URL: http://localhost:8000
+      ODISSEY_RELEASE: local
+      ODISSEY_SETUP_TOKEN: "${ODISSEY_SETUP_TOKEN:?Set ODISSEY_SETUP_TOKEN before starting Odissey}"
+      SESSION_SECURE_COOKIE: "false"
     volumes:
       - odissey-data:/var/lib/odissey
     tmpfs:

@@ -11,12 +11,20 @@ class MediaIndexController extends Controller
 {
     public function __invoke(Request $request): View
     {
-        $kind = $request->string('kind')->toString() ?: 'video';
+        $filters = $request->validate([
+            'favorites' => ['nullable', 'boolean'],
+            'kind' => ['nullable', 'in:video,music'],
+            'q' => ['nullable', 'string', 'max:200'],
+            'series' => ['nullable', 'string', 'max:255'],
+        ]);
+        $kind = $filters['kind'] ?? 'video';
+        $query = $filters['q'] ?? null;
+        $series = $filters['series'] ?? null;
         $items = MediaItem::query()
             ->accessibleTo($request->user())
-            ->where('media_kind', $kind === 'music' ? 'music' : 'video')
-            ->when($request->filled('series'), fn ($query) => $query->where('metadata->series_title', $request->string('series')->toString()))
-            ->when($request->filled('q'), fn ($query) => $query->where('title', 'like', '%'.addcslashes($request->string('q')->toString(), '%_\\').'%'))
+            ->where('media_kind', $kind)
+            ->when($series !== null, fn ($builder) => $builder->where('metadata->series_title', $series))
+            ->when($query !== null, fn ($builder) => $builder->where('title', 'like', '%'.addcslashes($query, '%_\\').'%'))
             ->when($request->boolean('favorites'), fn ($query) => $query->whereHas('favorites', fn ($q) => $q->where('user_id', $request->user()->id)))
             ->with([
                 'source',
@@ -24,7 +32,8 @@ class MediaIndexController extends Controller
                 'favorites' => fn ($query) => $query->where('user_id', $request->user()->id),
             ])
             ->orderBy('title')
-            ->get();
+            ->paginate(60)
+            ->withQueryString();
 
         return view('media.index', compact('items', 'kind'));
     }

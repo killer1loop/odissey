@@ -77,12 +77,15 @@ without it.
 ## Docker
 
 ```sh
+export ODISSEY_SETUP_TOKEN="$(openssl rand -hex 32)"
+printf 'First-launch setup token: %s\n' "$ODISSEY_SETUP_TOKEN"
 docker compose up --build
 ```
 
 The application listens on port `8000`. The Compose file persists the SQLite
 database and generated application key in the `odissey-data` volume. Transient
-HLS output uses tmpfs.
+HLS output uses tmpfs. Keep the printed one-time token long enough to enter it
+on the first-launch administrator form.
 
 For a local media library, add a read-only bind mount such as
 `/path/to/media:/media/movies:ro`; never mount source media read-write.

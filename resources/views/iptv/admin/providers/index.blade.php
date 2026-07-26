@@ -3,10 +3,8 @@
 @section('title', 'IPTV providers · Odissey')
 
 @section('content')
-    @include('iptv.styles')
-
-    <section class="iptv-page">
-        <header class="iptv-header">
+    <section class="page-section">
+        <header class="page-header">
             <div>
                 <p class="eyebrow">Administration</p>
                 <h1>IPTV providers</h1>
@@ -16,14 +14,15 @@
         </header>
 
         @if (session('status'))
-            <p class="iptv-notice" role="status">{{ session('status') }}</p>
+            <p class="notice notice-success" role="status">{{ session('status') }}</p>
         @endif
 
-        <div class="iptv-grid">
+        <div class="admin-list">
             @forelse ($providers as $provider)
-                <article class="iptv-card">
+                <article class="admin-card">
+                    <div>
                     <h2>{{ $provider->name }}</h2>
-                    <div class="iptv-meta">
+                    <div class="meta-list">
                         <span>{{ $provider->enabled ? 'Enabled' : 'Disabled' }}</span>
                         <span>·</span>
                         <span>{{ $provider->sync_status }}</span>
@@ -35,10 +34,11 @@
                         <p>Catalog synced {{ $provider->last_synced_at->diffForHumans() }}.</p>
                     @endif
                     @if ($provider->last_error_code)
-                        <p class="iptv-error">Last sync did not finish ({{ $provider->last_error_code }}).</p>
+                        <p class="field-error">Last sync did not finish ({{ $provider->last_error_code }}).</p>
                     @endif
+                    </div>
 
-                    <div class="iptv-card-actions">
+                    <div class="card-actions">
                         <a class="button button-muted" href="{{ route('iptv.admin.providers.edit', $provider) }}">Edit</a>
                         <form method="POST" action="{{ route('iptv.admin.providers.sync', $provider) }}">
                             @csrf
@@ -51,12 +51,12 @@
                         <form method="POST" action="{{ route('iptv.admin.providers.destroy', $provider) }}">
                             @csrf
                             @method('DELETE')
-                            <button class="button button-muted" type="submit">Remove</button>
+                            <button class="button button-danger" type="submit">Remove</button>
                         </form>
                     </div>
                 </article>
             @empty
-                <p class="iptv-empty">No IPTV provider has been configured.</p>
+                <div class="empty-state"><h2>No IPTV providers</h2><p>Add a provider to import channels and guide data.</p></div>
             @endforelse
         </div>
     </section>

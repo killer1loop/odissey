@@ -2,24 +2,38 @@
 
 namespace App\Services\Media;
 
-use Illuminate\Support\Facades\Http;
-
 class TvmazeMetadataProvider
 {
+    public function __construct(
+        private readonly ConfidentialJsonClient $http,
+    ) {}
+
     /** @param array<string, mixed> $parsed @return array<string, mixed> */
     public function match(array $parsed): array
     {
         if (($parsed['kind'] ?? '') !== 'episode' || empty($parsed['series_title'])) {
             return [];
         }
-        $showResponse = Http::acceptJson()->timeout(10)->get('https://api.tvmaze.com/singlesearch/shows', ['q' => $parsed['series_title']]);
-        if (! $showResponse->successful() || ! is_array($show = $showResponse->json())) {
+        $show = $this->http->get(
+            'https://api.tvmaze.com/singlesearch/shows',
+            ['q' => $parsed['series_title']],
+            [],
+            ['api.tvmaze.com'],
+        );
+        if ($show === null) {
             return [];
         }
-        $episodeResponse = Http::acceptJson()->timeout(10)->get('https://api.tvmaze.com/shows/'.$show['id'].'/episodebynumber', [
-            'season' => $parsed['season_number'], 'number' => $parsed['episode_number'],
-        ]);
-        $episode = $episodeResponse->successful() ? $episodeResponse->json() : [];
+        $episode = isset($show['id'])
+            ? $this->http->get(
+                'https://api.tvmaze.com/shows/'.(int) $show['id'].'/episodebynumber',
+                [
+                    'season' => $parsed['season_number'],
+                    'number' => $parsed['episode_number'],
+                ],
+                [],
+                ['api.tvmaze.com'],
+            ) ?? []
+            : [];
         $summary = strip_tags((string) ($episode['summary'] ?? $show['summary'] ?? ''));
 
         return array_filter([

@@ -25,6 +25,7 @@ class FfmpegRunnerTest extends TestCase
 
         $this->assertSame(280.0, $runner->process?->getTimeout());
         $this->assertNull($runner->process?->getIdleTimeout());
+        $this->assertTrue($runner->process?->isOutputDisabled());
     }
 
     public function test_watchdog_stops_a_process_when_its_resource_guard_fails(): void
@@ -42,5 +43,54 @@ class FfmpegRunnerTest extends TestCase
                 return $checks < 2;
             },
         );
+    }
+
+    public function test_child_processes_do_not_inherit_application_secrets_or_proxies(): void
+    {
+        $previousKey = getenv('APP_KEY');
+        $previousKeys = getenv('APP_PREVIOUS_KEYS');
+        $previousProxy = getenv('HTTPS_PROXY');
+        $previousCredential = getenv('SYNTHETIC_CREDENTIALS');
+        $previousEnvironmentSecret = $_ENV['SYNTHETIC_ENV_SECRET'] ?? null;
+        putenv('APP_KEY=base64:synthetic-secret');
+        putenv('APP_PREVIOUS_KEYS=base64:old-synthetic-secret');
+        putenv('HTTPS_PROXY=http://proxy.invalid');
+        putenv('SYNTHETIC_CREDENTIALS=credential-material');
+        $_ENV['SYNTHETIC_ENV_SECRET'] = 'environment-secret';
+
+        try {
+            (new FfmpegRunner)->run([
+                PHP_BINARY,
+                '-r',
+                'exit('
+                    .'getenv("APP_KEY") === false'
+                    .' && getenv("APP_PREVIOUS_KEYS") === false'
+                    .' && getenv("HTTPS_PROXY") === false'
+                    .' && getenv("SYNTHETIC_CREDENTIALS") === false'
+                    .' && getenv("SYNTHETIC_ENV_SECRET") === false'
+                    .' && getenv("HOME") === "/tmp"'
+                    .' ? 0 : 1);',
+            ], 5);
+        } finally {
+            $previousKey === false
+                ? putenv('APP_KEY')
+                : putenv('APP_KEY='.$previousKey);
+            $previousKeys === false
+                ? putenv('APP_PREVIOUS_KEYS')
+                : putenv('APP_PREVIOUS_KEYS='.$previousKeys);
+            $previousProxy === false
+                ? putenv('HTTPS_PROXY')
+                : putenv('HTTPS_PROXY='.$previousProxy);
+            $previousCredential === false
+                ? putenv('SYNTHETIC_CREDENTIALS')
+                : putenv('SYNTHETIC_CREDENTIALS='.$previousCredential);
+            if ($previousEnvironmentSecret === null) {
+                unset($_ENV['SYNTHETIC_ENV_SECRET']);
+            } else {
+                $_ENV['SYNTHETIC_ENV_SECRET'] = $previousEnvironmentSecret;
+            }
+        }
+
+        $this->addToAssertionCount(1);
     }
 }

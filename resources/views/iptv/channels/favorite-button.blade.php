@@ -1,5 +1,5 @@
 <button
-    class="iptv-favorite"
+    class="favorite-button"
     type="button"
     aria-label="{{ $isFavorite ? 'Remove '.$channel->name.' from favorites' : 'Add '.$channel->name.' to favorites' }}"
     aria-pressed="{{ $isFavorite ? 'true' : 'false' }}"

@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\File;
     'user_id',
     'media_source_id',
     'stable_id',
+    'scan_token',
     'title',
     'media_kind',
     'source_type',
@@ -37,8 +38,14 @@ class MediaItem extends Model
     protected static function booted(): void
     {
         static::deleting(function (MediaItem $item): void {
-            File::deleteDirectory(rtrim(config('odissey.artwork_path'), '/').'/'.$item->id);
-            File::deleteDirectory(rtrim(config('odissey.caption_path'), '/').'/'.$item->id);
+            self::deleteAssetDirectory(
+                (string) config('odissey.artwork_path'),
+                (string) $item->id,
+            );
+            self::deleteAssetDirectory(
+                (string) config('odissey.caption_path'),
+                (string) $item->id,
+            );
         });
     }
 
@@ -88,6 +95,37 @@ class MediaItem extends Model
             $query->whereNotNull('media_source_id')
                 ->orWhere('user_id', $user->getKey());
         })->whereNull('missing_at');
+    }
+
+    private static function deleteAssetDirectory(
+        string $configuredRoot,
+        string $itemId,
+    ): void {
+        $root = rtrim($configuredRoot, DIRECTORY_SEPARATOR);
+        $segments = explode(DIRECTORY_SEPARATOR, $root);
+
+        if (
+            $root === ''
+            || $root === DIRECTORY_SEPARATOR
+            || ! str_starts_with($root, DIRECTORY_SEPARATOR)
+            || str_contains($root, "\0")
+            || str_contains($root, DIRECTORY_SEPARATOR.DIRECTORY_SEPARATOR)
+            || in_array('.', $segments, true)
+            || in_array('..', $segments, true)
+            || is_link($root)
+        ) {
+            return;
+        }
+
+        $directory = $root.DIRECTORY_SEPARATOR.$itemId;
+
+        if (is_link($directory)) {
+            return;
+        }
+
+        if (File::isDirectory($directory)) {
+            File::deleteDirectory($directory);
+        }
     }
 
     protected function casts(): array

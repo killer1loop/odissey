@@ -17,6 +17,11 @@ class MediaArtworkController extends Controller
         $path = $artwork->path($item, $kind);
         abort_if($path === null, 404);
 
-        return response()->file($path, ['Cache-Control' => 'private, max-age=86400', 'Content-Type' => 'image/jpeg']);
+        return response()->file($path, [
+            'Cache-Control' => 'private, max-age=86400',
+            'Content-Type' => 'image/jpeg',
+            'Cross-Origin-Resource-Policy' => 'same-origin',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
     }
 }

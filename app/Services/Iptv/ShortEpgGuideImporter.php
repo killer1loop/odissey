@@ -17,6 +17,7 @@ class ShortEpgGuideImporter implements GuideImporter
 
     public function __construct(
         private readonly XtreamClient $client,
+        private readonly EpgGuideLimiter $guideLimiter,
     ) {}
 
     public function import(
@@ -57,6 +58,7 @@ class ShortEpgGuideImporter implements GuideImporter
                     ->orWhere('starts_at', '>', now()->addDays(7));
             })
             ->delete();
+        $this->guideLimiter->enforce($provider);
 
         return new GuideImportResult(
             programsImported: $seen,

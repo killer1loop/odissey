@@ -58,14 +58,38 @@ class PlaybackProgressController extends Controller
             );
 
             if ($watchedMs > 0) {
-                PlaybackHistory::query()->create([
-                    'user_id' => $request->user()->getKey(),
-                    'media_item_id' => $item->getKey(),
-                    'event' => 'progress',
-                    'position_ms' => $positionMs,
-                    'watched_ms' => $watchedMs,
-                    'played_at' => now(),
-                ]);
+                $aggregationSeconds = min(
+                    300,
+                    max(10, (int) config('odissey.playback_history_aggregation_seconds', 60)),
+                );
+                $history = PlaybackHistory::query()
+                    ->whereBelongsTo($request->user())
+                    ->whereBelongsTo($item, 'mediaItem')
+                    ->where('event', 'progress')
+                    ->where('played_at', '>=', now()->subSeconds($aggregationSeconds))
+                    ->lockForUpdate()
+                    ->latest('played_at')
+                    ->first();
+
+                if ($history === null) {
+                    PlaybackHistory::query()->create([
+                        'user_id' => $request->user()->getKey(),
+                        'media_item_id' => $item->getKey(),
+                        'event' => 'progress',
+                        'position_ms' => $positionMs,
+                        'watched_ms' => $watchedMs,
+                        'played_at' => now(),
+                    ]);
+                } else {
+                    $history->forceFill([
+                        'position_ms' => $positionMs,
+                        'watched_ms' => min(
+                            $aggregationSeconds * 1000,
+                            max(0, (int) $history->watched_ms) + $watchedMs,
+                        ),
+                        'played_at' => now(),
+                    ])->save();
+                }
             }
 
             if ($completed && ! $wasCompleted) {

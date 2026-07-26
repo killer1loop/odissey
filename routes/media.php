@@ -41,11 +41,18 @@ Route::middleware(['auth', EnsureUserIsActive::class])
         Route::delete('/{media}/favorite', [MediaFavoriteController::class, 'destroy'])->name('favorites.destroy');
         Route::get('/{media}', MediaPlayerController::class)->name('show');
         Route::get('/{media}/file', DirectMediaController::class)->name('direct');
-        Route::put('/{media}/progress', PlaybackProgressController::class)->name('progress');
-        Route::get('/{media}/subtitles/{track}.vtt', SubtitleController::class)->whereNumber('track')->name('subtitles');
+        Route::put('/{media}/progress', PlaybackProgressController::class)
+            ->middleware('throttle:30,1')
+            ->name('progress');
+        Route::get('/{media}/subtitles/{track}.vtt', SubtitleController::class)
+            ->middleware('throttle:6,1')
+            ->whereNumber('track')
+            ->name('subtitles');
         Route::post('/{media}/captions/fetch', CaptionFetchController::class)->middleware('throttle:10,1')->name('captions.fetch');
         Route::get('/{media}/captions/{subtitle}.vtt', ExternalSubtitleController::class)->name('captions.show');
-        Route::post('/{media}/transcodes', TranscodeController::class)->name('transcodes.store');
+        Route::post('/{media}/transcodes', TranscodeController::class)
+            ->middleware('throttle:10,1')
+            ->name('transcodes.store');
         Route::get('/{media}/transcodes/{session}/status', TranscodeStatusController::class)
             ->name('transcodes.status');
         Route::get('/{media}/transcodes/{session}/index.m3u8', HlsManifestController::class)

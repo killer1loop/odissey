@@ -4,12 +4,21 @@ namespace App\Services\Iptv;
 
 use App\Models\Iptv\IptvProvider;
 use App\Services\Iptv\Exceptions\SanitizedIptvException;
+use GuzzleHttp\Handler\CurlHandler;
 use JsonException;
 use Psr\Http\Message\ResponseInterface;
 use Throwable;
 
 class XtreamClient
 {
+    /**
+     * json_decode expands provider payloads into PHP hash tables. A small hard
+     * ceiling prevents configured limits from exceeding worker memory.
+     */
+    private const MAX_BUFFERED_JSON_BYTES = 8 * 1024 * 1024;
+
+    private const MAX_CHANNEL_ROWS = 20000;
+
     public function __construct(
         private readonly ConfidentialHttpFactory $http,
         private readonly UpstreamUrlGuard $urlGuard,
@@ -49,7 +58,10 @@ class XtreamClient
 
         if (
             count($payload)
-            > min(150000, max(1, (int) config('iptv.channel_max_rows')))
+            > min(
+                self::MAX_CHANNEL_ROWS,
+                max(1, (int) config('iptv.channel_max_rows')),
+            )
         ) {
             throw new SanitizedIptvException('provider_channel_limit');
         }
@@ -114,9 +126,13 @@ class XtreamClient
         }
 
         $maxBytes = min(
-            128 * 1024 * 1024,
-            max(1024 * 1024, (int) config('iptv.api_max_response_bytes')),
+            self::MAX_BUFFERED_JSON_BYTES,
+            max(1024 * 1024, (int) config(
+                'iptv.api_max_response_bytes',
+                self::MAX_BUFFERED_JSON_BYTES,
+            )),
         );
+        $sink = new BoundedResponseSink($maxBytes);
 
         try {
             $target = $this->urlGuard->pin(
@@ -124,12 +140,16 @@ class XtreamClient
                 $provider->allow_insecure_http,
             );
             $response = $this->http
+                ->createPendingRequest()
+                ->setHandler(new CurlHandler)
                 ->acceptJson()
-                ->connectTimeout(min(5, max(1, (int) config('iptv.connect_timeout_seconds'))))
-                ->timeout(min(20, max(1, (int) config('iptv.request_timeout_seconds'))))
+                ->connectTimeout(min(5, max(1, (int) config('iptv.connect_timeout_seconds', 5))))
+                ->timeout(min(20, max(1, (int) config('iptv.request_timeout_seconds', 20))))
                 ->withOptions([
                     'allow_redirects' => false,
+                    'decode_content' => true,
                     'http_errors' => false,
+                    'sink' => $sink,
                     'curl' => $target->curlOptions(),
                     'on_headers' => static function (ResponseInterface $response) use ($maxBytes): void {
                         $contentLength = $response->getHeaderLine('Content-Length');
@@ -157,12 +177,24 @@ class XtreamClient
                 ])
                 ->get($target->url, $query);
         } catch (SanitizedIptvException $exception) {
+            $sink->close();
+
             throw $exception;
         } catch (Throwable) {
+            $limitExceeded = $sink->limitExceeded();
+            $sink->close();
+
+            if ($limitExceeded) {
+                throw new SanitizedIptvException('provider_response_too_large');
+            }
+
             throw new SanitizedIptvException('provider_connection_failed');
         }
 
         if (! $response->successful()) {
+            $response->toPsrResponse()->getBody()->close();
+            $sink->close();
+
             throw new SanitizedIptvException('provider_rejected_request');
         }
 
@@ -173,10 +205,21 @@ class XtreamClient
             && ctype_digit($contentLength)
             && (int) $contentLength > $maxBytes
         ) {
+            $response->toPsrResponse()->getBody()->close();
+            $sink->close();
+
             throw new SanitizedIptvException('provider_response_too_large');
         }
 
-        $body = $response->body();
+        try {
+            $body = $sink->contents();
+            if ($body === '') {
+                $body = $response->body();
+            }
+        } finally {
+            $response->toPsrResponse()->getBody()->close();
+            $sink->close();
+        }
 
         if (strlen($body) > $maxBytes) {
             throw new SanitizedIptvException('provider_response_too_large');

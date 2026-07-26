@@ -11,6 +11,7 @@ class EpgProgram extends Model
         'iptv_provider_id',
         'channel_id',
         'fingerprint',
+        'sync_token',
         'upstream_event_id',
         'title',
         'description',

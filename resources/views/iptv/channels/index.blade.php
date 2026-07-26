@@ -3,10 +3,8 @@
 @section('title', 'Live TV · Odissey')
 
 @section('content')
-    @include('iptv.styles')
-
-    <section class="iptv-page">
-        <header class="iptv-header">
+    <section class="page-section">
+        <header class="page-header">
             <div>
                 <p class="eyebrow">Live television</p>
                 <h1>Channels</h1>
@@ -14,14 +12,14 @@
             </div>
         </header>
 
-        <form class="iptv-filter" method="GET" action="{{ route('iptv.channels.index') }}">
-            <label class="iptv-label">
+        <form class="filter-bar" method="GET" action="{{ route('iptv.channels.index') }}">
+            <label class="control-field filter-search">
                 <span class="sr-only">Search channels</span>
-                <input class="iptv-input" type="search" name="q" maxlength="100" value="{{ $search }}" placeholder="Search channels">
+                <input type="search" name="q" maxlength="100" value="{{ $search }}" placeholder="Search channels">
             </label>
-            <label class="iptv-label">
+            <label class="control-field">
                 <span class="sr-only">Channel group</span>
-                <select class="iptv-input" name="group">
+                <select name="group">
                     <option value="">All groups</option>
                     @foreach ($groups as $group)
                         <option value="{{ $group->id }}" @selected($selectedGroup === $group->id)>
@@ -30,8 +28,8 @@
                     @endforeach
                 </select>
             </label>
-            <div class="iptv-card-actions" style="margin-top: 0">
-                <label class="iptv-check">
+            <div class="filter-actions">
+                <label class="checkbox-row">
                     <input type="checkbox" name="favorites" value="1" @checked($favoritesOnly)>
                     <span>Favorites</span>
                 </label>
@@ -39,17 +37,17 @@
             </div>
         </form>
 
-        <div class="iptv-grid">
+        <div class="channel-grid">
             @forelse ($channels as $channel)
                 @php
                     $programs = $guideByChannel->get($channel->id, collect());
                     $current = $programs->first(fn ($program) => $program->starts_at <= now() && $program->ends_at > now());
                     $next = $programs->first(fn ($program) => $program->starts_at > now());
                 @endphp
-                <article class="iptv-card">
-                    <div class="iptv-channel-head">
-                        <div class="iptv-channel-mark" aria-hidden="true">{{ mb_strtoupper(mb_substr($channel->name, 0, 2)) }}</div>
-                        <div style="min-width: 0; flex: 1">
+                <article class="channel-card">
+                    <div class="channel-card-head">
+                        <div class="channel-mark" aria-hidden="true">{{ mb_strtoupper(mb_substr($channel->name, 0, 2)) }}</div>
+                        <div class="channel-title">
                             <h2>{{ $channel->name }}</h2>
                             <p>{{ $channel->group?->name ?? 'Other channels' }}</p>
                         </div>
@@ -59,7 +57,7 @@
                         ])
                     </div>
 
-                    <div class="iptv-guide">
+                    <div class="channel-guide">
                         @if ($current)
                             <strong>{{ $current->title }}</strong>
                             <span>Now · ends {{ $current->ends_at->format('H:i') }}</span>
@@ -72,16 +70,16 @@
                         @endif
                     </div>
 
-                    <form class="iptv-card-actions" method="POST" action="{{ route('iptv.playback.store', $channel) }}">
+                    <form class="channel-actions" method="POST" action="{{ route('iptv.playback.store', $channel) }}">
                         @csrf
                         <button class="button button-primary" type="submit">Watch live</button>
                     </form>
                 </article>
             @empty
-                <p class="iptv-empty">No channels match these filters.</p>
+                <div class="empty-state"><h2>No channels found</h2><p>Try another group or clear the search.</p></div>
             @endforelse
         </div>
 
-        <div style="margin-top: 1.5rem">{{ $channels->links() }}</div>
+        <div class="pagination">{{ $channels->links() }}</div>
     </section>
 @endsection

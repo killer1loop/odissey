@@ -2,12 +2,16 @@
 
 namespace Tests\Feature\Iptv;
 
+use App\Models\Iptv\Channel;
 use App\Models\Iptv\IptvPlaybackResource;
 use App\Models\Iptv\IptvPlaybackSession;
 use App\Models\User;
 use App\Services\Iptv\HostAddressResolver;
+use App\Services\Iptv\PlaybackConcurrencyGate;
+use App\Services\Iptv\PlaybackResourceRepository;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request as ClientRequest;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Tests\Concerns\InteractsWithIptv;
@@ -23,6 +27,7 @@ class IptvPlaybackProxyTest extends TestCase
         parent::setUp();
         $this->loadIptvRoutes();
         $this->allowPublicIptvDns();
+        Cache::flush();
         Http::preventStrayRequests();
     }
 
@@ -89,6 +94,11 @@ class IptvPlaybackProxyTest extends TestCase
             ->get(route('iptv.playback.show', $session))
             ->assertOk()
             ->assertSee(route('iptv.playback.manifest', $session))
+            ->assertSee('data-player-controls', escape: false)
+            ->assertSee('data-stream-health', escape: false)
+            ->assertSee('Resolution')
+            ->assertSee('Bitrate')
+            ->assertSee('player-page')
             ->assertDontSee('iptv.example.test')
             ->assertDontSee('private-live-user')
             ->assertDontSee('private-live-password');
@@ -156,10 +166,18 @@ class IptvPlaybackProxyTest extends TestCase
         ]);
         $channel = $this->makeChannel($provider);
         $requestedHosts = [];
+        $requestedAddresses = [];
 
-        Http::fake(function (ClientRequest $request) use (&$requestedHosts) {
-            $host = (string) parse_url($request->url(), PHP_URL_HOST);
+        Http::fake(function (ClientRequest $request) use (
+            &$requestedHosts,
+            &$requestedAddresses,
+        ) {
+            $host = $request->header('Host')[0] ?? '';
             $requestedHosts[] = $host;
+            $requestedAddresses[] = (string) parse_url(
+                $request->url(),
+                PHP_URL_HOST,
+            );
 
             if ($host === 'iptv.example.test') {
                 return Http::response('', 302, [
@@ -189,6 +207,7 @@ class IptvPlaybackProxyTest extends TestCase
             ['iptv.example.test', 'stream.example.test'],
             $requestedHosts,
         );
+        $this->assertSame(['8.8.8.8', '8.8.8.8'], $requestedAddresses);
         $root = IptvPlaybackResource::query()
             ->whereNull('parent_resource_id')
             ->sole();
@@ -368,12 +387,17 @@ class IptvPlaybackProxyTest extends TestCase
             'two.ts',
         ]), 200, ['Content-Type' => 'application/x-mpegurl']));
 
+        $this->actingAs($user)->post(route('iptv.playback.store', $channel));
+        $secondSession = IptvPlaybackSession::query()
+            ->whereKeyNot($session->id)
+            ->sole();
+
         $this->actingAs($user)
-            ->get(route('iptv.playback.manifest', $session))
+            ->get(route('iptv.playback.manifest', $secondSession))
             ->assertStatus(502);
-        $this->assertSame(2, $session->resources()->count());
+        $this->assertSame(2, $secondSession->resources()->count());
         $this->assertDatabaseHas('iptv_playback_attempts', [
-            'iptv_playback_session_id' => $session->id,
+            'iptv_playback_session_id' => $secondSession->id,
             'error_code' => 'playback_resource_limit',
         ]);
     }
@@ -414,6 +438,191 @@ class IptvPlaybackProxyTest extends TestCase
         ]);
     }
 
+    public function test_ll_hls_rendition_reports_are_rewritten_with_generic_content_types(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $provider = $this->makeProvider([
+            'username' => 'rendition-private-user',
+            'password' => 'rendition-private-password',
+        ]);
+        $channel = $this->makeChannel($provider);
+
+        Http::fake(function (ClientRequest $request) {
+            $path = (string) parse_url($request->url(), PHP_URL_PATH);
+
+            if (str_ends_with($path, '/101.m3u8')) {
+                return Http::response(implode("\n", [
+                    '#EXTM3U',
+                    '#EXT-X-RENDITION-REPORT:URI="renditions/alternate",LAST-MSN=10',
+                ]), 200, [
+                    'Content-Type' => 'application/vnd.apple.mpegurl',
+                ]);
+            }
+
+            return Http::response(implode("\n", [
+                '#EXTM3U',
+                '#EXTINF:6.0,',
+                'https://cdn.example.test/live/rendition-private-user/rendition-private-password/one.ts',
+            ]), 200, [
+                'Content-Type' => 'application/octet-stream',
+            ]);
+        });
+
+        $this->actingAs($user)->post(route('iptv.playback.store', $channel));
+        $session = IptvPlaybackSession::query()->sole();
+        $this->actingAs($user)
+            ->get(route('iptv.playback.manifest', $session))
+            ->assertOk();
+        $rendition = $session->resources()
+            ->where('resource_type', 'playlist')
+            ->whereNotNull('parent_resource_id')
+            ->sole();
+
+        $response = $this->actingAs($user)
+            ->get(route('iptv.playback.resource', [$session, $rendition]))
+            ->assertOk();
+        $body = (string) $response->getContent();
+
+        $this->assertStringContainsString('/resources/', $body);
+        $this->assertStringNotContainsString('cdn.example.test', $body);
+        $this->assertStringNotContainsString('rendition-private-user', $body);
+        $this->assertStringNotContainsString('rendition-private-password', $body);
+    }
+
+    public function test_generic_resources_are_sniffed_for_nested_hls_manifests(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $channel = $this->makeChannel($this->makeProvider());
+
+        Http::fake(function (ClientRequest $request) {
+            $path = (string) parse_url($request->url(), PHP_URL_PATH);
+
+            if (str_ends_with($path, '/101.m3u8')) {
+                return Http::response(implode("\n", [
+                    '#EXTM3U',
+                    '#EXT-X-PRELOAD-HINT:TYPE=PART,URI="dynamic/manifest"',
+                ]), 200, [
+                    'Content-Type' => 'application/vnd.apple.mpegurl',
+                ]);
+            }
+
+            return Http::response(implode("\n", [
+                '#EXTM3U',
+                '#EXTINF:6.0,',
+                'segment.ts',
+            ]), 200, [
+                'Content-Type' => 'text/plain',
+            ]);
+        });
+
+        $this->actingAs($user)->post(route('iptv.playback.store', $channel));
+        $session = IptvPlaybackSession::query()->sole();
+        $this->actingAs($user)
+            ->get(route('iptv.playback.manifest', $session))
+            ->assertOk();
+        $nested = $session->resources()
+            ->where('resource_type', 'resource')
+            ->sole();
+
+        $response = $this->actingAs($user)
+            ->get(route('iptv.playback.resource', [$session, $nested]))
+            ->assertOk();
+
+        $this->assertSame('playlist', $nested->fresh()->resource_type);
+        $this->assertStringContainsString('/resources/', (string) $response->getContent());
+    }
+
+    public function test_optional_and_unknown_hls_metadata_is_stripped_without_exposing_tokens(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $channel = $this->makeChannel($this->makeProvider());
+        Http::fake(fn () => Http::response(implode("\n", [
+            '#EXTM3U',
+            '#EXT-X-SESSION-DATA:DATA-ID="provider",VALUE="session-data-secret"',
+            '#EXT-X-DATERANGE:ID="ad",X-PROVIDER-TOKEN="daterange-secret"',
+            '#VENDOR-COMMENT:comment-secret',
+            '#EXT-X-UNKNOWN:TOKEN="extension-secret"',
+            '#EXT-X-TARGETDURATION:6',
+            '#EXTINF:6.0,',
+            'segment.ts',
+        ]), 200, ['Content-Type' => 'application/vnd.apple.mpegurl']));
+
+        $this->actingAs($user)->post(route('iptv.playback.store', $channel));
+        $session = IptvPlaybackSession::query()->sole();
+        $response = $this->actingAs($user)
+            ->get(route('iptv.playback.manifest', $session))
+            ->assertOk();
+        $manifest = (string) $response->getContent();
+
+        $this->assertStringContainsString('#EXT-X-TARGETDURATION:6', $manifest);
+        $this->assertStringContainsString('/resources/', $manifest);
+
+        foreach ([
+            'session-data-secret',
+            'daterange-secret',
+            'comment-secret',
+            'extension-secret',
+        ] as $secret) {
+            $this->assertStringNotContainsString($secret, $manifest);
+        }
+    }
+
+    public function test_hls_variable_definitions_and_references_are_rejected(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $channel = $this->makeChannel($this->makeProvider());
+        Http::fake(fn () => Http::response(implode("\n", [
+            '#EXTM3U',
+            '#EXT-X-DEFINE:NAME="TOKEN",VALUE="variable-provider-secret"',
+            '#EXTINF:6.0,',
+            'segments/{$TOKEN}.ts',
+        ]), 200, ['Content-Type' => 'application/vnd.apple.mpegurl']));
+
+        $this->actingAs($user)->post(route('iptv.playback.store', $channel));
+        $session = IptvPlaybackSession::query()->sole();
+
+        $this->actingAs($user)
+            ->get(route('iptv.playback.manifest', $session))
+            ->assertStatus(502)
+            ->assertDontSee('variable-provider-secret')
+            ->assertDontSee('TOKEN');
+        $this->assertDatabaseHas('iptv_playback_attempts', [
+            'iptv_playback_session_id' => $session->id,
+            'outcome' => 'failed',
+            'error_code' => 'invalid_hls_manifest',
+        ]);
+    }
+
+    public function test_known_provider_credentials_cannot_survive_in_allowed_hls_metadata(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $provider = $this->makeProvider([
+            'username' => 'provider-user-secret',
+            'password' => 'provider-password-secret',
+        ]);
+        $channel = $this->makeChannel($provider);
+        Http::fake(fn () => Http::response(implode("\n", [
+            '#EXTM3U',
+            '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="provider-password-secret",URI="audio/index.m3u8"',
+            '#EXT-X-STREAM-INF:BANDWIDTH=100000,AUDIO="audio"',
+            'video/index.m3u8',
+        ]), 200, ['Content-Type' => 'application/vnd.apple.mpegurl']));
+
+        $this->actingAs($user)->post(route('iptv.playback.store', $channel));
+        $session = IptvPlaybackSession::query()->sole();
+
+        $this->actingAs($user)
+            ->get(route('iptv.playback.manifest', $session))
+            ->assertStatus(502)
+            ->assertDontSee('provider-password-secret')
+            ->assertDontSee('provider-user-secret');
+        $this->assertDatabaseHas('iptv_playback_attempts', [
+            'iptv_playback_session_id' => $session->id,
+            'outcome' => 'failed',
+            'error_code' => 'invalid_hls_manifest',
+        ]);
+    }
+
     public function test_disabling_or_reconfiguring_a_source_invalidates_existing_sessions(): void
     {
         $admin = User::factory()->create(['is_active' => true, 'is_admin' => true]);
@@ -450,5 +659,292 @@ class IptvPlaybackProxyTest extends TestCase
             ->assertStatus(410);
         $this->assertSame('invalidated', $secondSession->fresh()->status);
         Http::assertNothingSent();
+    }
+
+    public function test_sessions_are_reused_replaced_and_explicitly_released_without_monopolizing_provider_slots(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $otherUser = User::factory()->create(['is_active' => true]);
+        $provider = $this->makeProvider([
+            'config' => [
+                'api' => 'xtream',
+                'stream_format' => 'hls',
+                'max_connections' => 1,
+            ],
+        ]);
+        $firstChannel = $this->makeChannel($provider);
+        $secondChannel = Channel::query()->create([
+            'iptv_provider_id' => $provider->id,
+            'channel_group_id' => $firstChannel->channel_group_id,
+            'external_id' => '102',
+            'epg_channel_id' => 'news.102',
+            'name' => 'Example News Two',
+            'channel_number' => '2',
+            'stream_extension' => 'm3u8',
+            'metadata' => [],
+            'is_active' => true,
+        ]);
+
+        $this->actingAs($user)
+            ->post(route('iptv.playback.store', $firstChannel))
+            ->assertRedirect();
+        $firstSession = IptvPlaybackSession::query()->sole();
+
+        $this->actingAs($user)
+            ->post(route('iptv.playback.store', $firstChannel))
+            ->assertRedirect(route('iptv.playback.show', $firstSession));
+        $this->assertDatabaseCount('iptv_playback_sessions', 1);
+
+        $this->actingAs($user)
+            ->post(route('iptv.playback.store', $secondChannel))
+            ->assertRedirect();
+        $secondSession = IptvPlaybackSession::query()
+            ->whereKeyNot($firstSession->id)
+            ->sole();
+        $this->assertSame('released', $firstSession->fresh()->status);
+        $this->assertTrue($firstSession->fresh()->expires_at->isPast());
+        $this->assertSame('created', $secondSession->status);
+
+        $this->actingAs($otherUser)
+            ->delete(route('iptv.playback.destroy', $secondSession))
+            ->assertNotFound();
+        $this->assertSame('created', $secondSession->fresh()->status);
+
+        $this->actingAs($user)
+            ->delete(route('iptv.playback.destroy', $secondSession))
+            ->assertRedirect(route('iptv.channels.index'));
+        $this->assertSame('released', $secondSession->fresh()->status);
+        $this->assertTrue($secondSession->fresh()->expires_at->isPast());
+        $this->assertTrue(
+            $secondSession->resources()->sole()->expires_at->isPast(),
+        );
+
+        $this->actingAs($otherUser)
+            ->post(route('iptv.playback.store', $firstChannel))
+            ->assertRedirect();
+        $this->assertSame(
+            'created',
+            IptvPlaybackSession::query()
+                ->where('user_id', $otherUser->id)
+                ->sole()
+                ->status,
+        );
+    }
+
+    public function test_failed_playback_releases_the_provider_slot_immediately(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $otherUser = User::factory()->create(['is_active' => true]);
+        $provider = $this->makeProvider([
+            'config' => [
+                'api' => 'xtream',
+                'stream_format' => 'hls',
+                'max_connections' => 1,
+            ],
+        ]);
+        $channel = $this->makeChannel($provider);
+        Http::fake(fn () => Http::response('', 503));
+
+        $this->actingAs($user)->post(route('iptv.playback.store', $channel));
+        $failedSession = IptvPlaybackSession::query()->sole();
+        $this->actingAs($user)
+            ->get(route('iptv.playback.manifest', $failedSession))
+            ->assertStatus(502);
+
+        $failedSession->refresh();
+        $this->assertSame('failed', $failedSession->status);
+        $this->assertTrue($failedSession->expires_at->isPast());
+        $this->assertTrue($failedSession->resources()->sole()->expires_at->isPast());
+
+        $this->actingAs($otherUser)
+            ->post(route('iptv.playback.store', $channel))
+            ->assertRedirect();
+        $this->assertDatabaseHas('iptv_playback_sessions', [
+            'user_id' => $otherUser->id,
+            'status' => 'created',
+        ]);
+    }
+
+    public function test_stale_created_sessions_do_not_hold_provider_slots(): void
+    {
+        config()->set('iptv.playback_lease_seconds', 30);
+        $firstUser = User::factory()->create(['is_active' => true]);
+        $secondUser = User::factory()->create(['is_active' => true]);
+        $provider = $this->makeProvider([
+            'config' => [
+                'api' => 'xtream',
+                'stream_format' => 'hls',
+                'max_connections' => 1,
+            ],
+        ]);
+        $channel = $this->makeChannel($provider);
+
+        $this->actingAs($firstUser)
+            ->post(route('iptv.playback.store', $channel));
+        $stale = IptvPlaybackSession::query()->sole();
+        $stale->forceFill([
+            'created_at' => now()->subMinute(),
+            'expires_at' => now()->addHour(),
+        ])->save();
+        $stale->resources()->update(['expires_at' => now()->addHour()]);
+
+        $this->actingAs($secondUser)
+            ->post(route('iptv.playback.store', $channel))
+            ->assertRedirect();
+
+        $this->assertSame('released', $stale->fresh()->status);
+        $this->assertTrue($stale->fresh()->expires_at->isPast());
+        $this->assertTrue($stale->resources()->sole()->expires_at->isPast());
+        $this->assertDatabaseHas('iptv_playback_sessions', [
+            'user_id' => $secondUser->id,
+            'status' => 'created',
+        ]);
+    }
+
+    public function test_successful_requests_renew_the_short_session_and_resource_lease(): void
+    {
+        config()->set('iptv.playback_lease_seconds', 30);
+        $user = User::factory()->create(['is_active' => true]);
+        $channel = $this->makeChannel($this->makeProvider());
+        Http::fake(fn () => Http::response(
+            "#EXTM3U\n#EXT-X-ENDLIST",
+            200,
+            ['Content-Type' => 'application/vnd.apple.mpegurl'],
+        ));
+
+        $this->actingAs($user)->post(route('iptv.playback.store', $channel));
+        $session = IptvPlaybackSession::query()->sole();
+        $session->forceFill([
+            'last_accessed_at' => now()->subMinute(),
+            'expires_at' => now()->addSecond(),
+        ])->save();
+        $session->resources()->update([
+            'expires_at' => now()->addSecond(),
+        ]);
+
+        $this->actingAs($user)
+            ->get(route('iptv.playback.manifest', $session))
+            ->assertOk();
+
+        $session->refresh();
+        $this->assertSame('playing', $session->status);
+        $this->assertTrue($session->expires_at->isAfter(now()->addSeconds(20)));
+        $this->assertTrue(
+            $session->resources()->sole()->expires_at->isAfter(
+                now()->addSeconds(20),
+            ),
+        );
+    }
+
+    public function test_concurrent_playback_requests_are_bounded_per_session_and_provider(): void
+    {
+        config()->set('iptv.playback_session_concurrency', 2);
+        config()->set('iptv.playback_provider_concurrency', 4);
+        $firstUser = User::factory()->create(['is_active' => true]);
+        $secondUser = User::factory()->create(['is_active' => true]);
+        $provider = $this->makeProvider([
+            'config' => [
+                'api' => 'xtream',
+                'stream_format' => 'hls',
+                'max_connections' => 2,
+            ],
+        ]);
+        $channel = $this->makeChannel($provider);
+
+        $this->actingAs($firstUser)
+            ->post(route('iptv.playback.store', $channel));
+        $this->actingAs($secondUser)
+            ->post(route('iptv.playback.store', $channel));
+        $firstSession = IptvPlaybackSession::query()
+            ->where('user_id', $firstUser->id)
+            ->sole();
+        $secondSession = IptvPlaybackSession::query()
+            ->where('user_id', $secondUser->id)
+            ->sole();
+        $gate = app(PlaybackConcurrencyGate::class);
+
+        $first = $gate->acquire($firstSession);
+        $second = $gate->acquire($firstSession);
+        $this->assertNotNull($first);
+        $this->assertNotNull($second);
+        $this->assertNull($gate->acquire($firstSession));
+        $first->release();
+        $second->release();
+
+        $leases = [
+            $gate->acquire($firstSession),
+            $gate->acquire($secondSession),
+            $gate->acquire($firstSession),
+            $gate->acquire($secondSession),
+        ];
+        $this->assertNotContains(null, $leases);
+        $this->assertNull($gate->acquire($firstSession));
+
+        $this->actingAs($firstUser)
+            ->get(route('iptv.playback.manifest', $firstSession))
+            ->assertStatus(429)
+            ->assertHeader('Retry-After', '1');
+        Http::assertNothingSent();
+
+        $leases[0]->release();
+        Http::fake(fn () => Http::response(
+            "#EXTM3U\n#EXT-X-ENDLIST",
+            200,
+            ['Content-Type' => 'application/vnd.apple.mpegurl'],
+        ));
+        $this->actingAs($firstUser)
+            ->get(route('iptv.playback.manifest', $firstSession))
+            ->assertOk();
+
+        foreach ($leases as $lease) {
+            $lease->release();
+        }
+    }
+
+    public function test_stream_completion_releases_its_concurrency_slots(): void
+    {
+        config()->set('iptv.playback_session_concurrency', 2);
+        config()->set('iptv.playback_provider_concurrency', 2);
+        $user = User::factory()->create(['is_active' => true]);
+        $provider = $this->makeProvider([
+            'config' => [
+                'api' => 'xtream',
+                'stream_format' => 'hls',
+                'max_connections' => 1,
+            ],
+        ]);
+        $channel = $this->makeChannel($provider);
+        $this->actingAs($user)->post(route('iptv.playback.store', $channel));
+        $session = IptvPlaybackSession::query()->sole();
+        $root = $session->resources()->sole();
+        $segment = app(PlaybackResourceRepository::class)->create(
+            $session,
+            'https://iptv.example.test/live/segment.ts',
+            'segment',
+            $root,
+        );
+        Http::fake(fn () => Http::response(
+            'bounded-video-segment',
+            200,
+            [
+                'Content-Type' => 'video/mp2t',
+                'Content-Length' => '21',
+            ],
+        ));
+        $gate = app(PlaybackConcurrencyGate::class);
+        $held = $gate->acquire($session);
+        $this->assertNotNull($held);
+
+        $response = $this->actingAs($user)
+            ->get(route('iptv.playback.resource', [$session, $segment]))
+            ->assertOk()
+            ->assertStreamed();
+        $this->assertNull($gate->acquire($session));
+        $response->assertStreamedContent('bounded-video-segment');
+
+        $afterCompletion = $gate->acquire($session);
+        $this->assertNotNull($afterCompletion);
+        $afterCompletion->release();
+        $held->release();
     }
 }

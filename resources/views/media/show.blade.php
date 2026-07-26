@@ -3,19 +3,27 @@
 @section('title', $item->title.' · Odissey')
 
 @section('content')
-    <section class="content-section" aria-labelledby="player-heading" @if(($item->metadata['backdrop_cached'] ?? false)) style="background-image:linear-gradient(rgba(10,12,16,.65),#0b0d11),url('{{ route('media.artwork',[$item,'backdrop']) }}');background-size:cover;background-position:center top" @endif>
-        <div class="section-heading">
+    <section class="media-detail" aria-labelledby="player-heading">
+        @if (($item->metadata['backdrop_cached'] ?? false))
+            <div class="media-backdrop" style="background-image: url('{{ route('media.artwork', [$item, 'backdrop']) }}')" aria-hidden="true"></div>
+        @endif
+        <div class="media-detail-content">
+        <header class="page-header media-detail-header">
             <div>
                 <p class="eyebrow">{{ $item->requires_transcode ? 'Transient HLS transcode' : 'Direct play' }}</p>
-                <h2 id="player-heading">{{ $item->title }}</h2>
+                <h1 id="player-heading">{{ $item->title }}</h1>
                 @if($item->metadata['year'] ?? null)<p>{{ $item->metadata['year'] }} · {{ implode(' · ', $item->metadata['genres'] ?? []) }} @if($item->metadata['rating'] ?? null) · ★ {{ number_format($item->metadata['rating'],1) }} @endif</p>@endif
             </div>
             <a class="button button-muted" href="{{ route('media.index') }}">Back to video</a>
-        </div>
+        </header>
 
-        <div class="panel">
+        <div class="media-player-panel">
             @if($item->media_kind === 'video')
-            <form method="POST" action="{{ route('media.captions.fetch',$item) }}">@csrf<button class="button" type="submit">Find captions</button> <span>{{ $item->subtitles->count() }} downloaded caption track(s); embedded tracks are detected automatically.</span></form>
+            <form class="caption-action" method="POST" action="{{ route('media.captions.fetch',$item) }}">
+                @csrf
+                <button class="button button-muted" type="submit">Find captions</button>
+                <span>{{ $item->subtitles->count() }} downloaded track(s); embedded tracks are detected automatically.</span>
+            </form>
             @endif
             @if ($item->requires_transcode)
                 @include('media.partials.transcode-status', [
@@ -33,7 +41,7 @@
             @endif
         </div>
 
-        <div class="panel">
+        <div class="panel media-info-panel">
             @if($item->metadata['summary'] ?? null)<p>{{ $item->metadata['summary'] }}</p>@endif
             @if($item->metadata['series_title'] ?? null)<p><strong>{{ $item->metadata['series_title'] }}</strong> · Season {{ $item->metadata['season_number'] }} · Episode {{ $item->metadata['episode_number'] }}</p>@endif
             @if($item->metadata['artist'] ?? null)<p><strong>{{ $item->metadata['artist'] }}</strong>@if($item->metadata['album'] ?? null) · {{ $item->metadata['album'] }} @endif</p>@endif
@@ -50,6 +58,7 @@
                 Progress and history are private to the signed-in user. Transcode output is
                 temporary and every manifest and segment request requires authentication.
             </p>
+        </div>
         </div>
     </section>
 @endsection

@@ -12,6 +12,10 @@ The production image:
 - performs migrations and Laravel optimization at startup;
 - reports health at `/up`.
 
+All Dockerfile base images are pinned to immutable multi-architecture digests.
+Refresh and review those digests deliberately when updating Composer, Node, or
+FrankenPHP; a floating tag must not be merged.
+
 Required persistent mount:
 
 ```text
@@ -50,6 +54,7 @@ The image supplies secure production defaults. Set at least:
 ```text
 APP_URL=https://media.example.com
 ODISSEY_SETUP_TOKEN=a-long-random-one-time-secret
+ODISSEY_RELEASE=the-deployed-tag-or-commit
 ```
 
 You may supply `APP_KEY` through a secret manager. If omitted, the entrypoint
@@ -74,12 +79,45 @@ The proxy must overwrite or append the real client address to
 bypasses the TLS boundary; untrusted direct peers cannot influence Laravel's
 client IP with forwarded headers.
 
+The production image always marks session cookies `Secure`, `HttpOnly`, and
+`SameSite=Lax`. Browser access to the application therefore requires the HTTPS
+Traefik route. The loopback-only local Docker examples explicitly disable the
+`Secure` flag so setup and login work over `http://localhost`; never carry that
+override into an Internet-facing deployment.
+
+Odissey accepts only the exact hostname from `APP_URL`, loopback health-check
+hosts, and any additional exact operator-controlled hostnames listed in
+`ODISSEY_TRUSTED_HOSTS`. Set `APP_URL` to the public HTTPS URL used by Traefik.
+For an additional private ingress name, use a comma-separated list:
+
+```text
+ODISSEY_TRUSTED_HOSTS=media.internal.example
+```
+
 Useful limits:
 
 ```text
 ODISSEY_MAX_TRANSCODES=1
+ODISSEY_MAX_PENDING_TRANSCODES_PER_USER=3
+ODISSEY_MAX_PENDING_TRANSCODES=50
 ODISSEY_TRANSCODE_TTL_MINUTES=30
 ODISSEY_TRANSCODE_MAX_BYTES=5368709120
+ODISSEY_TRANSCODE_MIN_FREE_BYTES=268435456
+ODISSEY_REMOTE_TRANSCODE_MAX_SOURCE_BYTES=3221225472
+ODISSEY_REMOTE_STREAM_MAX_BYTES=34359738368
+ODISSEY_REMOTE_STREAM_MAX_SECONDS=900
+ODISSEY_REMOTE_STREAM_LEASE_SECONDS=915
+ODISSEY_REMOTE_STREAM_USER_CONCURRENCY=4
+ODISSEY_REMOTE_STREAM_SOURCE_CONCURRENCY=12
+ODISSEY_REMOTE_STREAM_GLOBAL_CONCURRENCY=32
+ODISSEY_MEDIA_ASSET_MAX_BYTES=10737418240
+ODISSEY_MEDIA_ASSET_MIN_FREE_BYTES=268435456
+ODISSEY_FFMPEG_THREADS=2
+ODISSEY_FFMPEG_MAX_ALLOC_BYTES=268435456
+ODISSEY_FFMPEG_MAX_PIXELS=33177600
+ODISSEY_FFMPEG_MAX_VIDEO_BITRATE_KBPS=10000
+ODISSEY_SOURCE_CATALOG_MAX_ITEMS=100000
+ODISSEY_PLAYBACK_HISTORY_RETENTION_DAYS=365
 IPTV_GUIDE_CHANNEL_LIMIT=20
 ```
 
@@ -116,6 +154,7 @@ docker run --detach \
   --volume odissey-data:/var/lib/odissey \
   --tmpfs /var/cache/odissey/transcodes:uid=33,gid=33,mode=0750,size=4g \
   --env APP_URL=http://localhost:8000 \
+  --env SESSION_SECURE_COOKIE=false \
   --env ODISSEY_SETUP_TOKEN=replace-with-a-long-random-secret \
   odissey:test
 ```
@@ -148,7 +187,9 @@ Use an Application with:
 - one replica;
 - a named volume mounted at `/var/lib/odissey`;
 - a TLS-enabled domain routed through Traefik;
-- stop-first deployment semantics for SQLite.
+- stop-first deployment semantics for SQLite;
+- `no-new-privileges`, all Linux capabilities dropped, a PID limit, and CPU /
+  memory limits sized for the configured FFmpeg concurrency.
 
 Do not publish a Docker host port when Traefik routing is sufficient. A
 published port can bypass host firewall expectations.
@@ -206,8 +247,56 @@ Built-in commands create and validate the database/key pair:
 
 ```sh
 php artisan odissey:backup /safe/off-host/odissey.zip
-php artisan odissey:restore /safe/off-host/odissey.zip --force
 ```
 
-Restart the container immediately after restore. The restore keeps the replaced
-database as `.before-restore` until the operator completes validation.
+The destination must be absolute, its parent directory must already exist, and
+it must not be inside the application/build context, a web-served directory, or
+resolve through a destination symlink. Backups fail closed while
+`APP_PREVIOUS_KEYS` is configured because a
+bundle containing only the active key could not decrypt older ciphertext.
+Re-encrypt persisted encrypted fields with the active key before taking the
+portable backup.
+
+The ZIP is intentionally a self-contained recovery bundle and is not encrypted
+inside the archive. It contains the application key and must be treated like a
+plaintext copy of every stored credential: retain mode `0600`, transfer only
+over an authenticated encrypted channel, and place it in encrypted off-host
+storage.
+
+Restore is deliberately offline. In the production container, stop every
+database-using program, run the command with both confirmations, and restart
+the container immediately:
+
+```sh
+docker exec odissey supervisorctl \
+  -c /etc/supervisor/conf.d/odissey.conf \
+  stop web queue scheduler media-supervisor
+docker exec odissey php artisan odissey:restore \
+  /safe/off-host/odissey.zip --force --offline
+docker restart odissey
+```
+
+The command independently verifies the Supervisor state when its socket is
+available, checkpoints SQLite, stages the database and key beside their target
+files, validates the Odissey application identifier and applied migrations, and
+swaps them only after validation. The manifest records `ODISSEY_RELEASE`; set it
+to the deployed tag or commit for an auditable recovery artifact. Restore
+accepts an older migration prefix that this image can migrate forward and
+rejects unknown/newer migrations. It retains a matching
+`database.sqlite.before-restore` and `app.key.before-restore` rollback pair.
+When `APP_KEY` is managed by Dokploy, set it to the key belonging to the backup
+before running restore; a mismatch fails before any live file is changed.
+
+Before changing either live file, restore durably writes
+`database.sqlite.restore-in-progress`. A normal success or successful rollback
+removes it. If the container or host stops during the swap, the entrypoint sees
+the marker and refuses to migrate or serve traffic. Keep the service offline,
+inspect the live and `.before-restore` database/key files as pairs, restore one
+matching pair, then remove the marker only after `PRAGMA integrity_check` and an
+encrypted-setting check succeed. The entrypoint also refuses to invent a new
+file-backed key when a non-empty database already exists.
+
+Artwork and downloaded captions are regenerable caches and are not included in
+the recovery archive. Restore invalidates their database references without
+recursively deleting operator-configured paths; subsequent scans fetch and
+replace the required cache files.

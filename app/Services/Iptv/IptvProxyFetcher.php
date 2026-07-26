@@ -5,6 +5,7 @@ namespace App\Services\Iptv;
 use App\Models\Iptv\IptvPlaybackResource;
 use App\Services\Iptv\Exceptions\SanitizedIptvException;
 use App\Services\Iptv\Exceptions\UpstreamResponseException;
+use GuzzleHttp\Handler\StreamHandler;
 use GuzzleHttp\Psr7\Uri;
 use GuzzleHttp\Psr7\UriResolver;
 use Illuminate\Http\Client\Response;
@@ -21,14 +22,25 @@ class IptvProxyFetcher
         IptvPlaybackResource $resource,
         ?string $range = null,
     ): Response {
-        $resource->loadMissing('session.channel.provider');
+        $resource->loadMissing([
+            'session.channel.provider',
+            'session.channel.group',
+        ]);
         $provider = $resource->session->channel->provider;
 
         if (
-            $resource->session->status === 'invalidated'
+            ! in_array(
+                $resource->session->status,
+                ['created', 'playing'],
+                true,
+            )
             || $resource->session->expires_at->isPast()
             || ! $resource->session->channel->is_active
             || ! $provider->enabled
+            || (
+                $resource->session->channel->group !== null
+                && ! $resource->session->channel->group->is_active
+            )
         ) {
             throw new SanitizedIptvException('playback_source_disabled', 410);
         }
@@ -46,7 +58,7 @@ class IptvProxyFetcher
         );
         $maxRedirects = min(
             3,
-            max(0, (int) config('iptv.playback_max_redirects')),
+            max(0, (int) config('iptv.playback_max_redirects', 2)),
         );
         $redirects = 0;
 
@@ -103,26 +115,37 @@ class IptvProxyFetcher
 
     private function request(PinnedUpstreamTarget $target, ?string $range): Response
     {
+        $connectTimeout = min(
+            10,
+            max(1, (int) config('iptv.connect_timeout_seconds', 5)),
+        );
+        $readTimeout = min(
+            60,
+            max(1, (int) config('iptv.stream_timeout_seconds', 45)),
+        );
         $request = $this->http
+            ->createPendingRequest()
+            ->setHandler(new StreamHandler)
             ->withHeaders([
                 'Accept' => '*/*',
+                'Host' => $target->authority(),
                 'User-Agent' => 'Odissey IPTV Proxy',
             ])
-            ->connectTimeout(min(10, max(1, (int) config('iptv.connect_timeout_seconds'))))
-            ->timeout(min(60, max(1, (int) config('iptv.stream_timeout_seconds'))))
-            ->withOptions([
+            ->connectTimeout($connectTimeout)
+            ->timeout($connectTimeout)
+            ->withOptions(array_merge([
                 'allow_redirects' => false,
                 'http_errors' => false,
                 'stream' => true,
-                'curl' => $target->curlOptions(),
-            ]);
+                'read_timeout' => $readTimeout,
+            ], $target->streamOptions()));
 
         if ($range !== null) {
             $request = $request->withHeader('Range', $range);
         }
 
         try {
-            return $request->get($target->url);
+            return $request->get($target->connectUrl());
         } catch (Throwable) {
             throw new SanitizedIptvException('upstream_connection_failed');
         }
@@ -133,14 +156,36 @@ class IptvProxyFetcher
         return in_array($status, [301, 302, 303, 307, 308], true);
     }
 
-    public function bodyWithinLimit(Response $response, int $maxBytes): string
-    {
+    public function bodyWithinLimit(
+        Response $response,
+        int $maxBytes,
+        string $prefix = '',
+    ): string {
         $maxBytes = min(8 * 1024 * 1024, max(1, $maxBytes));
         $stream = $response->toPsrResponse()->getBody();
-        $body = '';
+        $body = $prefix;
+        $emptyReads = 0;
+
+        if (strlen($body) > $maxBytes) {
+            $stream->close();
+
+            throw new SanitizedIptvException('manifest_too_large');
+        }
 
         while (! $stream->eof()) {
             $chunk = $stream->read(min(64 * 1024, $maxBytes + 1 - strlen($body)));
+
+            if ($chunk === '') {
+                if (++$emptyReads >= 8) {
+                    $stream->close();
+
+                    throw new SanitizedIptvException('manifest_unavailable');
+                }
+
+                continue;
+            }
+
+            $emptyReads = 0;
             $body .= $chunk;
 
             if (strlen($body) > $maxBytes) {

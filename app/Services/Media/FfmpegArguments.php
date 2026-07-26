@@ -16,6 +16,14 @@ class FfmpegArguments
             'error',
             '-nostdin',
             '-y',
+            '-max_alloc',
+            (string) $this->maximumAllocationBytes(),
+            '-max_pixels',
+            (string) $this->maximumPixels(),
+            '-threads',
+            (string) $this->threads(),
+            '-protocol_whitelist',
+            'file,pipe',
             '-i',
             $sourcePath,
             '-map',
@@ -24,6 +32,10 @@ class FfmpegArguments
             '0:a:'.($audioTrack ?? 0).'?',
             '-c:v',
             'libx264',
+            '-threads',
+            (string) $this->threads(),
+            '-filter_threads',
+            (string) $this->threads(),
             '-preset',
             'veryfast',
             '-profile:v',
@@ -44,6 +56,10 @@ class FfmpegArguments
             '0',
             '-c:a',
             'aac',
+            '-maxrate:v',
+            $this->maximumVideoBitrate().'k',
+            '-bufsize:v',
+            ($this->maximumVideoBitrate() * 2).'k',
             '-b:a',
             '128k',
             '-ac',
@@ -60,6 +76,36 @@ class FfmpegArguments
             $segmentPattern,
             $manifestPath,
         ]);
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function subtitle(string $sourcePath, int $track, string $outputPath): array
+    {
+        return [
+            $this->binary(),
+            '-hide_banner',
+            '-loglevel',
+            'error',
+            '-nostdin',
+            '-y',
+            '-max_alloc',
+            (string) $this->maximumAllocationBytes(),
+            '-max_pixels',
+            (string) $this->maximumPixels(),
+            '-threads',
+            (string) $this->threads(),
+            '-protocol_whitelist',
+            'file,pipe',
+            '-i',
+            $sourcePath,
+            '-map',
+            '0:s:'.$track,
+            '-f',
+            'webvtt',
+            $outputPath,
+        ];
     }
 
     /**
@@ -137,5 +183,37 @@ class FfmpegArguments
     private function binary(): string
     {
         return (string) config('odissey.ffmpeg_binary', 'ffmpeg');
+    }
+
+    private function threads(): int
+    {
+        return min(16, max(1, (int) config('odissey.ffmpeg_threads', 2)));
+    }
+
+    private function maximumAllocationBytes(): int
+    {
+        return min(
+            1024 * 1024 * 1024,
+            max(
+                16 * 1024 * 1024,
+                (int) config('odissey.ffmpeg_max_alloc_bytes', 256 * 1024 * 1024),
+            ),
+        );
+    }
+
+    private function maximumPixels(): int
+    {
+        return min(
+            7680 * 4320,
+            max(1920 * 1080, (int) config('odissey.ffmpeg_max_pixels', 7680 * 4320)),
+        );
+    }
+
+    private function maximumVideoBitrate(): int
+    {
+        return min(
+            50000,
+            max(1000, (int) config('odissey.ffmpeg_max_video_bitrate_kbps', 10000)),
+        );
     }
 }

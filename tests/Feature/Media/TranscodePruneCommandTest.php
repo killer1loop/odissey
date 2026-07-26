@@ -115,6 +115,59 @@ class TranscodePruneCommandTest extends TestCase
         $this->assertFalse(File::exists(config('odissey.transcode_path')));
     }
 
+    public function test_command_prunes_stale_materialized_sources_and_subtitle_cache(): void
+    {
+        config(['odissey.embedded_subtitle_cache_minutes' => 10]);
+        $sources = $this->storage->transientDirectory('sources', create: true);
+        $subtitles = $this->storage->transientDirectory('subtitles', create: true).'/1/item';
+        File::ensureDirectoryExists($subtitles);
+
+        $staleSource = $sources.'/stale-source.mkv';
+        $currentSource = $sources.'/current-source.mkv';
+        $staleSubtitle = $subtitles.'/0.vtt';
+        File::put($staleSource, 'stale');
+        File::put($currentSource, 'current');
+        File::put($staleSubtitle, 'WEBVTT');
+        touch($staleSource, now()->subMinutes(20)->timestamp);
+        touch($staleSubtitle, now()->subMinutes(20)->timestamp);
+
+        $this->artisan('media:transcodes:prune', ['--dry-run' => true])
+            ->assertSuccessful();
+        $this->assertTrue(File::isFile($staleSource));
+        $this->assertTrue(File::isFile($staleSubtitle));
+
+        $this->artisan('media:transcodes:prune')->assertSuccessful();
+
+        $this->assertFalse(File::exists($staleSource));
+        $this->assertFalse(File::exists($staleSubtitle));
+        $this->assertTrue(File::isFile($currentSource));
+    }
+
+    public function test_command_does_not_prune_an_active_source_reservation(): void
+    {
+        config([
+            'odissey.transcode_max_bytes' => 1024,
+            'odissey.transcode_min_free_bytes' => 0,
+        ]);
+        $reservation = $this->storage->reserveSourceBytes(128);
+        $this->assertNotNull($reservation);
+        $paths = File::glob(
+            $this->storage->transientDirectory('sources')
+                .'/*.reserve',
+        );
+        $this->assertCount(1, $paths);
+        touch($paths[0], now()->subMinutes(20)->timestamp);
+
+        try {
+            $this->artisan('media:transcodes:prune')->assertSuccessful();
+
+            $this->assertFileExists($paths[0]);
+            $this->assertSame(128, $this->storage->reservedBytes());
+        } finally {
+            $reservation?->release();
+        }
+    }
+
     /**
      * @param  array<string, mixed>  $attributes
      */

@@ -4,6 +4,8 @@ namespace Tests\Feature\Auth;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Tests\TestCase;
 
@@ -49,6 +51,33 @@ class AuthenticationTest extends TestCase
 
         $this->post('/login', [
             'email' => 'viewer@example.test',
+            'password' => 'VeryStrong!123',
+        ])->assertSessionHasErrors('email');
+
+        $this->assertGuest();
+    }
+
+    public function test_login_password_spraying_is_limited_across_email_addresses(): void
+    {
+        $user = User::factory()->create([
+            'email' => 'viewer@example.test',
+            'password' => 'VeryStrong!123',
+        ]);
+
+        for ($attempt = 1; $attempt <= 20; $attempt++) {
+            $this->post('/login', [
+                'email' => "spray-{$attempt}@example.test",
+                'password' => 'incorrect-password',
+            ])->assertSessionHasErrors('email');
+        }
+
+        $this->assertTrue(RateLimiter::tooManyAttempts(
+            'login-ip|127.0.0.1',
+            20,
+        ));
+
+        $this->post('/login', [
+            'email' => $user->email,
             'password' => 'VeryStrong!123',
         ])->assertSessionHasErrors('email');
 
@@ -153,5 +182,48 @@ class AuthenticationTest extends TestCase
         $this->post('/logout')->assertRedirect(route('login'));
 
         $this->assertGuest();
+    }
+
+    public function test_a_password_change_invalidates_an_existing_authenticated_session(): void
+    {
+        $user = User::factory()->create([
+            'password' => 'VeryStrong!123',
+        ]);
+
+        $this->actingAs($user)
+            ->get(route('preferences.edit'))
+            ->assertOk();
+        $this->assertTrue(
+            $this->app['session.store']->has('password_hash_web'),
+        );
+
+        User::query()
+            ->whereKey($user->getKey())
+            ->update(['password' => Hash::make('Different!Password123')]);
+        $this->app['auth']->forgetGuards();
+
+        $this->get(route('preferences.edit'))
+            ->assertRedirect(route('login'));
+        $this->assertGuest();
+    }
+
+    public function test_production_accepts_only_the_configured_exact_host(): void
+    {
+        $originalEnvironment = $this->app['env'];
+        $this->app['env'] = 'production';
+        config([
+            'odissey-auth.trusted_hosts' => ['^odissey\\.garavelli\\.io$'],
+        ]);
+
+        try {
+            $this->get('http://odissey.garavelli.io/login')
+                ->assertOk();
+
+            $this->get('http://attacker.example.test/login')
+                ->assertBadRequest();
+        } finally {
+            $this->app['env'] = $originalEnvironment;
+            Request::setTrustedHosts([]);
+        }
     }
 }

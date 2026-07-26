@@ -22,6 +22,11 @@ class FoundationPageTest extends TestCase
 
         $this->get('/')
             ->assertRedirect(route('login'));
+
+        $this->get(route('login'))
+            ->assertOk()
+            ->assertSee('Sign in')
+            ->assertDontSee('Your self-hosted media home');
     }
 
     public function test_the_authenticated_home_page_is_server_rendered(): void
@@ -32,7 +37,8 @@ class FoundationPageTest extends TestCase
             ->get('/')
             ->assertOk()
             ->assertSee('Odissey')
-            ->assertSee('Choose what to watch')
+            ->assertSee('Welcome back')
+            ->assertSee('Browse')
             ->assertSee(route('media.index'))
             ->assertSee(route('iptv.channels.index'))
             ->assertSee('hx-boost="true"', escape: false);

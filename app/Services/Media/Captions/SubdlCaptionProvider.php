@@ -4,10 +4,14 @@ namespace App\Services\Media\Captions;
 
 use App\Models\MediaItem;
 use App\Services\IntegrationSettings;
-use Illuminate\Support\Facades\Http;
+use App\Services\Media\ConfidentialJsonClient;
 
 class SubdlCaptionProvider implements CaptionProvider
 {
+    public function __construct(
+        private readonly ConfidentialJsonClient $http,
+    ) {}
+
     public function search(MediaItem $item, array $languages): array
     {
         $key = app(IntegrationSettings::class)->get('subdl_api_key', config('services.subdl.api_key'));
@@ -30,12 +34,17 @@ class SubdlCaptionProvider implements CaptionProvider
             $params['season_number'] = $metadata['season_number'];
             $params['episode_number'] = $metadata['episode_number'];
         }
-        $response = Http::acceptJson()->timeout(15)->get('https://api.subdl.com/api/v1/subtitles', array_filter($params, fn ($value) => $value !== null));
-        if (! $response->successful() || $response->json('status') !== true) {
+        $response = $this->http->get(
+            'https://api.subdl.com/api/v1/subtitles',
+            array_filter($params, fn ($value) => $value !== null),
+            [],
+            ['api.subdl.com'],
+        );
+        if (($response['status'] ?? null) !== true) {
             return [];
         }
         $found = [];
-        foreach ($response->json('subtitles', []) as $subtitle) {
+        foreach ($response['subtitles'] ?? [] as $subtitle) {
             $files = $subtitle['unpack_files'] ?? [$subtitle];
             foreach ($files as $file) {
                 if (($metadata['kind'] ?? '') === 'episode' && isset($file['episode']) && (int) $file['episode'] !== (int) $metadata['episode_number']) {

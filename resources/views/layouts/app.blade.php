@@ -1,6 +1,11 @@
 @php
     $signedInUser = auth()->user();
     $avatarLetter = mb_strtoupper(mb_substr($signedInUser?->name ?? 'O', 0, 1));
+    $musicIsActive = request()->routeIs('media.index') && request('kind') === 'music';
+    $videoIsActive = request()->routeIs('media.*') && ! request()->routeIs('media.admin.*') && ! $musicIsActive;
+    $guideIsActive = request()->routeIs('iptv.guide');
+    $favoritesAreActive = request()->routeIs('iptv.channels.index') && request()->boolean('favorites');
+    $liveTvIsActive = request()->routeIs('iptv.*') && ! request()->routeIs('iptv.admin.*') && ! $guideIsActive && ! $favoritesAreActive;
 @endphp
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
@@ -14,7 +19,7 @@
 
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     </head>
-    <body hx-boost="true">
+    <body class="@yield('body-class')" hx-boost="true">
         <a class="skip-link" href="#main-content">Skip to content</a>
 
         <div class="app-shell">
@@ -40,9 +45,9 @@
                         <span>Home</span>
                     </a>
                     <a
-                        class="nav-item {{ request()->routeIs('media.*') ? 'is-active' : '' }}"
+                        class="nav-item {{ $videoIsActive ? 'is-active' : '' }}"
                         href="{{ route('media.index') }}"
-                        @if (request()->routeIs('media.*')) aria-current="page" @endif
+                        @if ($videoIsActive) aria-current="page" @endif
                     >
                         <svg aria-hidden="true" viewBox="0 0 24 24">
                             <rect x="3" y="5" width="18" height="14" rx="2"/>
@@ -50,7 +55,7 @@
                         </svg>
                         <span>Video</span>
                     </a>
-                    <a class="nav-item {{ request('kind') === 'music' ? 'is-active' : '' }}" href="{{ route('media.index',['kind'=>'music']) }}">
+                    <a class="nav-item {{ $musicIsActive ? 'is-active' : '' }}" href="{{ route('media.index',['kind'=>'music']) }}" @if ($musicIsActive) aria-current="page" @endif>
                         <svg aria-hidden="true" viewBox="0 0 24 24">
                             <path d="M9 18V5l10-2v13"/>
                             <circle cx="6" cy="18" r="3"/>
@@ -59,9 +64,9 @@
                         <span>Music</span>
                     </a>
                     <a
-                        class="nav-item {{ request()->routeIs('iptv.*') && ! request()->routeIs('iptv.admin.*') ? 'is-active' : '' }}"
+                        class="nav-item {{ $liveTvIsActive ? 'is-active' : '' }}"
                         href="{{ route('iptv.channels.index') }}"
-                        @if (request()->routeIs('iptv.*') && ! request()->routeIs('iptv.admin.*')) aria-current="page" @endif
+                        @if ($liveTvIsActive) aria-current="page" @endif
                     >
                         <svg aria-hidden="true" viewBox="0 0 24 24">
                             <rect x="3" y="6" width="18" height="13" rx="2"/>
@@ -69,12 +74,13 @@
                         </svg>
                         <span>Live TV</span>
                     </a>
-                    <a class="nav-item {{ request()->routeIs('iptv.guide') ? 'is-active' : '' }}" href="{{ route('iptv.guide') }}"><span>Guide</span></a>
+                    <a class="nav-item {{ $guideIsActive ? 'is-active' : '' }}" href="{{ route('iptv.guide') }}" @if ($guideIsActive) aria-current="page" @endif><span>Guide</span></a>
 
                     <p class="nav-label">Your media</p>
                     <a
-                        class="nav-item {{ request()->boolean('favorites') ? 'is-active' : '' }}"
+                        class="nav-item {{ $favoritesAreActive ? 'is-active' : '' }}"
                         href="{{ route('iptv.channels.index', ['favorites' => 1]) }}"
+                        @if ($favoritesAreActive) aria-current="page" @endif
                     >
                         <svg aria-hidden="true" viewBox="0 0 24 24">
                             <path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>
@@ -132,6 +138,9 @@
 
             <div class="workspace">
                 <header class="topbar">
+                    @hasSection('topbar')
+                        @yield('topbar')
+                    @else
                     <div class="mobile-brand">
                         <span class="brand-mark" aria-hidden="true"><span></span></span>
                         <span>Odissey</span>
@@ -162,6 +171,7 @@
                         </a>
                         <span class="foundation-pill">Self-hosted</span>
                     </div>
+                    @endif
                 </header>
 
                 <main id="main-content" tabindex="-1">
@@ -183,9 +193,9 @@
                 <span>Home</span>
             </a>
             <a
-                class="{{ request()->routeIs('media.*') ? 'is-active' : '' }}"
+                class="{{ $videoIsActive ? 'is-active' : '' }}"
                 href="{{ route('media.index') }}"
-                @if (request()->routeIs('media.*')) aria-current="page" @endif
+                @if ($videoIsActive) aria-current="page" @endif
             >
                 <svg aria-hidden="true" viewBox="0 0 24 24">
                     <rect x="3" y="5" width="18" height="14" rx="2"/>
@@ -194,7 +204,7 @@
                 <span>Video</span>
             </a>
             <a
-                class="{{ request()->routeIs('iptv.*') && ! request()->boolean('favorites') ? 'is-active' : '' }}"
+                class="{{ $liveTvIsActive || $guideIsActive ? 'is-active' : '' }}"
                 href="{{ route('iptv.channels.index') }}"
             >
                 <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -204,7 +214,7 @@
                 <span>Live TV</span>
             </a>
             <a
-                class="{{ request()->boolean('favorites') ? 'is-active' : '' }}"
+                class="{{ $favoritesAreActive ? 'is-active' : '' }}"
                 href="{{ route('iptv.channels.index', ['favorites' => 1]) }}"
             >
                 <svg aria-hidden="true" viewBox="0 0 24 24">

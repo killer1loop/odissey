@@ -38,6 +38,7 @@ class UpstreamUrlGuardTest extends TestCase
             $target->curlOptions()[CURLOPT_RESOLVE],
         );
         $this->assertSame('', $target->curlOptions()[CURLOPT_PROXY]);
+        $this->assertSame('*', $target->curlOptions()[CURLOPT_NOPROXY]);
 
         $resolver->addresses = ['8.8.8.8', '127.0.0.1'];
 
@@ -73,6 +74,34 @@ class UpstreamUrlGuardTest extends TestCase
             $this->fail('An unresolved target must be rejected.');
         } catch (SanitizedIptvException $exception) {
             $this->assertSame('unresolved_upstream_target', $exception->errorCode);
+        }
+    }
+
+    public function test_ambiguous_hosts_fragments_and_invalid_ports_are_rejected(): void
+    {
+        $resolver = new class extends HostAddressResolver
+        {
+            public function resolve(string $host): array
+            {
+                return ['8.8.8.8'];
+            }
+        };
+        $guard = new UpstreamUrlGuard($resolver);
+
+        foreach ([
+            'https://provider.example.test./live',
+            'https://provider.example.test/live#fragment',
+            'https://provider.example.test:99999/live',
+        ] as $url) {
+            try {
+                $guard->pin($url, false);
+                $this->fail("Ambiguous upstream URL should fail: {$url}");
+            } catch (SanitizedIptvException $exception) {
+                $this->assertSame(
+                    'invalid_upstream_resource',
+                    $exception->errorCode,
+                );
+            }
         }
     }
 }

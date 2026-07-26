@@ -58,6 +58,35 @@ class TranscodeController extends Controller
                 return [$existing, false];
             }
 
+            $activeStatuses = [
+                TranscodeSession::STATUS_PENDING,
+                TranscodeSession::STATUS_PROCESSING,
+            ];
+            $perUserLimit = min(
+                20,
+                max(1, (int) config('odissey.max_pending_transcodes_per_user', 3)),
+            );
+            $globalLimit = min(
+                500,
+                max($perUserLimit, (int) config('odissey.max_pending_transcodes', 50)),
+            );
+
+            abort_if(
+                TranscodeSession::query()
+                    ->whereBelongsTo($request->user())
+                    ->whereIn('status', $activeStatuses)
+                    ->count() >= $perUserLimit,
+                429,
+                'Your transcode queue is full.',
+            );
+            abort_if(
+                TranscodeSession::query()
+                    ->whereIn('status', $activeStatuses)
+                    ->count() >= $globalLimit,
+                503,
+                'The transcode queue is currently full.',
+            );
+
             return [
                 TranscodeSession::query()->create([
                     'user_id' => $request->user()->getKey(),

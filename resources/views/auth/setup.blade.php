@@ -3,7 +3,7 @@
 @section('title', 'First-launch setup')
 
 @section('content')
-    <section class="card" aria-labelledby="setup-heading">
+    <section class="auth-card auth-card-wide" aria-labelledby="setup-heading">
         <h1 id="setup-heading">Create the first administrator</h1>
         <p>This one-time setup creates the only initial account. Additional users can be added from the protected administration area.</p>
 
@@ -47,7 +47,7 @@
                 </div>
             @endif
 
-            <button class="button" type="submit">Create administrator</button>
+            <button class="button button-primary auth-submit" type="submit">Create administrator</button>
         </form>
     </section>
 @endsection

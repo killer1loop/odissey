@@ -28,6 +28,8 @@ Route::middleware(['auth', EnsureUserIsActive::class])
             ->name('playback.store');
         Route::get('/play/{session}', [PlaybackSessionController::class, 'show'])
             ->name('playback.show');
+        Route::delete('/play/{session}', [PlaybackSessionController::class, 'destroy'])
+            ->name('playback.destroy');
         Route::get('/play/{session}/master.m3u8', PlaybackManifestController::class)
             ->name('playback.manifest');
         Route::get(

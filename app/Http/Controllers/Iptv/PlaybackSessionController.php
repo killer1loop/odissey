@@ -18,8 +18,13 @@ class PlaybackSessionController extends Controller
         Channel $channel,
         PlaybackSessionManager $sessions,
     ): RedirectResponse {
-        $channel->loadMissing('provider');
-        abort_unless($channel->is_active && $channel->provider->enabled, 404);
+        $channel->loadMissing(['provider', 'group']);
+        abort_unless(
+            $channel->is_active
+            && $channel->provider->enabled
+            && ($channel->group === null || $channel->group->is_active),
+            404,
+        );
 
         $session = $sessions->create($request->user(), $channel);
 
@@ -41,5 +46,17 @@ class PlaybackSessionController extends Controller
             ->get();
 
         return view('iptv.playback.show', compact('session', 'programs'));
+    }
+
+    public function destroy(
+        Request $request,
+        IptvPlaybackSession $session,
+        PlaybackAccess $access,
+        PlaybackSessionManager $sessions,
+    ): RedirectResponse {
+        $access->assertSession($request->user(), $session);
+        $sessions->release($session);
+
+        return redirect()->route('iptv.channels.index');
     }
 }

@@ -18,10 +18,11 @@ class PruneMediaTranscodes extends Command
         $verb = $this->option('dry-run') ? 'Eligible' : 'Removed';
 
         $this->info(sprintf(
-            '%s %d transcode session(s), %d orphan directory/directories, and %d byte(s).',
+            '%s %d transcode session(s), %d orphan directory/directories, %d transient file(s), and %d byte(s).',
             $verb,
             $result['sessions'],
             $result['orphan_directories'],
+            $result['transient_files'],
             $result['bytes'],
         ));
 

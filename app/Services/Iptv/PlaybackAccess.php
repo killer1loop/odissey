@@ -8,27 +8,39 @@ use App\Models\User;
 
 class PlaybackAccess
 {
+    public function __construct(
+        private readonly PlaybackSessionLease $lease,
+    ) {}
+
     public function assertSession(User $user, IptvPlaybackSession $session): void
     {
         abort_unless($session->user_id === $user->id, 404);
-        $session->loadMissing('channel.provider');
+        $session->loadMissing(['channel.provider', 'channel.group']);
 
         if (
-            $session->status === 'invalidated'
-            || ! $session->channel->is_active
+            ! $session->channel->is_active
             || ! $session->channel->provider->enabled
+            || (
+                $session->channel->group !== null
+                && ! $session->channel->group->is_active
+            )
         ) {
-            if ($session->status !== 'invalidated') {
-                $session->forceFill([
-                    'status' => 'invalidated',
-                    'last_error_code' => 'playback_source_disabled',
-                    'expires_at' => now(),
-                ])->save();
+            if (in_array($session->status, ['created', 'playing'], true)) {
+                $this->lease->release(
+                    $session,
+                    'invalidated',
+                    'playback_source_disabled',
+                );
             }
 
             abort(410, 'Playback source unavailable.');
         }
 
+        abort_unless(
+            in_array($session->status, ['created', 'playing'], true),
+            410,
+            'Playback session unavailable.',
+        );
         abort_if($session->expires_at->isPast(), 410, 'Playback session expired.');
     }
 
@@ -47,14 +59,8 @@ class PlaybackAccess
         IptvPlaybackSession $session,
         IptvPlaybackResource $resource,
     ): void {
-        $threshold = now()->subSeconds(30);
-
-        if (
-            $session->last_accessed_at === null
-            || $session->last_accessed_at->lt($threshold)
-        ) {
-            $session->forceFill(['last_accessed_at' => now()])->save();
-        }
+        $this->lease->renew($session);
+        $threshold = now()->subSeconds(15);
 
         if (
             $resource->last_accessed_at === null

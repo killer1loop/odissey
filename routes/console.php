@@ -16,6 +16,10 @@ Schedule::command('media:transcodes:prune')
     ->everyTenMinutes()
     ->withoutOverlapping(15);
 
+Schedule::command('media:history:prune')
+    ->daily()
+    ->withoutOverlapping();
+
 Schedule::command('iptv:epg:prune')
     ->daily()
     ->withoutOverlapping();

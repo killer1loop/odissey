@@ -9,6 +9,7 @@ use App\Services\Iptv\Exceptions\SanitizedIptvException;
 use App\Services\Iptv\GuideImportResult;
 use App\Services\Iptv\ProviderCatalogSynchronizer;
 use App\Services\Iptv\ShortEpgGuideImporter;
+use App\Services\Iptv\XtreamClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
@@ -160,6 +161,52 @@ class IptvCatalogAndGuideTest extends TestCase
         );
     }
 
+    public function test_short_epg_import_enforces_the_provider_guide_row_quota(): void
+    {
+        config()->set('iptv.provider_guide_max_rows', 1);
+        $provider = $this->makeProvider();
+        $channel = $this->makeChannel($provider);
+        $start = now()->startOfMinute();
+
+        Http::fake(function (Request $request) use ($start) {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+            if (! isset($query['action'])) {
+                return Http::response([
+                    'user_info' => ['auth' => '1', 'status' => 'Active'],
+                ]);
+            }
+
+            return Http::response([
+                'epg_listings' => [
+                    [
+                        'id' => 'first',
+                        'title' => base64_encode('First programme'),
+                        'start_timestamp' => $start->timestamp,
+                        'stop_timestamp' => $start->copy()->addHour()->timestamp,
+                    ],
+                    [
+                        'id' => 'second',
+                        'title' => base64_encode('Second programme'),
+                        'start_timestamp' => $start->copy()->addHour()->timestamp,
+                        'stop_timestamp' => $start->copy()->addHours(2)->timestamp,
+                    ],
+                ],
+            ]);
+        });
+
+        $this->assertSame(
+            2,
+            app(ShortEpgGuideImporter::class)
+                ->import($provider, 1)
+                ->programsImported,
+        );
+        $this->assertSame(
+            ['First programme'],
+            $channel->programs()->pluck('title')->all(),
+        );
+    }
+
     public function test_http_200_authentication_failure_never_marks_a_provider_ready(): void
     {
         $provider = $this->makeProvider();
@@ -243,10 +290,11 @@ class IptvCatalogAndGuideTest extends TestCase
     {
         $provider = $this->makeProvider();
         $mode = 'size';
+        config()->set('iptv.api_max_response_bytes', PHP_INT_MAX);
         Http::fake(function (Request $request) use (&$mode) {
             if ($mode === 'size') {
                 return Http::response('{}', 200, [
-                    'Content-Length' => (string) (129 * 1024 * 1024),
+                    'Content-Length' => (string) ((8 * 1024 * 1024) + 1),
                 ]);
             }
 
@@ -281,5 +329,29 @@ class IptvCatalogAndGuideTest extends TestCase
         }
 
         $this->assertDatabaseCount('channels', 0);
+    }
+
+    public function test_decoded_xtream_payload_is_bounded_during_response_writes(): void
+    {
+        config()->set('iptv.api_max_response_bytes', 1024 * 1024);
+        $provider = $this->makeProvider();
+        Http::fake(fn () => Http::response(
+            json_encode([
+                'user_info' => ['auth' => '1'],
+                'padding' => str_repeat('x', (1024 * 1024) + 1),
+            ], JSON_THROW_ON_ERROR),
+            200,
+            ['Content-Type' => 'application/json'],
+        ));
+
+        try {
+            app(XtreamClient::class)->authenticate($provider);
+            $this->fail('Decoded provider responses must be bounded while written.');
+        } catch (SanitizedIptvException $exception) {
+            $this->assertSame(
+                'provider_response_too_large',
+                $exception->errorCode,
+            );
+        }
     }
 }

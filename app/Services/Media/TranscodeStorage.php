@@ -5,6 +5,8 @@ namespace App\Services\Media;
 use App\Models\TranscodeSession;
 use App\Services\Media\Exceptions\TranscodeQuotaExceeded;
 use FilesystemIterator;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 use RecursiveDirectoryIterator;
@@ -61,6 +63,10 @@ class TranscodeStorage
     {
         $directory = $this->directoryForId($sessionId);
 
+        if (is_link($directory)) {
+            throw new RuntimeException('The transcode directory is unsafe.');
+        }
+
         if (File::isDirectory($directory) && ! File::deleteDirectory($directory)) {
             throw new RuntimeException('The transcode directory could not be removed.');
         }
@@ -81,9 +87,23 @@ class TranscodeStorage
         return $this->bytesUsed() <= $this->quotaBytes();
     }
 
-    public function assertWithinQuota(): void
+    public function isWithinStorageLimits(): bool
     {
         if (! $this->isWithinQuota()) {
+            return false;
+        }
+
+        $freeBytes = @disk_free_space($this->root(create: true));
+        if (! is_int($freeBytes) && ! is_float($freeBytes)) {
+            return false;
+        }
+
+        return $freeBytes - $this->reservedBytes() >= $this->reserveBytes();
+    }
+
+    public function assertWithinQuota(): void
+    {
+        if (! $this->isWithinStorageLimits()) {
             throw new TranscodeQuotaExceeded;
         }
     }
@@ -91,6 +111,147 @@ class TranscodeStorage
     public function quotaBytes(): int
     {
         return max(1, (int) config('odissey.transcode_max_bytes'));
+    }
+
+    public function availableBytes(): int
+    {
+        $quotaRemaining = max(0, $this->quotaBytes() - $this->bytesUsed());
+        $root = $this->root(create: true);
+        $freeBytes = @disk_free_space($root);
+
+        if (! is_int($freeBytes) && ! is_float($freeBytes)) {
+            return $quotaRemaining;
+        }
+
+        $reserve = min($this->reserveBytes(), max(0, (int) $freeBytes));
+
+        return min(
+            $quotaRemaining,
+            max(
+                0,
+                (int) $freeBytes - $reserve - $this->reservedBytes(),
+            ),
+        );
+    }
+
+    public function reserveSourceBytes(
+        int $maximumBytes,
+        ?int $requiredBytes = null,
+    ): ?TranscodeReservation {
+        $maximumBytes = max(1, $maximumBytes);
+        $requiredBytes = $requiredBytes === null
+            ? null
+            : max(1, $requiredBytes);
+
+        try {
+            return Cache::lock(
+                'odissey:media:transcode-storage-reservation',
+                30,
+            )->block(2, function () use (
+                $maximumBytes,
+                $requiredBytes,
+            ): ?TranscodeReservation {
+                $availableBytes = min(
+                    $maximumBytes,
+                    $this->availableBytes(),
+                );
+                $capacityBytes = $requiredBytes ?? $availableBytes;
+
+                if (
+                    $capacityBytes < 1
+                    || $capacityBytes > $maximumBytes
+                    || $capacityBytes > $availableBytes
+                ) {
+                    return null;
+                }
+
+                $directory = $this->transientDirectory(
+                    'sources',
+                    create: true,
+                );
+                $path = $directory
+                    .DIRECTORY_SEPARATOR
+                    .'reservation-'.Str::lower((string) Str::ulid()).'.reserve';
+                $handle = @fopen($path, 'xb');
+
+                if ($handle === false) {
+                    throw new TranscodeQuotaExceeded;
+                }
+
+                if (
+                    ! flock($handle, LOCK_EX | LOCK_NB)
+                    || ! ftruncate($handle, $capacityBytes)
+                    || ! chmod($path, 0600)
+                ) {
+                    fclose($handle);
+                    @unlink($path);
+
+                    throw new TranscodeQuotaExceeded;
+                }
+
+                clearstatcache(true, $path);
+
+                return new TranscodeReservation(
+                    $path,
+                    $handle,
+                    $capacityBytes,
+                );
+            });
+        } catch (LockTimeoutException) {
+            return null;
+        }
+    }
+
+    public function reservedBytes(): int
+    {
+        $directory = $this->transientDirectory('sources');
+
+        if (! File::isDirectory($directory)) {
+            return 0;
+        }
+
+        $bytes = 0;
+
+        foreach (File::glob($directory.DIRECTORY_SEPARATOR.'*.reserve') as $path) {
+            try {
+                if (is_file($path) && ! is_link($path)) {
+                    $bytes += max(0, (int) filesize($path));
+                }
+            } catch (Throwable) {
+                // A completed materialization may remove a reservation mid-scan.
+            }
+        }
+
+        return $bytes;
+    }
+
+    private function reserveBytes(): int
+    {
+        return min(
+            100 * 1024 * 1024 * 1024,
+            max(0, (int) config(
+                'odissey.transcode_min_free_bytes',
+                256 * 1024 * 1024,
+            )),
+        );
+    }
+
+    public function transientDirectory(string $name, bool $create = false): string
+    {
+        if (! in_array($name, ['sources', 'subtitles'], true)) {
+            throw new RuntimeException('Invalid transient storage directory.');
+        }
+
+        $directory = $this->root($create).DIRECTORY_SEPARATOR.$name;
+        if ($create) {
+            File::ensureDirectoryExists($directory, 0700, true);
+        }
+
+        if (is_link($directory)) {
+            throw new RuntimeException('Invalid transient storage directory.');
+        }
+
+        return $directory;
     }
 
     /**
@@ -136,7 +297,7 @@ class TranscodeStorage
 
     private function directoryBytes(string $directory): int
     {
-        if (! File::isDirectory($directory)) {
+        if (! File::isDirectory($directory) || is_link($directory)) {
             return 0;
         }
 
@@ -161,13 +322,27 @@ class TranscodeStorage
     private function root(bool $create = false): string
     {
         $root = rtrim((string) config('odissey.transcode_path'), DIRECTORY_SEPARATOR);
+        $segments = explode(DIRECTORY_SEPARATOR, $root);
 
-        if ($root === '' || $root === DIRECTORY_SEPARATOR || ! str_starts_with($root, DIRECTORY_SEPARATOR)) {
+        if (
+            $root === ''
+            || $root === DIRECTORY_SEPARATOR
+            || ! str_starts_with($root, DIRECTORY_SEPARATOR)
+            || str_contains($root, "\0")
+            || str_contains($root, DIRECTORY_SEPARATOR.DIRECTORY_SEPARATOR)
+            || in_array('.', $segments, true)
+            || in_array('..', $segments, true)
+            || is_link($root)
+        ) {
             throw new RuntimeException('The transcode path must be a safe absolute path.');
         }
 
         if ($create) {
             File::ensureDirectoryExists($root, 0750, true);
+        }
+
+        if (is_link($root)) {
+            throw new RuntimeException('The transcode path must be a safe absolute path.');
         }
 
         return $root;

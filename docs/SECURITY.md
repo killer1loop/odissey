@@ -10,7 +10,13 @@ ingestion.
   Git, image layers, build arguments, queue payloads, browser responses,
   screenshots, logs, or exception messages.
 - Source settings are encrypted with Laravel's application key.
-- Backups include both the database and matching key.
+- Backups include both the database and matching key. The archive is a
+  complete plaintext recovery bundle, not an independently encrypted vault;
+  keep its `0600` permissions, move it only over an authenticated encrypted
+  channel, and encrypt it at rest outside Odissey.
+- Portable backups are refused while previous Laravel encryption keys remain
+  configured; otherwise ciphertext that still needs an old key could become
+  unrecoverable after restore.
 - Test suites use synthetic fixtures by default and injected secrets for
   explicitly approved live tests.
 - Every credential used before public release is rotated after testing.
@@ -53,9 +59,15 @@ bounded.
 - Input protocols, filters, codecs, threads, resolution, bitrate, lifetime, and
   concurrent sessions are restricted.
 - FFmpeg processes run unprivileged and belong to a supervised process group.
+- Buffered JSON, M3U, XMLTV, S3, and WebDAV catalog documents have immutable
+  hard ceilings sized for the container's PHP memory limit. Environment values
+  may lower these limits but cannot raise them past the safe ceiling.
 - Source mounts are read-only.
 - Transient HLS directories use unguessable session identifiers and strict
   permissions.
+- Direct source streams hold global, per-source, and per-user admission leases
+  until completion or disconnect, with a hard request lifetime below the cache
+  lock TTL.
 - Every manifest and segment request rechecks the authenticated owner and
   expiry.
 - Cache cleanup is both sliding-window and TTL based.

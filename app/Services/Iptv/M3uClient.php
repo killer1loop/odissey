@@ -4,26 +4,51 @@ namespace App\Services\Iptv;
 
 use App\Models\Iptv\IptvProvider;
 use App\Services\Iptv\Exceptions\SanitizedIptvException;
-use Illuminate\Support\Facades\Http;
 
 class M3uClient
 {
+    /**
+     * Playlist parsing builds PHP arrays and therefore expands the wire
+     * representation substantially. Keep the hard ceiling compatible with
+     * PHP's 128 MiB production memory limit even if an operator configures a
+     * larger value.
+     */
+    private const MAX_PLAYLIST_BYTES = 8 * 1024 * 1024;
+
+    private const MAX_PLAYLIST_CHANNELS = 20000;
+
+    public function __construct(
+        private readonly BoundedIptvDocumentFetcher $documents,
+    ) {}
+
     /** @return array{0: array<int, array<string,mixed>>, 1: array<int, array<string,mixed>>} */
     public function catalog(IptvProvider $provider): array
     {
         $url = $provider->config['playlist_url'] ?? '';
-        app(UpstreamUrlGuard::class)->assertPublicTarget($url, (bool) $provider->allow_insecure_http);
-        $response = Http::timeout(30)->maxRedirects(0)->get($url);
-        if (! $response->successful()) {
-            throw new SanitizedIptvException('playlist_unavailable', 502);
-        }
-        $body = $response->body();
-        if (strlen($body) > config('iptv.playlist_max_bytes') || ! str_starts_with(ltrim($body), '#EXTM3U')) {
+        $maxBytes = min(
+            self::MAX_PLAYLIST_BYTES,
+            max(1, (int) config('iptv.playlist_max_bytes')),
+        );
+        $body = $this->documents->fetch(
+            url: $url,
+            allowInsecureHttp: (bool) $provider->allow_insecure_http,
+            maxBytes: $maxBytes,
+            timeoutSeconds: 30,
+            unavailableCode: 'playlist_unavailable',
+            invalidCode: 'playlist_invalid',
+        );
+
+        if (! str_starts_with(ltrim($body), '#EXTM3U')) {
             throw new SanitizedIptvException('playlist_invalid', 422);
         }
         $groups = [];
         $streams = [];
         $pending = null;
+        $maxChannels = min(
+            self::MAX_PLAYLIST_CHANNELS,
+            max(1, (int) config('iptv.playlist_max_channels')),
+        );
+
         foreach (preg_split('/\R/', $body) ?: [] as $line) {
             $line = trim($line);
             if (str_starts_with($line, '#EXTINF:')) {
@@ -44,7 +69,7 @@ class M3uClient
                     'stream_icon' => $pending['attributes']['tvg-logo'] ?? null, 'stream_url' => $line,
                     'num' => count($streams) + 1,
                 ];
-                if (count($streams) >= config('iptv.playlist_max_channels')) {
+                if (count($streams) >= $maxChannels) {
                     break;
                 }
                 $pending = null;

@@ -3,10 +3,13 @@
 namespace App\Services\Media;
 
 use App\Services\IntegrationSettings;
-use Illuminate\Support\Facades\Http;
 
 class TmdbMetadataProvider
 {
+    public function __construct(
+        private readonly ConfidentialJsonClient $http,
+    ) {}
+
     /** @param array<string, mixed> $parsed @return array<string, mixed> */
     public function match(array $parsed): array
     {
@@ -20,24 +23,33 @@ class TmdbMetadataProvider
         if (! $isTv && ! empty($parsed['year'])) {
             $params['primary_release_year'] = $parsed['year'];
         }
-        $search = Http::acceptJson()->withToken($token)->timeout(10)
-            ->get('https://api.themoviedb.org/3/search/'.($isTv ? 'tv' : 'movie'), $params);
-        if (! $search->successful()) {
+        $headers = ['Authorization' => 'Bearer '.$token];
+        $search = $this->http->get(
+            'https://api.themoviedb.org/3/search/'.($isTv ? 'tv' : 'movie'),
+            $params,
+            $headers,
+            ['api.themoviedb.org'],
+        );
+        if ($search === null) {
             return [];
         }
-        $hit = $search->json('results.0');
+        $hit = $search['results'][0] ?? null;
         if (! is_array($hit) || empty($hit['id'])) {
             return [];
         }
-        $detail = Http::acceptJson()->withToken($token)->timeout(10)
-            ->get('https://api.themoviedb.org/3/'.($isTv ? 'tv' : 'movie').'/'.$hit['id'], [
+        $detail = $this->http->get(
+            'https://api.themoviedb.org/3/'.($isTv ? 'tv' : 'movie').'/'.(int) $hit['id'],
+            [
                 'language' => config('services.tmdb.language', 'en-US'),
                 'append_to_response' => 'external_ids,credits',
-            ]);
-        if (! $detail->successful()) {
+            ],
+            $headers,
+            ['api.themoviedb.org'],
+        );
+        if ($detail === null) {
             return [];
         }
-        $d = $detail->json();
+        $d = $detail;
 
         return [
             'provider' => 'tmdb',

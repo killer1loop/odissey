@@ -8,6 +8,10 @@ use Illuminate\Support\Facades\DB;
 
 class PlaybackAttemptRecorder
 {
+    public function __construct(
+        private readonly PlaybackSessionLease $lease,
+    ) {}
+
     public function record(
         IptvPlaybackSession $session,
         string $outcome,
@@ -27,7 +31,7 @@ class PlaybackAttemptRecorder
             $session->refresh();
 
             if (
-                $session->status === 'invalidated'
+                ! in_array($session->status, ['created', 'playing'], true)
                 || $session->expires_at->isPast()
             ) {
                 return;
@@ -59,6 +63,12 @@ class PlaybackAttemptRecorder
                     : $session->started_at,
                 'last_accessed_at' => now(),
             ])->save();
+
+            if ($outcome === 'started') {
+                $this->lease->renew($session);
+            } else {
+                $this->lease->release($session, 'failed', $errorCode);
+            }
         });
     }
 }

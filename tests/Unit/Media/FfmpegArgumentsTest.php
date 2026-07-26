@@ -21,7 +21,31 @@ class FfmpegArgumentsTest extends TestCase
         $this->assertContains('libx264', $arguments);
         $this->assertContains('aac', $arguments);
         $this->assertContains('independent_segments', $arguments);
+        $this->assertContains('-max_alloc', $arguments);
+        $this->assertContains('-max_pixels', $arguments);
+        $this->assertContains('-maxrate:v', $arguments);
+        $this->assertContains('-filter_threads', $arguments);
+        $protocolIndex = array_search('-protocol_whitelist', $arguments, true);
+        $this->assertIsInt($protocolIndex);
+        $this->assertSame('file,pipe', $arguments[$protocolIndex + 1]);
         $this->assertNotContains('sh', $arguments);
         $this->assertNotContains('-c', $arguments);
+    }
+
+    public function test_subtitle_input_is_limited_to_local_file_protocols(): void
+    {
+        $arguments = (new FfmpegArguments)->subtitle(
+            '/cache/source.mkv',
+            2,
+            '/cache/subtitle.vtt',
+        );
+
+        $protocolIndex = array_search('-protocol_whitelist', $arguments, true);
+        $this->assertIsInt($protocolIndex);
+        $this->assertSame('file,pipe', $arguments[$protocolIndex + 1]);
+        $this->assertContains('0:s:2', $arguments);
+        $this->assertContains('-max_alloc', $arguments);
+        $this->assertContains('-max_pixels', $arguments);
+        $this->assertContains('-threads', $arguments);
     }
 }

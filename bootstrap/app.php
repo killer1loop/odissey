@@ -1,9 +1,11 @@
 <?php
 
+use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -12,6 +14,12 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->append(SecurityHeaders::class);
+        $middleware->authenticateSessions();
+        $middleware->trustHosts(
+            at: static fn (): array => config('odissey-auth.trusted_hosts', []),
+            subdomains: false,
+        );
         $middleware->trustProxies(
             headers: Request::HEADER_X_FORWARDED_FOR
                 | Request::HEADER_X_FORWARDED_HOST
@@ -20,6 +28,14 @@ return Application::configure(basePath: dirname(__DIR__))
         );
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        $exceptions->respond(
+            static fn (
+                Response $response,
+                Throwable $exception,
+                Request $request,
+            ): Response => app(SecurityHeaders::class)->apply($request, $response),
+        );
+
         $exceptions->dontFlash([
             'access_key',
             'base_url',

@@ -9,6 +9,10 @@ use Symfony\Component\Process\Process;
 
 class FfmpegRunner
 {
+    public function __construct(
+        private readonly MediaProcessFactory $processes = new MediaProcessFactory,
+    ) {}
+
     /**
      * Run an executable with an argument vector. No shell is involved.
      *
@@ -62,6 +66,6 @@ class FfmpegRunner
      */
     protected function makeProcess(array $arguments, int $timeoutSeconds): Process
     {
-        return new Process($arguments, timeout: $timeoutSeconds);
+        return $this->processes->make($arguments, $timeoutSeconds);
     }
 }

@@ -3,9 +3,9 @@
 @section('title', 'Sign in')
 
 @section('content')
-    <section class="card" aria-labelledby="login-heading">
+    <section class="auth-card" aria-labelledby="login-heading">
         <h1 id="login-heading">Sign in</h1>
-        <p>Use an account created by your Odissey administrator.</p>
+        <p class="auth-intro">Access your private media libraries and live television.</p>
 
         @if ($errors->any())
             <div class="errors" role="alert">
@@ -30,13 +30,14 @@
                 <input id="password" type="password" name="password" required autocomplete="current-password">
             </div>
 
-            <label class="check" for="remember">
-                <input id="remember" type="checkbox" name="remember" value="1" @checked(old('remember'))>
-                <span>Keep me signed in</span>
-            </label>
-
-            <a href="{{ route('password.request') }}">Forgot your password?</a>
-            <button class="button" type="submit">Sign in</button>
+            <div class="auth-form-row">
+                <label class="check" for="remember">
+                    <input id="remember" type="checkbox" name="remember" value="1" @checked(old('remember'))>
+                    <span>Keep me signed in</span>
+                </label>
+                <a href="{{ route('password.request') }}">Forgot password?</a>
+            </div>
+            <button class="button button-primary auth-submit" type="submit">Sign in</button>
         </form>
     </section>
 @endsection

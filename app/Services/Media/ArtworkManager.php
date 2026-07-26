@@ -4,15 +4,28 @@ namespace App\Services\Media;
 
 use App\Models\MediaItem;
 use Illuminate\Support\Facades\File;
-use Illuminate\Support\Facades\Http;
-use Symfony\Component\Process\Process;
+use Illuminate\Support\Str;
 
 class ArtworkManager
 {
+    public function __construct(
+        private readonly BoundedMediaDownloader $downloader,
+        private readonly MediaAssetStorage $assets,
+        private readonly MediaProcessFactory $processes,
+    ) {}
+
     public function populate(MediaItem $item, ?string $localPath): void
     {
-        $directory = rtrim(config('odissey.artwork_path'), '/').'/'.$item->getKey();
+        $maximumArtworkBytes = min(
+            10 * 1024 * 1024,
+            max(1, (int) config('odissey.artwork_max_bytes')),
+        );
+        $root = $this->root();
+        $directory = $root.DIRECTORY_SEPARATOR.$item->getKey();
         File::ensureDirectoryExists($directory, 0700);
+        if (is_link($directory)) {
+            throw new \RuntimeException('artwork_storage_path_invalid');
+        }
         $metadata = $item->metadata ?? [];
         foreach (['poster', 'backdrop'] as $kind) {
             $url = $metadata[$kind.'_url'] ?? null;
@@ -21,30 +34,163 @@ class ArtworkManager
                 if (! in_array($host, ['image.tmdb.org', 'static.tvmaze.com'], true)) {
                     continue;
                 }
-                $response = Http::timeout(15)->maxRedirects(2)->get($url);
-                if ($response->successful() && strlen($response->body()) <= config('odissey.artwork_max_bytes') && str_starts_with($response->header('Content-Type', ''), 'image/')) {
-                    File::put($directory.'/'.$kind.'.jpg', $response->body());
+                try {
+                    $download = $this->downloader->download(
+                        url: $url,
+                        maxBytes: $maximumArtworkBytes,
+                        allowedHost: fn (string $candidate): bool => in_array(
+                            $candidate,
+                            ['image.tmdb.org', 'static.tvmaze.com'],
+                            true,
+                        ),
+                        maxRedirects: 2,
+                        timeoutSeconds: 15,
+                    );
+                } catch (\RuntimeException) {
+                    continue;
+                }
+                $path = $directory.'/'.$kind.'.jpg';
+                $imageInfo = $download['body'] === ''
+                    ? false
+                    : @getimagesizefromstring($download['body']);
+                if (
+                    $download['body'] !== ''
+                    && str_starts_with(strtolower($download['content_type']), 'image/jpeg')
+                    && is_array($imageInfo)
+                    && ($imageInfo[2] ?? null) === IMAGETYPE_JPEG
+                ) {
+                    $this->assets->assertCanStore(strlen($download['body']), $path);
+                    $temporary = $path.'.'.Str::lower((string) Str::ulid()).'.tmp';
+                    try {
+                        if (
+                            File::put($temporary, $download['body'], true)
+                            !== strlen($download['body'])
+                        ) {
+                            continue;
+                        }
+
+                        $this->assets->synchronized(function () use (
+                            $download,
+                            $path,
+                            $temporary,
+                        ): void {
+                            $this->assets->assertCanPublish(
+                                strlen($download['body']),
+                                [$temporary],
+                                $path,
+                            );
+
+                            if (
+                                (File::exists($path) && ! File::delete($path))
+                                || ! File::move($temporary, $path)
+                                || ! chmod($path, 0600)
+                            ) {
+                                throw new \RuntimeException('artwork_write_failed');
+                            }
+                        });
+                    } finally {
+                        File::delete($temporary);
+                    }
                     $metadata[$kind.'_cached'] = true;
                 }
             }
         }
         if (empty($metadata['poster_cached']) && $localPath && $item->media_kind === 'video') {
-            $process = new Process([
+            $path = $directory.'/poster.jpg';
+            $temporary = $path.'.'.Str::lower((string) Str::ulid()).'.tmp';
+            $process = $this->processes->make([
                 config('odissey.ffmpeg_binary', 'ffmpeg'), '-hide_banner', '-loglevel', 'error',
-                '-nostdin', '-y', '-ss', '00:00:05', '-i', $localPath,
-                '-frames:v', '1', '-vf', 'scale=480:-2', $directory.'/poster.jpg',
-            ]);
-            $process->setTimeout(30);
-            $process->run();
-            $metadata['poster_cached'] = $process->isSuccessful();
+                '-nostdin', '-y',
+                '-max_alloc', (string) min(
+                    1024 * 1024 * 1024,
+                    max(16 * 1024 * 1024, (int) config(
+                        'odissey.ffmpeg_max_alloc_bytes',
+                        256 * 1024 * 1024,
+                    )),
+                ),
+                '-max_pixels', (string) min(
+                    7680 * 4320,
+                    max(1920 * 1080, (int) config(
+                        'odissey.ffmpeg_max_pixels',
+                        7680 * 4320,
+                    )),
+                ),
+                '-threads', (string) min(
+                    16,
+                    max(1, (int) config('odissey.ffmpeg_threads', 2)),
+                ),
+                '-ss', '00:00:05',
+                '-protocol_whitelist', 'file,pipe',
+                '-i', $localPath,
+                '-frames:v', '1', '-vf', 'scale=480:-2',
+                '-c:v', 'mjpeg', '-f', 'image2', $temporary,
+            ], 30);
+            try {
+                $process->run();
+                $imageInfo = File::isFile($temporary) ? @getimagesize($temporary) : false;
+                $valid = $process->isSuccessful()
+                    && File::isFile($temporary)
+                    && File::size($temporary) > 0
+                    && File::size($temporary) <= $maximumArtworkBytes
+                    && is_array($imageInfo)
+                    && ($imageInfo[2] ?? null) === IMAGETYPE_JPEG;
+                if ($valid) {
+                    $this->assets->synchronized(function () use (
+                        $path,
+                        $temporary,
+                    ): void {
+                        $this->assets->assertCanPublish(
+                            File::size($temporary),
+                            [$temporary],
+                            $path,
+                        );
+                        File::delete($path);
+
+                        if (
+                            ! File::move($temporary, $path)
+                            || ! chmod($path, 0600)
+                        ) {
+                            throw new \RuntimeException('artwork_write_failed');
+                        }
+                    });
+                }
+            } finally {
+                File::delete($temporary);
+            }
+            $metadata['poster_cached'] = $valid;
         }
         $item->update(['metadata' => $metadata]);
     }
 
     public function path(MediaItem $item, string $kind): ?string
     {
-        $path = rtrim(config('odissey.artwork_path'), '/').'/'.$item->getKey().'/'.$kind.'.jpg';
+        if (($item->metadata[$kind.'_cached'] ?? false) !== true) {
+            return null;
+        }
+
+        $path = $this->root()
+            .DIRECTORY_SEPARATOR.$item->getKey()
+            .DIRECTORY_SEPARATOR.$kind.'.jpg';
 
         return File::isFile($path) ? $path : null;
+    }
+
+    private function root(): string
+    {
+        $root = rtrim(
+            (string) config('odissey.artwork_path'),
+            DIRECTORY_SEPARATOR,
+        );
+
+        if (
+            $root === ''
+            || $root === DIRECTORY_SEPARATOR
+            || ! str_starts_with($root, DIRECTORY_SEPARATOR)
+            || is_link($root)
+        ) {
+            throw new \RuntimeException('artwork_storage_path_invalid');
+        }
+
+        return $root;
     }
 }
