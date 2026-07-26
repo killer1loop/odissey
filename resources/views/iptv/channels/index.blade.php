@@ -91,7 +91,10 @@
                     @endphp
                     <article class="channel-card">
                         <div class="channel-card-head">
-                            <div class="channel-mark" aria-hidden="true">{{ mb_strtoupper(mb_substr($channel->name, 0, 2)) }}</div>
+                            @include('iptv.channels.icon', [
+                                'channel' => $channel,
+                                'class' => 'channel-mark',
+                            ])
                             <div class="channel-title">
                                 <h2>{{ $channel->name }}</h2>
                                 <p>{{ $channel->group?->name ?? 'Other channels' }}</p>

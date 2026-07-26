@@ -1,6 +1,7 @@
 import htmx from 'htmx.org';
 import './iptv-player';
 import './media-player';
+import './tv-navigation';
 
 window.htmx = htmx;
 

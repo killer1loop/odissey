@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Iptv;
 
 use App\Http\Controllers\Controller;
 use App\Models\Iptv\Channel;
+use App\Models\Iptv\EpgProgram;
 use App\Models\Iptv\IptvPlaybackSession;
 use App\Services\Iptv\PlaybackAccess;
 use App\Services\Iptv\PlaybackSessionManager;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -38,14 +40,60 @@ class PlaybackSessionController extends Controller
     ): View {
         $access->assertSession($request->user(), $session);
         $session->loadMissing('channel.group');
+        $guideNow = CarbonImmutable::now();
+        $guideEnd = $guideNow->addHours(2);
 
         $programs = $session->channel->programs()
-            ->where('ends_at', '>', now())
+            ->where('ends_at', '>', $guideNow)
             ->orderBy('starts_at')
             ->limit(2)
             ->get();
 
-        return view('iptv.playback.show', compact('session', 'programs'));
+        $favoriteChannels = Channel::query()
+            ->select('channels.*')
+            ->join(
+                'channel_favorites',
+                'channel_favorites.channel_id',
+                '=',
+                'channels.id',
+            )
+            ->join(
+                'iptv_providers',
+                'iptv_providers.id',
+                '=',
+                'channels.iptv_provider_id',
+            )
+            ->where('channel_favorites.user_id', $request->user()->id)
+            ->where('channels.is_active', true)
+            ->where('iptv_providers.enabled', true)
+            ->where(function ($query): void {
+                $query->whereNull('channels.channel_group_id')
+                    ->orWhereHas(
+                        'group',
+                        fn ($group) => $group->where('is_active', true),
+                    );
+            })
+            ->with('group:id,name')
+            ->orderBy('channel_favorites.created_at')
+            ->orderBy('channels.name')
+            ->get();
+        $favoriteGuide = EpgProgram::query()
+            ->whereIn('channel_id', $favoriteChannels->pluck('id'))
+            ->where('ends_at', '>', $guideNow)
+            ->where('starts_at', '<', $guideEnd)
+            ->orderBy('starts_at')
+            ->get()
+            ->groupBy('channel_id');
+
+        return view('iptv.playback.show', [
+            'session' => $session,
+            'programs' => $programs,
+            'favoriteChannels' => $favoriteChannels,
+            'favoriteGuide' => $favoriteGuide,
+            'guideNow' => $guideNow,
+            'guideEnd' => $guideEnd,
+            'viewerTimezone' => $request->user()->timezone ?: config('app.timezone'),
+        ]);
     }
 
     public function destroy(

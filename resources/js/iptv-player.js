@@ -32,6 +32,10 @@ function initialize(container) {
     const volume = container.querySelector('[data-player-volume]');
     const fullscreenButton = container.querySelector('[data-player-fullscreen]');
     const health = container.querySelector('[data-stream-health]');
+    const railToggle = container.querySelector('[data-player-rail-toggle]');
+    const railClose = container.querySelector('[data-player-rail-close]');
+    const favoriteForms = [...container.querySelectorAll('[data-favorite-channel]')];
+    const navigationStatus = container.querySelector('[data-player-navigation-status]');
 
     if (!video || !manifestUrl) {
         return;
@@ -115,7 +119,9 @@ function initialize(container) {
     };
     const handleVideoError = () => setStatus('unavailable', 'The live stream became unavailable.');
     const handleFullscreenChange = () => {
-        const active = document.fullscreenElement === container;
+        const active = document.fullscreenElement === container
+            || document.webkitFullscreenElement === container;
+        container.dataset.fullscreen = active ? 'true' : 'false';
         fullscreenButton?.setAttribute('aria-label', active ? 'Exit full screen' : 'Enter full screen');
     };
 
@@ -135,11 +141,114 @@ function initialize(container) {
         video.muted = video.volume === 0;
         updateControls();
     };
-    const handleFullscreenClick = () => {
-        if (document.fullscreenElement === container) {
-            document.exitFullscreen?.();
+    const toggleFullscreen = () => {
+        if (document.fullscreenElement === container || document.webkitFullscreenElement === container) {
+            (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document);
         } else {
-            container.requestFullscreen?.();
+            (container.requestFullscreen ?? container.webkitRequestFullscreen)?.call(container);
+        }
+    };
+    const setRailOpen = (open, focusRail = false) => {
+        container.dataset.railOpen = open ? 'true' : 'false';
+        railToggle?.setAttribute('aria-expanded', open ? 'true' : 'false');
+
+        if (open && focusRail) {
+            const activeButton = container.querySelector(
+                '[data-favorite-channel] button[aria-current="true"]',
+            );
+            (activeButton ?? favoriteForms[0]?.querySelector('button'))?.focus();
+        }
+    };
+    const announceNavigation = (message) => {
+        if (navigationStatus) {
+            navigationStatus.textContent = message;
+        }
+    };
+    const switchFavorite = (delta) => {
+        if (favoriteForms.length === 0) {
+            setRailOpen(true, true);
+            announceNavigation('No favorite channels are available.');
+
+            return;
+        }
+
+        const activeId = String(container.dataset.activeChannelId ?? '');
+        const currentIndex = favoriteForms.findIndex(
+            (form) => form.dataset.channelId === activeId,
+        );
+        const nextIndex = currentIndex < 0
+            ? (delta > 0 ? 0 : favoriteForms.length - 1)
+            : (currentIndex + delta + favoriteForms.length) % favoriteForms.length;
+        const nextForm = favoriteForms[nextIndex];
+        const nextButton = nextForm?.querySelector('button');
+
+        if (!nextForm || !nextButton) {
+            return;
+        }
+
+        if (nextForm.dataset.channelId === activeId) {
+            announceNavigation(`${nextButton.getAttribute('aria-label')?.replace('Switch to ', '') ?? 'Channel'} is already playing.`);
+
+            return;
+        }
+
+        announceNavigation(nextButton.getAttribute('aria-label') ?? 'Switching favorite channel.');
+        nextForm.requestSubmit(nextButton);
+    };
+    const handleFullscreenClick = () => toggleFullscreen();
+    const handleRailToggle = () => {
+        setRailOpen(container.dataset.railOpen !== 'true', true);
+    };
+    const handleRailClose = () => {
+        setRailOpen(false);
+        railToggle?.focus();
+    };
+    const handleKeydown = (event) => {
+        const target = event.target;
+        const isTyping = target instanceof HTMLElement
+            && (target.matches('input, textarea, select') || target.isContentEditable);
+
+        if (event.altKey || event.ctrlKey || event.metaKey || event.repeat || isTyping) {
+            return;
+        }
+
+        const legacyCode = Number(event.keyCode);
+        const isChannelUp = event.key === 'ChannelUp' || legacyCode === 427;
+        const isChannelDown = event.key === 'ChannelDown' || legacyCode === 428;
+        const isBack = event.key === 'BrowserBack' || legacyCode === 10009;
+        const isPlayPause = event.key === 'MediaPlayPause' || legacyCode === 10252;
+
+        if ((event.key ?? '').toLowerCase() === 'f') {
+            event.preventDefault();
+            toggleFullscreen();
+        } else if (event.key === 'Escape' || isBack) {
+            const isFullscreen = document.fullscreenElement === container
+                || document.webkitFullscreenElement === container;
+
+            if (isFullscreen) {
+                event.preventDefault();
+                (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document);
+            } else if (container.dataset.railOpen === 'true') {
+                event.preventDefault();
+                setRailOpen(false);
+                container.focus();
+            }
+        } else if (event.key === 'ArrowUp' || isChannelUp) {
+            event.preventDefault();
+            switchFavorite(-1);
+        } else if (event.key === 'ArrowDown' || isChannelDown) {
+            event.preventDefault();
+            switchFavorite(1);
+        } else if (event.key === 'ArrowRight') {
+            event.preventDefault();
+            setRailOpen(true, true);
+        } else if (event.key === 'ArrowLeft' && container.dataset.railOpen === 'true') {
+            event.preventDefault();
+            setRailOpen(false);
+            container.focus();
+        } else if (isPlayPause) {
+            event.preventDefault();
+            handlePlayClick();
         }
     };
 
@@ -147,6 +256,9 @@ function initialize(container) {
     muteButton?.addEventListener('click', handleMuteClick);
     volume?.addEventListener('input', handleVolumeInput);
     fullscreenButton?.addEventListener('click', handleFullscreenClick);
+    railToggle?.addEventListener('click', handleRailToggle);
+    railClose?.addEventListener('click', handleRailClose);
+    document.addEventListener('keydown', handleKeydown);
     video.addEventListener('playing', handlePlaying);
     video.addEventListener('pause', handlePause);
     video.addEventListener('waiting', handleWaiting);
@@ -155,7 +267,9 @@ function initialize(container) {
     video.addEventListener('resize', updateResolution);
     video.addEventListener('error', handleVideoError);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
     updateControls();
+    handleFullscreenChange();
     setStatus('connecting', 'Connecting to live stream…');
 
     if (!Hls.isSupported() && video.canPlayType('application/vnd.apple.mpegurl')) {
@@ -214,6 +328,9 @@ function initialize(container) {
         muteButton?.removeEventListener('click', handleMuteClick);
         volume?.removeEventListener('input', handleVolumeInput);
         fullscreenButton?.removeEventListener('click', handleFullscreenClick);
+        railToggle?.removeEventListener('click', handleRailToggle);
+        railClose?.removeEventListener('click', handleRailClose);
+        document.removeEventListener('keydown', handleKeydown);
         video.removeEventListener('playing', handlePlaying);
         video.removeEventListener('pause', handlePause);
         video.removeEventListener('waiting', handleWaiting);
@@ -222,6 +339,7 @@ function initialize(container) {
         video.removeEventListener('resize', updateResolution);
         video.removeEventListener('error', handleVideoError);
         document.removeEventListener('fullscreenchange', handleFullscreenChange);
+        document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
         hls?.destroy();
         video.pause();
         video.removeAttribute('src');

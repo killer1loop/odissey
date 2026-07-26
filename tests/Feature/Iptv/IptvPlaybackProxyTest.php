@@ -3,6 +3,8 @@
 namespace Tests\Feature\Iptv;
 
 use App\Models\Iptv\Channel;
+use App\Models\Iptv\ChannelFavorite;
+use App\Models\Iptv\EpgProgram;
 use App\Models\Iptv\IptvPlaybackResource;
 use App\Models\Iptv\IptvPlaybackSession;
 use App\Models\User;
@@ -95,6 +97,9 @@ class IptvPlaybackProxyTest extends TestCase
             ->assertOk()
             ->assertSee(route('iptv.playback.manifest', $session))
             ->assertSee('data-player-controls', escape: false)
+            ->assertSee('data-player-channel-rail', escape: false)
+            ->assertSee('data-player-rail-toggle', escape: false)
+            ->assertSee(route('iptv.channels.icon', $channel))
             ->assertSee('data-stream-health', escape: false)
             ->assertSee('Resolution')
             ->assertSee('Bitrate')
@@ -155,6 +160,70 @@ class IptvPlaybackProxyTest extends TestCase
             'error_code' => null,
         ]);
         $this->assertNotEmpty($page->getContent());
+    }
+
+    public function test_player_favorite_rail_contains_two_hours_of_guide_information(): void
+    {
+        $user = User::factory()->create([
+            'is_active' => true,
+            'timezone' => 'Europe/Zurich',
+        ]);
+        $current = $this->makeChannel($this->makeProvider(), [
+            'name' => 'Current News',
+        ]);
+        $next = $this->makeChannel(
+            $this->makeProvider(['name' => 'Second Provider']),
+            ['name' => 'Favorite Sports'],
+        );
+        foreach ([$current, $next] as $channel) {
+            ChannelFavorite::query()->create([
+                'user_id' => $user->id,
+                'channel_id' => $channel->id,
+            ]);
+        }
+        EpgProgram::query()->create([
+            'iptv_provider_id' => $next->iptv_provider_id,
+            'channel_id' => $next->id,
+            'fingerprint' => hash('sha256', 'favorite-sports-now'),
+            'title' => 'Live Match',
+            'starts_at' => now()->subMinutes(10),
+            'ends_at' => now()->addMinutes(35),
+        ]);
+        EpgProgram::query()->create([
+            'iptv_provider_id' => $next->iptv_provider_id,
+            'channel_id' => $next->id,
+            'fingerprint' => hash('sha256', 'favorite-sports-later'),
+            'title' => 'Post-match Review',
+            'starts_at' => now()->addMinutes(35),
+            'ends_at' => now()->addMinutes(95),
+        ]);
+        EpgProgram::query()->create([
+            'iptv_provider_id' => $next->iptv_provider_id,
+            'channel_id' => $next->id,
+            'fingerprint' => hash('sha256', 'favorite-sports-too-late'),
+            'title' => 'Tomorrow Preview',
+            'starts_at' => now()->addHours(3),
+            'ends_at' => now()->addHours(4),
+        ]);
+
+        $this->actingAs($user)
+            ->post(route('iptv.playback.store', $current))
+            ->assertRedirect();
+        $session = IptvPlaybackSession::query()->sole();
+
+        $this->actingAs($user)
+            ->get(route('iptv.playback.show', $session))
+            ->assertOk()
+            ->assertSee('data-active-channel-id="'.$current->id.'"', escape: false)
+            ->assertSee('data-favorite-channel', escape: false)
+            ->assertSee('aria-current="true"', escape: false)
+            ->assertSee('Current News')
+            ->assertSee('Favorite Sports')
+            ->assertSee('Live Match')
+            ->assertSee('Post-match Review')
+            ->assertDontSee('Tomorrow Preview')
+            ->assertSee(route('iptv.channels.icon', $next))
+            ->assertDontSee('images.example.test');
     }
 
     public function test_bounded_redirects_are_manually_revalidated_before_fetching(): void

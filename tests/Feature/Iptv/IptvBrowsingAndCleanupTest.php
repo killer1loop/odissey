@@ -9,6 +9,7 @@ use App\Models\Iptv\IptvPlaybackSession;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Tests\Concerns\InteractsWithIptv;
 use Tests\TestCase;
 
@@ -82,6 +83,8 @@ class IptvBrowsingAndCleanupTest extends TestCase
             ->get(route('iptv.channels.index'))
             ->assertOk()
             ->assertSee('data-live-tv-view="guide"', escape: false)
+            ->assertSee(route('iptv.channels.icon', $favorite))
+            ->assertDontSee('images.example.test')
             ->assertSee('Six-hour television guide')
             ->assertSee('Midday News')
             ->assertSee(route('iptv.playback.store', $favorite))
@@ -92,6 +95,7 @@ class IptvBrowsingAndCleanupTest extends TestCase
             ->get(route('iptv.channels.index', ['view' => 'channels']))
             ->assertOk()
             ->assertSee('data-live-tv-view="channels"', escape: false)
+            ->assertSee(route('iptv.channels.icon', $favorite))
             ->assertSee('Watch live')
             ->assertDontSee('Six-hour television guide');
 
@@ -101,6 +105,45 @@ class IptvBrowsingAndCleanupTest extends TestCase
             ->assertSee('data-live-tv-view="guide"', escape: false)
             ->assertSee($favorite->name)
             ->assertDontSee($other->name);
+    }
+
+    public function test_channel_icons_are_authenticated_bounded_images_with_safe_fallbacks(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $channel = $this->makeChannel($this->makeProvider());
+        $png = base64_decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+            strict: true,
+        );
+        Http::fake([
+            'images.example.test/*' => Http::response($png, 200, [
+                'Content-Type' => 'image/png',
+                'Content-Length' => (string) strlen($png),
+            ]),
+        ]);
+
+        $this->get(route('iptv.channels.icon', $channel))
+            ->assertRedirect(route('login'));
+
+        $response = $this->actingAs($user)
+            ->get(route('iptv.channels.icon', $channel))
+            ->assertOk()
+            ->assertHeader('Content-Type', 'image/png')
+            ->assertHeader('Cross-Origin-Resource-Policy', 'same-origin')
+            ->assertHeader('X-Content-Type-Options', 'nosniff');
+        $this->assertSame($png, $response->getContent());
+
+        Http::fake([
+            'images.example.test/*' => Http::response(
+                '<svg xmlns="http://www.w3.org/2000/svg"></svg>',
+                200,
+                ['Content-Type' => 'image/svg+xml'],
+            ),
+        ]);
+
+        $this->actingAs($user)
+            ->get(route('iptv.channels.icon', $channel))
+            ->assertNotFound();
     }
 
     public function test_prune_and_e2e_cleanup_remove_only_explicitly_selected_state(): void

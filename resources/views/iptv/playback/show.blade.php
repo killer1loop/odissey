@@ -6,6 +6,11 @@
 @section('topbar')
     <div class="player-topbar-copy">
         <span class="live-indicator" aria-hidden="true"></span>
+        @include('iptv.channels.icon', [
+            'channel' => $session->channel,
+            'class' => 'player-channel-logo',
+            'loading' => 'eager',
+        ])
         <div>
             <p>{{ $session->channel->group?->name ?? 'Live TV' }}</p>
             <h1>{{ $session->channel->name }}</h1>
@@ -30,13 +35,113 @@
         class="live-player-shell"
         data-iptv-player
         data-manifest-url="{{ route('iptv.playback.manifest', $session) }}"
+        data-active-channel-id="{{ $session->channel_id }}"
+        data-rail-open="false"
         aria-label="{{ $session->channel->name }} live stream player"
+        tabindex="0"
     >
-        <div class="live-video-stage">
-            <video playsinline preload="metadata" aria-label="{{ $session->channel->name }} live stream"></video>
-            <div class="live-video-message" data-iptv-player-status role="status" aria-live="polite">
-                Connecting to live stream…
+        <div class="live-player-viewport">
+            <div class="live-video-stage">
+                <video playsinline preload="metadata" aria-label="{{ $session->channel->name }} live stream"></video>
+                <div class="live-video-message" data-iptv-player-status role="status" aria-live="polite">
+                    Connecting to live stream…
+                </div>
+                <button
+                    class="player-rail-trigger"
+                    type="button"
+                    data-player-rail-toggle
+                    aria-controls="favorite-channel-rail"
+                    aria-expanded="false"
+                >
+                    <svg aria-hidden="true" viewBox="0 0 24 24">
+                        <path d="M4 6h16M4 12h16M4 18h16"/>
+                    </svg>
+                    <span>Channels</span>
+                </button>
             </div>
+
+            <aside
+                id="favorite-channel-rail"
+                class="player-channel-rail"
+                data-player-channel-rail
+                aria-label="Favorite channels and two-hour guide"
+            >
+                <header class="player-rail-header">
+                    <div>
+                        <p>Favorite channels</p>
+                        <h2>Next two hours</h2>
+                    </div>
+                    <button
+                        class="player-rail-close"
+                        type="button"
+                        data-player-rail-close
+                        aria-label="Close favorite channels"
+                    >
+                        <svg aria-hidden="true" viewBox="0 0 24 24">
+                            <path d="m6 6 12 12M18 6 6 18"/>
+                        </svg>
+                    </button>
+                </header>
+
+                <div class="player-rail-hint" aria-hidden="true">
+                    <span><kbd>↑</kbd><kbd>↓</kbd> switch</span>
+                    <span><kbd>F</kbd> full screen</span>
+                    <span><kbd>Esc</kbd> exit</span>
+                </div>
+
+                <div class="player-channel-list" data-player-channel-list>
+                    @forelse ($favoriteChannels as $favoriteChannel)
+                        @php
+                            $railPrograms = $favoriteGuide->get($favoriteChannel->id, collect());
+                            $isCurrentChannel = $favoriteChannel->is($session->channel);
+                        @endphp
+                        <form
+                            class="player-channel-item {{ $isCurrentChannel ? 'is-active' : '' }}"
+                            method="POST"
+                            action="{{ route('iptv.playback.store', $favoriteChannel) }}"
+                            data-favorite-channel
+                            data-channel-id="{{ $favoriteChannel->id }}"
+                        >
+                            @csrf
+                            <button
+                                type="submit"
+                                aria-label="Switch to {{ $favoriteChannel->name }}"
+                                @if ($isCurrentChannel) aria-current="true" @endif
+                            >
+                                @include('iptv.channels.icon', [
+                                    'channel' => $favoriteChannel,
+                                    'class' => 'player-rail-logo',
+                                ])
+                                <span class="player-rail-copy">
+                                    <strong>{{ $favoriteChannel->name }}</strong>
+                                    <small>{{ $favoriteChannel->group?->name ?? 'Live TV' }}</small>
+                                    <span class="player-rail-programs">
+                                        @forelse ($railPrograms as $railProgram)
+                                            <span>
+                                                <time datetime="{{ $railProgram->starts_at->toIso8601String() }}">
+                                                    {{ $railProgram->starts_at <= $guideNow ? 'Now' : $railProgram->starts_at->timezone($viewerTimezone)->format('H:i') }}
+                                                </time>
+                                                {{ $railProgram->title }}
+                                            </span>
+                                        @empty
+                                            <span><time>—</time>No guide information</span>
+                                        @endforelse
+                                    </span>
+                                </span>
+                                @if ($isCurrentChannel)
+                                    <span class="player-channel-playing">Playing</span>
+                                @endif
+                            </button>
+                        </form>
+                    @empty
+                        <div class="player-rail-empty">
+                            <strong>No favorite channels</strong>
+                            <p>Add favorites from Live TV to switch channels with the remote or keyboard.</p>
+                            <a href="{{ route('iptv.channels.index', ['favorites' => 1]) }}">Open Live TV</a>
+                        </div>
+                    @endforelse
+                </div>
+            </aside>
         </div>
 
         <div class="live-control-bar" data-player-controls>
@@ -85,5 +190,6 @@
                 </svg>
             </button>
         </div>
+        <p class="sr-only" role="status" aria-live="polite" data-player-navigation-status></p>
     </section>
 @endsection

@@ -64,7 +64,10 @@
                         <form class="epg-channel-play" method="POST" action="{{ route('iptv.playback.store', $channel) }}">
                             @csrf
                             <button type="submit" aria-label="Watch {{ $channel->name }} live">
-                                <span class="epg-channel-mark" aria-hidden="true">{{ mb_strtoupper(mb_substr($channel->name, 0, 2)) }}</span>
+                                @include('iptv.channels.icon', [
+                                    'channel' => $channel,
+                                    'class' => 'epg-channel-mark',
+                                ])
                                 <span class="epg-channel-copy">
                                     <strong>
                                         @if ($channel->channel_number)
