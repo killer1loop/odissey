@@ -49,7 +49,7 @@ redirects and authorization.
 Finite work runs on the database queue:
 
 - provider connectivity and channel/category synchronization;
-- bounded short-EPG refresh;
+- bounded hourly EPG refresh for every enabled provider;
 - library scans;
 - `ffprobe` analysis;
 - cleanup and retention tasks.

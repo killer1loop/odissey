@@ -40,8 +40,8 @@ and credential-safe streaming proxies.
   search and private WebVTT caching when free-account API keys are configured;
 - queued FFmpeg H.264/AAC HLS conversion with authenticated derivatives;
 - encrypted Xtream provider settings and asynchronous catalog synchronization;
-- channel groups, search, short EPG, per-user favorites, and opaque live HLS
-  sessions;
+- channel groups, search, hourly EPG refresh, per-user favorites, and opaque
+  live HLS sessions;
 - a Plex-inspired dark Blade interface enhanced with HTMX and hls.js;
 - one Docker image containing FrankenPHP, SQLite, FFmpeg, the queue worker, and
   the scheduler.
