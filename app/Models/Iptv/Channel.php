@@ -16,6 +16,8 @@ class Channel extends Model
         'name',
         'channel_number',
         'stream_icon',
+        'logo_source',
+        'logo_channel_id',
         'stream_extension',
         'metadata',
         'is_active',

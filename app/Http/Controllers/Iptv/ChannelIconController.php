@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Iptv;
 
 use App\Http\Controllers\Controller;
 use App\Models\Iptv\Channel;
-use App\Services\Iptv\BoundedIptvDocumentFetcher;
+use App\Services\Media\BoundedMediaDownloader;
 use Illuminate\Http\Response;
 use Throwable;
 
@@ -14,7 +14,7 @@ class ChannelIconController extends Controller
 
     public function __invoke(
         Channel $channel,
-        BoundedIptvDocumentFetcher $documents,
+        BoundedMediaDownloader $images,
     ): Response {
         $channel->loadMissing(['provider', 'group']);
         abort_unless(
@@ -27,20 +27,22 @@ class ChannelIconController extends Controller
         try {
             $url = $channel->stream_icon;
 
-            if (! is_string($url) || trim($url) === '') {
+            if (
+                $channel->logo_source !== 'iptv-org'
+                || ! is_string($url)
+                || trim($url) === ''
+            ) {
                 abort(404);
             }
 
-            $body = $documents->fetch(
+            $download = $images->download(
                 url: $url,
-                allowInsecureHttp: (bool) $channel->provider->allow_insecure_http,
                 maxBytes: self::MAX_ICON_BYTES,
+                allowedHost: static fn (string $host): bool => $host !== '',
+                maxRedirects: 2,
                 timeoutSeconds: 10,
-                unavailableCode: 'channel_icon_unavailable',
-                invalidCode: 'channel_icon_invalid',
-                unavailableStatus: 404,
-                invalidStatus: 404,
             );
+            $body = $download['body'];
         } catch (Throwable) {
             abort(404);
         }

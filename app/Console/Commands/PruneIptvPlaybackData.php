@@ -14,9 +14,20 @@ class PruneIptvPlaybackData extends Command
     public function handle(): int
     {
         $deleted = 0;
+        $retentionHours = min(
+            168,
+            max(
+                1,
+                (int) config(
+                    'iptv.playback_diagnostics_retention_hours',
+                    24,
+                ),
+            ),
+        );
+        $cutoff = now()->subHours($retentionHours);
 
         IptvPlaybackSession::query()
-            ->where('expires_at', '<', now())
+            ->where('expires_at', '<', $cutoff)
             ->orderBy('expires_at')
             ->chunkById(250, function ($sessions) use (&$deleted): void {
                 $ids = $sessions->pluck('id');

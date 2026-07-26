@@ -2,7 +2,9 @@
     $signedInUser = auth()->user();
     $avatarLetter = mb_strtoupper(mb_substr($signedInUser?->name ?? 'O', 0, 1));
     $musicIsActive = request()->routeIs('media.index') && request('kind') === 'music';
-    $videoIsActive = request()->routeIs('media.*') && ! request()->routeIs('media.admin.*') && ! $musicIsActive;
+    $tvIsActive = request()->routeIs('media.index') && request('library') === 'tv';
+    $moviesAreActive = request()->routeIs('media.*') && ! request()->routeIs('media.admin.*') && ! $musicIsActive && ! $tvIsActive;
+    $videoIsActive = $moviesAreActive || $tvIsActive;
     $favoritesAreActive = request()->routeIs('iptv.channels.index') && request()->boolean('favorites');
     $liveTvIsActive = request()->routeIs('iptv.*') && ! request()->routeIs('iptv.admin.*') && ! $favoritesAreActive;
 @endphp
@@ -44,15 +46,26 @@
                         <span>Home</span>
                     </a>
                     <a
-                        class="nav-item {{ $videoIsActive ? 'is-active' : '' }}"
-                        href="{{ route('media.index') }}"
-                        @if ($videoIsActive) aria-current="page" @endif
+                        class="nav-item {{ $moviesAreActive ? 'is-active' : '' }}"
+                        href="{{ route('media.index', ['kind' => 'video', 'library' => 'movies']) }}"
+                        @if ($moviesAreActive) aria-current="page" @endif
                     >
                         <svg aria-hidden="true" viewBox="0 0 24 24">
                             <rect x="3" y="5" width="18" height="14" rx="2"/>
                             <path d="m9 10 5 3-5 3z"/>
                         </svg>
-                        <span>Video</span>
+                        <span>Movies</span>
+                    </a>
+                    <a
+                        class="nav-item {{ $tvIsActive ? 'is-active' : '' }}"
+                        href="{{ route('media.index', ['kind' => 'video', 'library' => 'tv']) }}"
+                        @if ($tvIsActive) aria-current="page" @endif
+                    >
+                        <svg aria-hidden="true" viewBox="0 0 24 24">
+                            <rect x="3" y="5" width="18" height="14" rx="2"/>
+                            <path d="M8 3h8M12 3v2M7 10h4M7 14h7"/>
+                        </svg>
+                        <span>TV Shows</span>
                     </a>
                     <a class="nav-item {{ $musicIsActive ? 'is-active' : '' }}" href="{{ route('media.index',['kind'=>'music']) }}" @if ($musicIsActive) aria-current="page" @endif>
                         <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -160,13 +173,11 @@
                     </form>
 
                     <div class="topbar-actions">
-                        <a class="icon-button" href="{{ route('media.index') }}" aria-label="Open video library">
-                            <svg aria-hidden="true" viewBox="0 0 24 24">
-                                <rect x="3" y="5" width="18" height="14" rx="2"/>
-                                <path d="m9 10 5 3-5 3z"/>
-                            </svg>
-                        </a>
-                        <span class="foundation-pill">Self-hosted</span>
+                        <nav class="topbar-quick-links" aria-label="Quick links">
+                            <a class="{{ $moviesAreActive ? 'is-active' : '' }}" href="{{ route('media.index', ['kind' => 'video', 'library' => 'movies']) }}">Movies</a>
+                            <a class="{{ $tvIsActive ? 'is-active' : '' }}" href="{{ route('media.index', ['kind' => 'video', 'library' => 'tv']) }}">TV Shows</a>
+                            <a class="{{ $liveTvIsActive ? 'is-active' : '' }}" href="{{ route('iptv.channels.index') }}">Live TV</a>
+                        </nav>
                     </div>
                     @endif
                 </header>
@@ -191,14 +202,14 @@
             </a>
             <a
                 class="{{ $videoIsActive ? 'is-active' : '' }}"
-                href="{{ route('media.index') }}"
+                href="{{ route('media.index', ['kind' => 'video', 'library' => 'movies']) }}"
                 @if ($videoIsActive) aria-current="page" @endif
             >
                 <svg aria-hidden="true" viewBox="0 0 24 24">
                     <rect x="3" y="5" width="18" height="14" rx="2"/>
                     <path d="m9 10 5 3-5 3z"/>
                 </svg>
-                <span>Video</span>
+                <span>Movies</span>
             </a>
             <a
                 class="{{ $liveTvIsActive ? 'is-active' : '' }}"

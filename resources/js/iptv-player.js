@@ -26,7 +26,9 @@ function initialize(container) {
     }
 
     const video = container.querySelector('video');
-    const manifestUrl = container.dataset.manifestUrl;
+    let manifestUrl = container.dataset.manifestUrl;
+    let restartUrl = container.dataset.restartUrl;
+    let diagnosticUrl = container.dataset.diagnosticUrl;
     const playButton = container.querySelector('[data-player-play]');
     const muteButton = container.querySelector('[data-player-mute]');
     const volume = container.querySelector('[data-player-volume]');
@@ -47,6 +49,16 @@ function initialize(container) {
     let disposed = false;
     let ambientTimer = null;
     let ambientUnavailable = false;
+    let recoveryTimer = null;
+    let watchdogTimer = null;
+    let recoveryAttempts = 0;
+    let sessionRestarts = 0;
+    let lastPlaybackTime = 0;
+    let lastProgressAt = performance.now();
+    let restartingSession = false;
+    const stallTimeoutMilliseconds = 10_000;
+    const maxRecoveryAttempts = 3;
+    const maxSessionRestarts = 1;
 
     const stopAmbientLighting = () => {
         if (ambientTimer !== null) {
@@ -118,6 +130,7 @@ function initialize(container) {
 
         if (health) {
             health.dataset.health = state;
+            health.title = message;
             health.textContent = {
                 connecting: 'Connecting',
                 ready: 'Ready',
@@ -128,6 +141,37 @@ function initialize(container) {
                 paused: 'Paused',
             }[state] ?? state;
         }
+    };
+
+    const updateRecovery = (message) => {
+        text(container, '[data-stream-recovery]', message);
+    };
+
+    const reportDiagnostic = (errorCode, httpStatus = null) => {
+        if (!diagnosticUrl || disposed) {
+            return;
+        }
+
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+
+        if (!csrfToken) {
+            return;
+        }
+
+        window.fetch(diagnosticUrl, {
+            method: 'POST',
+            credentials: 'same-origin',
+            keepalive: true,
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+            },
+            body: JSON.stringify({
+                error_code: String(errorCode).slice(0, 64),
+                http_status: Number.isInteger(httpStatus) ? httpStatus : null,
+            }),
+        }).catch(() => {});
     };
 
     const updateResolution = () => {
@@ -175,21 +219,45 @@ function initialize(container) {
         updateResolution();
         updateBitrate();
         startAmbientLighting();
-        setStatus('healthy', 'Live stream is playing.');
+        setStatus('ready', 'Live stream started. Verifying playback…');
     };
     const handlePause = () => {
         stopAmbientLighting();
         updateControls();
         setStatus('paused', 'Live stream paused.');
     };
-    const handleWaiting = () => setStatus('buffering', 'Buffering live stream…');
+    const handleWaiting = () => {
+        if (container.dataset.playerState !== 'unavailable') {
+            setStatus('buffering', 'Buffering live stream…');
+        }
+    };
+    const handleTimeUpdate = () => {
+        if (video.currentTime <= lastPlaybackTime + 0.05) {
+            return;
+        }
+
+        lastPlaybackTime = video.currentTime;
+        lastProgressAt = performance.now();
+        recoveryAttempts = 0;
+        updateRecovery(sessionRestarts > 0 ? 'Session refreshed' : 'Automatic');
+
+        if (
+            !video.paused
+            && video.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA
+            && video.videoWidth > 0
+            && video.videoHeight > 0
+        ) {
+            setStatus('healthy', 'Live stream is playing.');
+        }
+    };
     const handleLoadedMetadata = () => {
         updateResolution();
         updateControls();
     };
     const handleVideoError = () => {
         stopAmbientLighting();
-        setStatus('unavailable', 'The live stream became unavailable.');
+        reportDiagnostic('native_media_error');
+        restartSession('The browser could not decode the current stream.');
     };
     const handleFullscreenChange = () => {
         const active = document.fullscreenElement === container
@@ -325,6 +393,164 @@ function initialize(container) {
         }
     };
 
+    const restartSession = async (reason) => {
+        if (restartingSession || disposed) {
+            return;
+        }
+
+        if (!restartUrl || sessionRestarts >= maxSessionRestarts) {
+            stopAmbientLighting();
+            updateRecovery('No decodable feed');
+            setStatus(
+                'unavailable',
+                'This channel is not delivering decodable video. Try another channel.',
+            );
+
+            return;
+        }
+
+        restartingSession = true;
+        setStatus('recovering', `${reason} Starting a fresh playback session…`);
+        updateRecovery('Refreshing session');
+        reportDiagnostic('session_restart');
+
+        try {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
+            const response = await window.fetch(restartUrl, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'application/json',
+                    'X-CSRF-TOKEN': csrfToken ?? '',
+                },
+            });
+
+            if (!response.ok) {
+                throw new Error('Playback restart failed.');
+            }
+
+            const replacement = await response.json();
+            const nextManifest = new URL(replacement.manifest_url, window.location.origin);
+            const nextRestart = new URL(replacement.restart_url, window.location.origin);
+            const nextDiagnostic = new URL(replacement.diagnostic_url, window.location.origin);
+
+            if (
+                nextManifest.origin !== window.location.origin
+                || nextRestart.origin !== window.location.origin
+                || nextDiagnostic.origin !== window.location.origin
+            ) {
+                throw new Error('Playback restart returned an invalid target.');
+            }
+
+            manifestUrl = nextManifest.href;
+            restartUrl = nextRestart.href;
+            diagnosticUrl = nextDiagnostic.href;
+            container.dataset.manifestUrl = manifestUrl;
+            container.dataset.restartUrl = restartUrl;
+            container.dataset.diagnosticUrl = diagnosticUrl;
+            sessionRestarts++;
+            recoveryAttempts = 0;
+            lastPlaybackTime = 0;
+            lastProgressAt = performance.now();
+
+            if (hls) {
+                hls.stopLoad();
+                hls.loadSource(manifestUrl);
+                hls.startLoad(-1, true);
+            } else {
+                video.src = manifestUrl;
+                video.load();
+                play();
+            }
+
+            updateRecovery('Session refreshed');
+        } catch {
+            reportDiagnostic('session_restart_failed');
+            updateRecovery('Refresh failed');
+            setStatus(
+                'unavailable',
+                'The live stream could not be restarted. Try another channel.',
+            );
+        } finally {
+            restartingSession = false;
+        }
+    };
+
+    const recoverStream = (errorType, errorCode, httpStatus = null) => {
+        if (disposed || restartingSession) {
+            return;
+        }
+
+        recoveryAttempts++;
+        reportDiagnostic(errorCode, httpStatus);
+
+        if (recoveryAttempts > maxRecoveryAttempts) {
+            restartSession('Automatic recovery was exhausted.');
+
+            return;
+        }
+
+        const delay = Math.min(4_000, 500 * (2 ** (recoveryAttempts - 1)));
+        updateRecovery(`Attempt ${recoveryAttempts} of ${maxRecoveryAttempts}`);
+        setStatus('recovering', 'Recovering the live stream…');
+
+        if (recoveryTimer !== null) {
+            window.clearTimeout(recoveryTimer);
+        }
+
+        recoveryTimer = window.setTimeout(() => {
+            recoveryTimer = null;
+
+            if (disposed || restartingSession) {
+                return;
+            }
+
+            if (!hls) {
+                restartSession('Native playback stopped.');
+
+                return;
+            }
+
+            if (errorType === Hls.ErrorTypes.MEDIA_ERROR) {
+                hls.recoverMediaError();
+            } else {
+                hls.startLoad(-1, true);
+            }
+
+            play();
+        }, delay);
+    };
+
+    const checkPlaybackProgress = () => {
+        if (
+            disposed
+            || restartingSession
+            || document.hidden
+            || video.paused
+            || container.dataset.playerState === 'unavailable'
+            || performance.now() - lastProgressAt < stallTimeoutMilliseconds
+        ) {
+            return;
+        }
+
+        lastProgressAt = performance.now();
+        const hasDecodedFrame = (
+            video.videoWidth > 0
+            && video.videoHeight > 0
+            && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+        );
+        const errorCode = hasDecodedFrame
+            ? 'playback_stalled'
+            : 'no_decoded_frames';
+
+        recoverStream(
+            hasDecodedFrame
+                ? Hls.ErrorTypes.MEDIA_ERROR
+                : Hls.ErrorTypes.NETWORK_ERROR,
+            errorCode,
+        );
+    };
+
     playButton?.addEventListener('click', handlePlayClick);
     muteButton?.addEventListener('click', handleMuteClick);
     volume?.addEventListener('input', handleVolumeInput);
@@ -336,6 +562,7 @@ function initialize(container) {
     video.addEventListener('pause', handlePause);
     video.addEventListener('waiting', handleWaiting);
     video.addEventListener('stalled', handleWaiting);
+    video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('loadedmetadata', handleLoadedMetadata);
     video.addEventListener('resize', updateResolution);
     video.addEventListener('error', handleVideoError);
@@ -346,6 +573,8 @@ function initialize(container) {
     updateControls();
     handleFullscreenChange();
     setStatus('connecting', 'Connecting to live stream…');
+    updateRecovery('Automatic');
+    watchdogTimer = window.setInterval(checkPlaybackProgress, 2_000);
 
     if (!Hls.isSupported() && video.canPlayType('application/vnd.apple.mpegurl')) {
         const handleCanPlay = () => {
@@ -363,6 +592,60 @@ function initialize(container) {
             enableWorker: true,
             liveSyncDurationCount: 3,
             maxBufferLength: 30,
+            manifestLoadPolicy: {
+                default: {
+                    maxTimeToFirstByteMs: 8_000,
+                    maxLoadTimeMs: 15_000,
+                    timeoutRetry: {
+                        maxNumRetry: 3,
+                        retryDelayMs: 500,
+                        maxRetryDelayMs: 4_000,
+                        backoff: 'exponential',
+                    },
+                    errorRetry: {
+                        maxNumRetry: 3,
+                        retryDelayMs: 500,
+                        maxRetryDelayMs: 4_000,
+                        backoff: 'exponential',
+                    },
+                },
+            },
+            playlistLoadPolicy: {
+                default: {
+                    maxTimeToFirstByteMs: 8_000,
+                    maxLoadTimeMs: 15_000,
+                    timeoutRetry: {
+                        maxNumRetry: 3,
+                        retryDelayMs: 500,
+                        maxRetryDelayMs: 4_000,
+                        backoff: 'exponential',
+                    },
+                    errorRetry: {
+                        maxNumRetry: 4,
+                        retryDelayMs: 500,
+                        maxRetryDelayMs: 8_000,
+                        backoff: 'exponential',
+                    },
+                },
+            },
+            fragLoadPolicy: {
+                default: {
+                    maxTimeToFirstByteMs: 8_000,
+                    maxLoadTimeMs: 30_000,
+                    timeoutRetry: {
+                        maxNumRetry: 4,
+                        retryDelayMs: 500,
+                        maxRetryDelayMs: 8_000,
+                        backoff: 'exponential',
+                    },
+                    errorRetry: {
+                        maxNumRetry: 6,
+                        retryDelayMs: 500,
+                        maxRetryDelayMs: 8_000,
+                        backoff: 'exponential',
+                    },
+                },
+            },
             xhrSetup(xhr) {
                 xhr.withCredentials = true;
             },
@@ -380,16 +663,44 @@ function initialize(container) {
             updateBitrate();
         });
         hls.on(Hls.Events.FRAG_BUFFERED, () => {
-            if (!video.paused) {
-                setStatus('healthy', 'Live stream is playing.');
+            if (
+                !video.paused
+                && container.dataset.playerState !== 'healthy'
+            ) {
+                setStatus('buffering', 'Stream data buffered. Starting playback…');
             }
         });
         hls.on(Hls.Events.ERROR, (_event, data) => {
-            if (data.fatal) {
-                setStatus('unavailable', 'The live stream became unavailable.');
-            } else if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            const httpStatus = Number(data.response?.code);
+
+            if (!data.fatal && data.type === Hls.ErrorTypes.NETWORK_ERROR) {
                 setStatus('recovering', 'Recovering the live stream…');
+
+                return;
             }
+
+            if (!data.fatal) {
+                return;
+            }
+
+            if (httpStatus === 410) {
+                reportDiagnostic(data.details, httpStatus);
+                restartSession('The playback session expired.');
+
+                return;
+            }
+
+            if (
+                data.type === Hls.ErrorTypes.NETWORK_ERROR
+                || data.type === Hls.ErrorTypes.MEDIA_ERROR
+            ) {
+                recoverStream(data.type, data.details, httpStatus);
+
+                return;
+            }
+
+            reportDiagnostic(data.details, httpStatus);
+            restartSession('The stream could not be decoded.');
         });
     }
 
@@ -410,6 +721,7 @@ function initialize(container) {
         video.removeEventListener('pause', handlePause);
         video.removeEventListener('waiting', handleWaiting);
         video.removeEventListener('stalled', handleWaiting);
+        video.removeEventListener('timeupdate', handleTimeUpdate);
         video.removeEventListener('loadedmetadata', handleLoadedMetadata);
         video.removeEventListener('resize', updateResolution);
         video.removeEventListener('error', handleVideoError);
@@ -417,6 +729,12 @@ function initialize(container) {
         document.removeEventListener('fullscreenchange', handleFullscreenChange);
         document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
         reducedMotion?.removeEventListener?.('change', handleMotionPreferenceChange);
+        if (recoveryTimer !== null) {
+            window.clearTimeout(recoveryTimer);
+        }
+        if (watchdogTimer !== null) {
+            window.clearInterval(watchdogTimer);
+        }
         stopAmbientLighting();
         hls?.destroy();
         video.pause();

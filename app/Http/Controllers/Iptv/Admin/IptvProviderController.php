@@ -12,6 +12,7 @@ use App\Models\Iptv\IptvProvider;
 use App\Services\Iptv\Exceptions\SanitizedIptvException;
 use App\Services\Iptv\UpstreamUrlGuard;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
@@ -67,6 +68,9 @@ class IptvProviderController extends Controller
                 'playlist_url' => $providerType === 'm3u' ? $validated['playlist_url'] : null,
                 'xmltv_url' => $validated['xmltv_url'] ?? null,
                 'max_connections' => $validated['max_connections'] ?? (int) config('iptv.provider_max_connections'),
+                'max_connections_source' => isset($validated['max_connections'])
+                    ? 'manual'
+                    : 'default',
             ],
             'allow_insecure_http' => $validated['allow_insecure_http'],
             'enabled' => $validated['enabled'],
@@ -115,6 +119,7 @@ class IptvProviderController extends Controller
         }
         if (! empty($validated['max_connections'])) {
             $config['max_connections'] = (int) $validated['max_connections'];
+            $config['max_connections_source'] = 'manual';
         }
         $changes['config'] = $config;
 
@@ -141,6 +146,14 @@ class IptvProviderController extends Controller
         }
 
         $provider->update($changes);
+        $provider->vodSource()->update([
+            'enabled' => $provider->enabled,
+            'name' => Str::limit(
+                $provider->name.' · IPTV #'.$provider->id,
+                255,
+                '',
+            ),
+        ]);
 
         if ($invalidatePlayback) {
             IptvPlaybackSession::query()

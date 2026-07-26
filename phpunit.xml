@@ -29,6 +29,9 @@
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
+        <env name="IPTV_LOCK_STORE" value="array"/>
+        <env name="IPTV_CHANNEL_LOGO_CATALOG_ENABLED" value="false"/>
+        <env name="ODISSEY_RUNTIME_CACHE_STORE" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>

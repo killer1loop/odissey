@@ -40,9 +40,15 @@ and credential-safe streaming proxies.
   search and private WebVTT caching when free-account API keys are configured;
 - queued FFmpeg H.264/AAC HLS conversion with authenticated derivatives;
 - encrypted Xtream provider settings and asynchronous catalog synchronization;
+- bounded Xtream movie and series imports into the same source-filtered
+  catalog as local, S3, and WebDAV media, with queued episode, metadata,
+  artwork, and caption enrichment;
 - channel groups, search, an hourly refreshed timeline guide that is the
   default Live TV and Favorites view, per-user favorites, and opaque live HLS
   sessions;
+- externally matched IPTV-org channel logos with stable-ID, country-aware
+  name matching and initials for unmatched channels; provider-supplied artwork
+  is ignored;
 - a Plex-inspired dark Blade interface enhanced with HTMX and hls.js;
 - one Docker image containing FrankenPHP, SQLite, FFmpeg, the queue worker, and
   the scheduler.
@@ -94,6 +100,9 @@ For a local media library, add a read-only bind mount such as
 Add mounted, S3-compatible, or WebDAV libraries from **Administration → Media
 sources**. Local paths must be below `ODISSEY_LOCAL_SOURCE_ROOTS` and mounted
 read-only. Remote credentials are encrypted and adapters expose no mutations.
+Xtream movie and series catalogs are imported automatically when an IPTV
+provider is synchronized; users can select that provider alongside storage
+sources from the Movies and TV Shows filters.
 
 For an explicit disposable playback test, generate synthetic fixtures for an existing user:
 

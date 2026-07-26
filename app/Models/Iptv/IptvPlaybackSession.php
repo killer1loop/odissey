@@ -21,9 +21,11 @@ class IptvPlaybackSession extends Model
         'channel_id',
         'status',
         'attempt_count',
+        'consecutive_failure_count',
         'resource_count',
         'last_outcome',
         'last_error_code',
+        'last_failure_at',
         'started_at',
         'last_accessed_at',
         'expires_at',
@@ -33,6 +35,7 @@ class IptvPlaybackSession extends Model
     {
         return [
             'started_at' => 'datetime',
+            'last_failure_at' => 'datetime',
             'last_accessed_at' => 'datetime',
             'expires_at' => 'datetime',
         ];

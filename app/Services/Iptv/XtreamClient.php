@@ -15,9 +15,13 @@ class XtreamClient
      * json_decode expands provider payloads into PHP hash tables. A small hard
      * ceiling prevents configured limits from exceeding worker memory.
      */
-    private const MAX_BUFFERED_JSON_BYTES = 8 * 1024 * 1024;
+    private const MAX_BUFFERED_JSON_BYTES = 32 * 1024 * 1024;
 
     private const MAX_CHANNEL_ROWS = 20000;
+
+    private const MAX_VOD_ROWS = 50000;
+
+    private const MAX_SERIES_ROWS = 20000;
 
     public function __construct(
         private readonly ConfidentialHttpFactory $http,
@@ -69,7 +73,74 @@ class XtreamClient
         return $payload;
     }
 
-    public function authenticate(IptvProvider $provider): void
+    /** @return array<int, array<string, mixed>> */
+    public function vodCategories(IptvProvider $provider): array
+    {
+        return $this->catalogList(
+            $provider,
+            'get_vod_categories',
+            'iptv.vod_category_max_rows',
+            10000,
+            'provider_vod_category_limit',
+        );
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function vodStreams(IptvProvider $provider): array
+    {
+        return $this->catalogList(
+            $provider,
+            'get_vod_streams',
+            'iptv.vod_movie_max_rows',
+            self::MAX_VOD_ROWS,
+            'provider_vod_movie_limit',
+        );
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function seriesCategories(IptvProvider $provider): array
+    {
+        return $this->catalogList(
+            $provider,
+            'get_series_categories',
+            'iptv.vod_category_max_rows',
+            10000,
+            'provider_vod_category_limit',
+        );
+    }
+
+    /** @return array<int, array<string, mixed>> */
+    public function series(IptvProvider $provider): array
+    {
+        return $this->catalogList(
+            $provider,
+            'get_series',
+            'iptv.vod_series_max_rows',
+            self::MAX_SERIES_ROWS,
+            'provider_vod_series_limit',
+        );
+    }
+
+    /** @return array<string, mixed> */
+    public function seriesInfo(IptvProvider $provider, string $seriesId): array
+    {
+        if ($seriesId === '' || strlen($seriesId) > 255) {
+            throw new SanitizedIptvException('provider_invalid_series');
+        }
+
+        $payload = $this->request($provider, 'get_series_info', [
+            'series_id' => $seriesId,
+            'series' => $seriesId,
+        ]);
+
+        if (! isset($payload['episodes']) || ! is_array($payload['episodes'])) {
+            throw new SanitizedIptvException('provider_invalid_series');
+        }
+
+        return $payload;
+    }
+
+    public function authenticate(IptvProvider $provider): ?int
     {
         $payload = $this->request($provider);
         $userInfo = $payload['user_info'] ?? null;
@@ -80,6 +151,21 @@ class XtreamClient
         ) {
             throw new SanitizedIptvException('provider_authentication_failed', 422);
         }
+
+        $maxConnections = $userInfo['max_connections'] ?? null;
+
+        if (
+            (! is_int($maxConnections) && ! is_string($maxConnections))
+            || ! ctype_digit((string) $maxConnections)
+        ) {
+            return null;
+        }
+
+        $maxConnections = (int) $maxConnections;
+
+        return $maxConnections >= 1 && $maxConnections <= 100
+            ? $maxConnections
+            : null;
     }
 
     /**
@@ -99,6 +185,32 @@ class XtreamClient
         }
 
         return $listings;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function catalogList(
+        IptvProvider $provider,
+        string $action,
+        string $configuredLimit,
+        int $hardLimit,
+        string $limitError,
+    ): array {
+        $payload = $this->request($provider, $action);
+
+        if (! array_is_list($payload)) {
+            throw new SanitizedIptvException('provider_invalid_catalog');
+        }
+
+        if (
+            count($payload)
+            > min($hardLimit, max(1, (int) config($configuredLimit)))
+        ) {
+            throw new SanitizedIptvException($limitError);
+        }
+
+        return $payload;
     }
 
     /**

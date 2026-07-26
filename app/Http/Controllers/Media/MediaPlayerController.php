@@ -8,6 +8,7 @@ use App\Models\PlaybackHistory;
 use App\Models\TranscodeSession;
 use App\Services\Media\TranscodeStorage;
 use Illuminate\Contracts\View\View;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 
 class MediaPlayerController extends Controller
@@ -16,11 +17,20 @@ class MediaPlayerController extends Controller
         Request $request,
         TranscodeStorage $storage,
         string $media,
-    ): View {
+    ): View|RedirectResponse {
         $item = MediaItem::query()
             ->accessibleTo($request->user())
             ->with('subtitles')
             ->findOrFail($media);
+
+        if (($item->metadata['kind'] ?? null) === 'series') {
+            return redirect()->route('media.index', [
+                'kind' => 'video',
+                'library' => 'tv',
+                'series' => $item->metadata['series_title'] ?? $item->title,
+                'source' => $item->media_source_id,
+            ]);
+        }
 
         $progress = $item->progress()
             ->whereBelongsTo($request->user())

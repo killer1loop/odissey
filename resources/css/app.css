@@ -351,6 +351,33 @@ svg {
     gap: 0.75rem;
 }
 
+.topbar-quick-links {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+}
+
+.topbar-quick-links a {
+    padding: 0.55rem 0.68rem;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    color: var(--muted);
+    font-size: 0.74rem;
+    font-weight: 750;
+    white-space: nowrap;
+}
+
+.topbar-quick-links a:hover,
+.topbar-quick-links a.is-active {
+    border-color: var(--line);
+    background: rgba(255, 255, 255, 0.045);
+    color: var(--text);
+}
+
+.topbar-quick-links a.is-active {
+    border-bottom-color: var(--accent);
+}
+
 .icon-button {
     display: grid;
     width: 42px;
@@ -1707,8 +1734,8 @@ input[type="radio"] {
 }
 
 .library-filter {
-    width: min(620px, 55vw);
-    grid-template-columns: minmax(180px, 1fr) auto auto;
+    width: min(800px, 62vw);
+    grid-template-columns: minmax(170px, 1fr) minmax(170px, 0.7fr) auto auto;
     margin: 0;
 }
 

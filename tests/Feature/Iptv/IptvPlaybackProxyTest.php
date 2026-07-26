@@ -461,6 +461,9 @@ class IptvPlaybackProxyTest extends TestCase
             'iptv_playback_session_id' => $session->id,
             'error_code' => 'manifest_resource_limit',
         ]);
+        $this->actingAs($user)
+            ->delete(route('iptv.playback.destroy', $session))
+            ->assertRedirect();
 
         config()->set('iptv.manifest_max_resources', 10);
         config()->set('iptv.playback_max_resources', 2);
@@ -814,8 +817,9 @@ class IptvPlaybackProxyTest extends TestCase
         );
     }
 
-    public function test_failed_playback_releases_the_provider_slot_immediately(): void
+    public function test_repeated_failed_playback_releases_the_provider_slot_at_the_threshold(): void
     {
+        config()->set('iptv.playback_failure_threshold', 3);
         $user = User::factory()->create(['is_active' => true]);
         $otherUser = User::factory()->create(['is_active' => true]);
         $provider = $this->makeProvider([
@@ -835,7 +839,21 @@ class IptvPlaybackProxyTest extends TestCase
             ->assertStatus(502);
 
         $failedSession->refresh();
+        $this->assertSame('created', $failedSession->status);
+        $this->assertFalse($failedSession->expires_at->isPast());
+
+        $this->actingAs($user)
+            ->get(route('iptv.playback.manifest', $failedSession))
+            ->assertStatus(502);
+        $this->assertSame('created', $failedSession->fresh()->status);
+
+        $this->actingAs($user)
+            ->get(route('iptv.playback.manifest', $failedSession))
+            ->assertStatus(502);
+
+        $failedSession->refresh();
         $this->assertSame('failed', $failedSession->status);
+        $this->assertSame(3, $failedSession->consecutive_failure_count);
         $this->assertTrue($failedSession->expires_at->isPast());
         $this->assertTrue($failedSession->resources()->sole()->expires_at->isPast());
 
@@ -846,6 +864,121 @@ class IptvPlaybackProxyTest extends TestCase
             'user_id' => $otherUser->id,
             'status' => 'created',
         ]);
+    }
+
+    public function test_resource_failures_are_diagnostic_and_do_not_expire_the_session(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $channel = $this->makeChannel($this->makeProvider());
+        $this->actingAs($user)->post(route('iptv.playback.store', $channel));
+        $session = IptvPlaybackSession::query()->sole();
+        $root = $session->resources()->sole();
+        $segment = app(PlaybackResourceRepository::class)->create(
+            $session,
+            'https://iptv.example.test/live/segment.ts',
+            'segment',
+            $root,
+        );
+        Http::fake(fn () => Http::response('', 503));
+
+        foreach (range(1, 5) as $_attempt) {
+            $this->actingAs($user)
+                ->get(route('iptv.playback.resource', [$session, $segment]))
+                ->assertStatus(502);
+        }
+
+        $session->refresh();
+        $this->assertSame('created', $session->status);
+        $this->assertSame(0, $session->consecutive_failure_count);
+        $this->assertFalse($session->expires_at->isPast());
+        $this->assertDatabaseCount('iptv_playback_attempts', 5);
+    }
+
+    public function test_successful_manifest_resets_the_consecutive_failure_counter(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $channel = $this->makeChannel($this->makeProvider());
+        $requests = 0;
+        Http::fake(function () use (&$requests) {
+            $requests++;
+
+            return $requests === 1
+                ? Http::response('', 503)
+                : Http::response(
+                    "#EXTM3U\n#EXT-X-ENDLIST",
+                    200,
+                    ['Content-Type' => 'application/vnd.apple.mpegurl'],
+                );
+        });
+
+        $this->actingAs($user)->post(route('iptv.playback.store', $channel));
+        $session = IptvPlaybackSession::query()->sole();
+
+        $this->actingAs($user)
+            ->get(route('iptv.playback.manifest', $session))
+            ->assertStatus(502);
+        $this->assertSame(1, $session->fresh()->consecutive_failure_count);
+
+        $this->actingAs($user)
+            ->get(route('iptv.playback.manifest', $session))
+            ->assertOk();
+        $session->refresh();
+        $this->assertSame('playing', $session->status);
+        $this->assertSame(0, $session->consecutive_failure_count);
+        $this->assertNull($session->last_failure_at);
+    }
+
+    public function test_client_diagnostics_and_session_restart_are_owned_and_bounded(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $otherUser = User::factory()->create(['is_active' => true]);
+        $provider = $this->makeProvider([
+            'config' => [
+                'api' => 'xtream',
+                'stream_format' => 'hls',
+                'max_connections' => 1,
+            ],
+        ]);
+        $channel = $this->makeChannel($provider);
+        $this->actingAs($user)->post(route('iptv.playback.store', $channel));
+        $session = IptvPlaybackSession::query()->sole();
+
+        $this->actingAs($otherUser)
+            ->postJson(route('iptv.playback.diagnostics', $session), [
+                'error_code' => 'no_decoded_frames',
+            ])
+            ->assertNotFound();
+
+        $this->actingAs($user)
+            ->postJson(route('iptv.playback.diagnostics', $session), [
+                'error_code' => 'no_decoded_frames',
+            ])
+            ->assertNoContent();
+        $this->assertSame('created', $session->fresh()->status);
+        $this->assertDatabaseHas('iptv_playback_attempts', [
+            'iptv_playback_session_id' => $session->id,
+            'outcome' => 'failed',
+            'error_code' => 'client_no_decoded_frames',
+        ]);
+
+        $response = $this->actingAs($user)
+            ->postJson(route('iptv.playback.restart', $session))
+            ->assertCreated()
+            ->assertJsonStructure([
+                'manifest_url',
+                'restart_url',
+                'diagnostic_url',
+            ]);
+
+        $replacement = IptvPlaybackSession::query()
+            ->whereKeyNot($session->id)
+            ->sole();
+        $this->assertSame('released', $session->fresh()->status);
+        $this->assertSame('created', $replacement->status);
+        $this->assertSame(
+            route('iptv.playback.manifest', $replacement),
+            $response->json('manifest_url'),
+        );
     }
 
     public function test_stale_created_sessions_do_not_hold_provider_slots(): void

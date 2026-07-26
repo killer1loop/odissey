@@ -2,8 +2,10 @@
 
 namespace App\Models\Iptv;
 
+use App\Models\MediaSource;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class IptvProvider extends Model
 {
@@ -55,5 +57,10 @@ class IptvProvider extends Model
     public function programs(): HasMany
     {
         return $this->hasMany(EpgProgram::class);
+    }
+
+    public function vodSource(): HasOne
+    {
+        return $this->hasOne(MediaSource::class);
     }
 }

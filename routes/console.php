@@ -16,6 +16,10 @@ Schedule::command('iptv:epg:refresh')
     ->hourly()
     ->withoutOverlapping(10);
 
+Schedule::command('iptv:logos:refresh')
+    ->dailyAt('03:17')
+    ->withoutOverlapping(30);
+
 Schedule::command('media:transcodes:prune')
     ->everyTenMinutes()
     ->withoutOverlapping(15);

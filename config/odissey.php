@@ -2,6 +2,7 @@
 
 return [
     'release' => env('ODISSEY_RELEASE', 'development'),
+    'runtime_cache_store' => env('ODISSEY_RUNTIME_CACHE_STORE', 'file'),
 
     /*
     |--------------------------------------------------------------------------

@@ -49,9 +49,11 @@ class PlaybackManifestController extends Controller
             );
 
             $manifest = $rewriter->rewrite($body, $root);
-            $root->forceFill([
-                'content_type' => 'application/vnd.apple.mpegurl',
-            ])->save();
+            if ($root->content_type !== 'application/vnd.apple.mpegurl') {
+                $root->forceFill([
+                    'content_type' => 'application/vnd.apple.mpegurl',
+                ])->save();
+            }
             $access->touch($session, $root);
             $attempts->record($session, 'started', $upstream->status());
 

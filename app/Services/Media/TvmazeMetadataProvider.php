@@ -11,7 +11,11 @@ class TvmazeMetadataProvider
     /** @param array<string, mixed> $parsed @return array<string, mixed> */
     public function match(array $parsed): array
     {
-        if (($parsed['kind'] ?? '') !== 'episode' || empty($parsed['series_title'])) {
+        $kind = $parsed['kind'] ?? '';
+        if (
+            ! in_array($kind, ['episode', 'series'], true)
+            || empty($parsed['series_title'])
+        ) {
             return [];
         }
         $show = $this->http->get(
@@ -23,7 +27,7 @@ class TvmazeMetadataProvider
         if ($show === null) {
             return [];
         }
-        $episode = isset($show['id'])
+        $episode = $kind === 'episode' && isset($show['id'])
             ? $this->http->get(
                 'https://api.tvmaze.com/shows/'.(int) $show['id'].'/episodebynumber',
                 [
@@ -40,7 +44,9 @@ class TvmazeMetadataProvider
             'provider' => 'tvmaze',
             'tvmaze_id' => $show['id'] ?? null,
             'tvmaze_episode_id' => $episode['id'] ?? null,
-            'title' => $episode['name'] ?? $parsed['title'],
+            'title' => $episode['name']
+                ?? $show['name']
+                ?? $parsed['title'],
             'series_title' => $show['name'] ?? $parsed['series_title'],
             'summary' => $summary ?: null,
             'year' => isset($show['premiered']) ? (int) substr($show['premiered'], 0, 4) : null,

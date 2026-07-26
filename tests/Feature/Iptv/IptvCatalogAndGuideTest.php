@@ -3,8 +3,11 @@
 namespace Tests\Feature\Iptv;
 
 use App\Jobs\Iptv\SyncIptvGuide;
+use App\Jobs\Iptv\SyncXtreamSeries;
+use App\Jobs\Media\EnrichMediaItem;
 use App\Models\Iptv\Channel;
 use App\Models\Iptv\ChannelGroup;
+use App\Models\User;
 use App\Services\Iptv\Exceptions\SanitizedIptvException;
 use App\Services\Iptv\ProviderCatalogSynchronizer;
 use App\Services\Iptv\ShortEpgGuideImporter;
@@ -14,6 +17,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Tests\Concerns\InteractsWithIptv;
 use Tests\TestCase;
 
@@ -31,10 +35,16 @@ class IptvCatalogAndGuideTest extends TestCase
 
     public function test_catalog_sync_is_batched_idempotent_and_marks_missing_rows_inactive(): void
     {
+        Queue::fake([EnrichMediaItem::class, SyncXtreamSeries::class]);
+        User::factory()->create(['is_admin' => true, 'is_active' => true]);
         $provider = $this->makeProvider();
         $responses = [
             'authenticate' => [
-                'user_info' => ['auth' => 1, 'status' => 'Active'],
+                'user_info' => [
+                    'auth' => 1,
+                    'status' => 'Active',
+                    'max_connections' => '4',
+                ],
             ],
             'get_live_categories' => [
                 ['category_id' => '7', 'category_name' => 'International News'],
@@ -60,6 +70,10 @@ class IptvCatalogAndGuideTest extends TestCase
                     'tv_archive' => 0,
                 ],
             ],
+            'get_vod_categories' => [],
+            'get_vod_streams' => [],
+            'get_series_categories' => [],
+            'get_series' => [],
         ];
 
         Http::fake(function (Request $request) use (&$responses) {
@@ -73,7 +87,7 @@ class IptvCatalogAndGuideTest extends TestCase
 
         $sync = app(ProviderCatalogSynchronizer::class);
         $this->assertSame(
-            ['groups' => 1, 'channels' => 1],
+            ['groups' => 1, 'channels' => 1, 'movies' => 0, 'series' => 0],
             $sync->sync($provider),
         );
         $sync->sync($provider);
@@ -81,14 +95,17 @@ class IptvCatalogAndGuideTest extends TestCase
         $this->assertDatabaseCount('channel_groups', 1);
         $this->assertDatabaseCount('channels', 1);
         $this->assertTrue(Channel::query()->sole()->is_active);
+        $this->assertSame(4, $provider->fresh()->config['max_connections']);
+        $this->assertSame(
+            'provider',
+            $provider->fresh()->config['max_connections_source'],
+        );
         $this->assertSame(
             ['archive' => false, 'added' => null],
             Channel::query()->sole()->metadata,
         );
-        $this->assertSame(
-            'https://images.example.test/world.png',
-            Channel::query()->sole()->stream_icon,
-        );
+        $this->assertNull(Channel::query()->sole()->stream_icon);
+        $this->assertNull(Channel::query()->sole()->logo_source);
         $rawChannel = DB::table('channels')->first();
         $this->assertStringNotContainsString('images.example.test', (string) $rawChannel->stream_icon);
         $this->assertStringNotContainsString('archive', (string) $rawChannel->metadata);
@@ -99,9 +116,13 @@ class IptvCatalogAndGuideTest extends TestCase
             ],
             'get_live_categories' => [],
             'get_live_streams' => [],
+            'get_vod_categories' => [],
+            'get_vod_streams' => [],
+            'get_series_categories' => [],
+            'get_series' => [],
         ];
         $this->assertSame(
-            ['groups' => 0, 'channels' => 0],
+            ['groups' => 0, 'channels' => 0, 'movies' => 0, 'series' => 0],
             $sync->sync($provider->fresh()),
         );
         $this->assertFalse(Channel::query()->sole()->is_active);
@@ -373,7 +394,7 @@ class IptvCatalogAndGuideTest extends TestCase
         Http::fake(function (Request $request) use (&$mode) {
             if ($mode === 'size') {
                 return Http::response('{}', 200, [
-                    'Content-Length' => (string) ((8 * 1024 * 1024) + 1),
+                    'Content-Length' => (string) ((32 * 1024 * 1024) + 1),
                 ]);
             }
 

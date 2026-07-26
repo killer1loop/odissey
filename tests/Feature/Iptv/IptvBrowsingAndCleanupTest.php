@@ -29,7 +29,10 @@ class IptvBrowsingAndCleanupTest extends TestCase
     {
         $first = User::factory()->create(['is_active' => true]);
         $second = User::factory()->create(['is_active' => true]);
-        $channel = $this->makeChannel($this->makeProvider());
+        $channel = $this->makeChannel($this->makeProvider(), [
+            'logo_source' => 'iptv-org',
+            'logo_channel_id' => 'ExampleNews.us',
+        ]);
 
         $this->actingAs($first)
             ->post(route('iptv.favorites.store', $channel))
@@ -110,7 +113,10 @@ class IptvBrowsingAndCleanupTest extends TestCase
     public function test_channel_icons_are_authenticated_bounded_images_with_safe_fallbacks(): void
     {
         $user = User::factory()->create(['is_active' => true]);
-        $channel = $this->makeChannel($this->makeProvider());
+        $channel = $this->makeChannel($this->makeProvider(), [
+            'logo_source' => 'iptv-org',
+            'logo_channel_id' => 'ExampleNews.us',
+        ]);
         $png = base64_decode(
             'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
             strict: true,
@@ -172,14 +178,21 @@ class IptvBrowsingAndCleanupTest extends TestCase
             'user_id' => $user->id,
             'channel_id' => $e2eChannel->id,
             'status' => 'created',
-            'expires_at' => now()->subMinute(),
+            'expires_at' => now()->subHours(25),
         ]);
         IptvPlaybackResource::query()->create([
             'iptv_playback_session_id' => $expired->id,
             'upstream_fingerprint' => hash('sha256', 'expired'),
             'upstream_url' => 'https://media.example.test/expired.m3u8',
             'resource_type' => 'playlist',
-            'expires_at' => now()->subMinute(),
+            'expires_at' => now()->subHours(25),
+        ]);
+        $recentExpired = IptvPlaybackSession::query()->create([
+            'user_id' => $user->id,
+            'channel_id' => $e2eChannel->id,
+            'status' => 'failed',
+            'last_error_code' => 'diagnostic_fixture',
+            'expires_at' => now()->subHour(),
         ]);
         ChannelFavorite::query()->create([
             'user_id' => $user->id,
@@ -199,6 +212,10 @@ class IptvBrowsingAndCleanupTest extends TestCase
             ->expectsOutputToContain('Pruned 1')
             ->assertSuccessful();
         $this->assertDatabaseMissing('iptv_playback_sessions', ['id' => $expired->id]);
+        $this->assertDatabaseHas('iptv_playback_sessions', [
+            'id' => $recentExpired->id,
+            'last_error_code' => 'diagnostic_fixture',
+        ]);
 
         $this->artisan('iptv:e2e:clean', [
             '--force' => true,

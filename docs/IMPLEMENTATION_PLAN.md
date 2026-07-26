@@ -11,9 +11,9 @@ milestones below now have an implemented path and automated contract coverage:
   movies/series/music views, artwork, external metadata, byte-range direct
   playback, TMDB/TVmaze enrichment, detailed progress/history, and bounded
   FFmpeg H.264/AAC HLS;
-- encrypted Xtream and generic M3U/XMLTV IPTV onboarding, catalog/EPG sync,
-  guide grid, groups, search, per-user favorites, provider concurrency limits,
-  and opaque HLS proxy sessions;
+- encrypted Xtream and generic M3U/XMLTV IPTV onboarding, live catalog/EPG
+  sync, Xtream VOD movie/series import, guide grid, groups, search, per-user
+  favorites, provider concurrency limits, and credential-safe playback;
 - single-image FrankenPHP deployment with SQLite, one queue worker, scheduler,
   FFmpeg, and health checks.
 
@@ -95,11 +95,15 @@ Deliverables:
   warning;
 - asynchronous provider test with sanitized error reporting;
 - Xtream-style category/channel adapter;
+- bounded Xtream VOD category, movie, series, and episode adapter backed by a
+  managed read-only media source;
 - generic M3U adapter behind the same contract;
 - bounded XMLTV parser and EPG channel mapper, with Xtream short-EPG fallback;
 - sync-run status fragments for HTMX polling;
 - group navigation, channel search, and current/next program display;
 - keyboard-accessible time-grid guide;
+- daily IPTV-org logo-catalog refresh with exact EPG-ID and conservative,
+  country-aware channel-name matching;
 - per-user channel favorites.
 
 Exit criteria:
@@ -111,6 +115,8 @@ Exit criteria:
 - expired EPG data is pruned;
 - credentials never appear in job payloads, responses, logs, screenshots, or
   exceptions;
+- provider-supplied channel artwork is never trusted or rendered, and
+  unmatched channels use local initials instead of a guessed logo;
 - the approved live test provider passes only through injected secrets and its
   credentials are rotated before repository publication.
 
@@ -228,8 +234,9 @@ Publication gate:
 - Odissey persists metadata, bounded poster/backdrop caches, caption caches,
   and per-user state, never source media. HLS derivatives are short-lived and
   disposable.
-- The current IPTV scope is live TV. Provider VOD, series, catch-up, and
-  recording are excluded until separately designed.
+- Xtream provider movies and series share the normal media library, metadata,
+  artwork, caption, playback, and transcode paths. Catch-up and recording
+  remain excluded.
 - All active users currently see configured providers; favorites and viewing
   state are separate. Per-source grants are a later product choice.
 - The initial runtime permits one software transcode. Capacity targets and

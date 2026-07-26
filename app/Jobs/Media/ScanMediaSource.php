@@ -48,7 +48,10 @@ class ScanMediaSource implements ShouldQueue
         ?SourceMaterializer $materializer = null,
     ): void {
         $source = MediaSource::query()->find($this->sourceId);
-        if (! $source?->enabled) {
+        if (
+            ! $source?->enabled
+            || $source->type === MediaSource::TYPE_IPTV
+        ) {
             return;
         }
         $source->update(['scan_status' => 'scanning', 'last_error_code' => null]);

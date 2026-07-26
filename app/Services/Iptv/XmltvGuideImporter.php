@@ -6,7 +6,6 @@ use App\Models\Iptv\EpgProgram;
 use App\Models\Iptv\IptvProvider;
 use App\Services\Iptv\Exceptions\SanitizedIptvException;
 use Carbon\CarbonImmutable;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use SimpleXMLElement;
 use Throwable;
@@ -175,10 +174,15 @@ class XmltvGuideImporter
             );
         $syncToken = (string) Str::ulid();
         $reader = new XMLReader;
+        $staging = tmpfile();
         $previousInternalErrors = libxml_use_internal_errors(true);
         libxml_clear_errors();
 
         try {
+            if ($staging === false) {
+                throw new SanitizedIptvException('xmltv_invalid', 422);
+            }
+
             if ($this->containsUnsafeDoctype($path)) {
                 throw new SanitizedIptvException('xmltv_invalid', 422);
             }
@@ -187,110 +191,176 @@ class XmltvGuideImporter
                 throw new SanitizedIptvException('xmltv_invalid', 422);
             }
 
-            return DB::transaction(function () use (
-                $channels,
-                $programLimit,
-                $programsPerChannel,
-                $provider,
-                $reader,
-                $scanLimit,
-                $syncToken,
-                $windowEnd,
-                $windowStart,
-            ): int {
-                $count = 0;
-                $scanned = 0;
-                $capped = false;
-                $channelCounts = [];
+            $count = 0;
+            $scanned = 0;
+            $capped = false;
+            $channelCounts = [];
 
-                while ($reader->read()) {
+            while ($reader->read()) {
+                if (
+                    $reader->nodeType !== XMLReader::ELEMENT
+                    || $reader->name !== 'programme'
+                ) {
+                    continue;
+                }
+
+                if (++$scanned > $scanLimit) {
+                    $capped = true;
+
+                    // Continue through a clean EOF before any database writes.
+                    continue;
+                }
+
+                $channelIds = $channels->get(
+                    $reader->getAttribute('channel'),
+                );
+
+                if (! is_array($channelIds) || $channelIds === []) {
+                    continue;
+                }
+
+                $program = $this->programFromReader(
+                    $reader,
+                    $windowStart,
+                    $windowEnd,
+                );
+
+                if ($program === null) {
+                    continue;
+                }
+
+                foreach ($channelIds as $channelId) {
                     if (
-                        $reader->nodeType !== XMLReader::ELEMENT
-                        || $reader->name !== 'programme'
+                        $count >= $programLimit
+                        || ($channelCounts[$channelId] ?? 0) >= $programsPerChannel
                     ) {
-                        continue;
-                    }
-
-                    if (++$scanned > $scanLimit) {
                         $capped = true;
 
-                        // Keep parsing through a clean EOF so malformed input
-                        // after the persistence cap still rolls back the import.
                         continue;
                     }
 
-                    $channelIds = $channels->get(
-                        $reader->getAttribute('channel'),
-                    );
-
-                    if (! is_array($channelIds) || $channelIds === []) {
-                        continue;
-                    }
-
-                    $program = $this->programFromReader(
-                        $reader,
-                        $windowStart,
-                        $windowEnd,
-                    );
-
-                    if ($program === null) {
-                        continue;
-                    }
-
-                    foreach ($channelIds as $channelId) {
-                        if (
-                            $count >= $programLimit
-                            || ($channelCounts[$channelId] ?? 0) >= $programsPerChannel
-                        ) {
-                            $capped = true;
-
-                            continue;
-                        }
-
-                        EpgProgram::query()->updateOrCreate(
-                            [
-                                'channel_id' => $channelId,
-                                'fingerprint' => hash(
-                                    'sha256',
-                                    "{$channelId}|{$program['starts_at']->timestamp}|{$program['ends_at']->timestamp}|{$program['title']}",
-                                ),
-                            ],
-                            [
-                                'iptv_provider_id' => $provider->id,
-                                'sync_token' => $syncToken,
-                                'title' => $program['title'],
-                                'description' => $program['description'],
-                                'category' => $program['category'],
-                                'starts_at' => $program['starts_at'],
-                                'ends_at' => $program['ends_at'],
-                            ],
-                        );
-                        $count++;
-                        $channelCounts[$channelId] = ($channelCounts[$channelId] ?? 0) + 1;
-                    }
+                    $this->stageProgram($staging, [
+                        'channel_id' => $channelId,
+                        'fingerprint' => hash(
+                            'sha256',
+                            "{$channelId}|{$program['starts_at']->timestamp}|{$program['ends_at']->timestamp}|{$program['title']}",
+                        ),
+                        'iptv_provider_id' => $provider->id,
+                        'sync_token' => $syncToken,
+                        'title' => $program['title'],
+                        'description' => $program['description'],
+                        'category' => $program['category'],
+                        'starts_at' => $program['starts_at']->format('Y-m-d H:i:s'),
+                        'ends_at' => $program['ends_at']->format('Y-m-d H:i:s'),
+                    ]);
+                    $count++;
+                    $channelCounts[$channelId] = ($channelCounts[$channelId] ?? 0) + 1;
                 }
+            }
 
-                if (libxml_get_errors() !== []) {
-                    throw new SanitizedIptvException('xmltv_invalid', 422);
-                }
+            if (libxml_get_errors() !== []) {
+                throw new SanitizedIptvException('xmltv_invalid', 422);
+            }
 
-                if (! $capped) {
-                    $this->reconcile($provider, $syncToken);
-                }
+            $this->persistStagedPrograms($staging);
 
-                $this->guideLimiter->enforce($provider);
+            if (! $capped) {
+                $this->reconcile($provider, $syncToken);
+            }
 
-                return $count;
-            });
+            $this->guideLimiter->enforce($provider);
+
+            return $count;
         } catch (SanitizedIptvException $exception) {
             throw $exception;
         } catch (Throwable) {
             throw new SanitizedIptvException('xmltv_invalid', 422);
         } finally {
             $reader->close();
+            if (is_resource($staging)) {
+                fclose($staging);
+            }
             libxml_clear_errors();
             libxml_use_internal_errors($previousInternalErrors);
         }
+    }
+
+    /**
+     * @param  resource  $staging
+     * @param  array<string, int|string|null>  $row
+     */
+    private function stageProgram($staging, array $row): void
+    {
+        $payload = json_encode($row, JSON_THROW_ON_ERROR)."\n";
+        $written = 0;
+
+        while ($written < strlen($payload)) {
+            $bytes = fwrite($staging, substr($payload, $written));
+
+            if ($bytes === false || $bytes === 0) {
+                throw new SanitizedIptvException('xmltv_invalid', 422);
+            }
+
+            $written += $bytes;
+        }
+    }
+
+    /**
+     * @param  resource  $staging
+     */
+    private function persistStagedPrograms($staging): void
+    {
+        rewind($staging);
+        $batchSize = min(
+            1000,
+            max(25, (int) config('iptv.xmltv_write_batch_size', 250)),
+        );
+        $batch = [];
+        $now = now();
+
+        while (($line = fgets($staging)) !== false) {
+            $row = json_decode($line, true, 32, JSON_THROW_ON_ERROR);
+
+            if (! is_array($row)) {
+                throw new SanitizedIptvException('xmltv_invalid', 422);
+            }
+
+            $batch[] = [
+                ...$row,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+
+            if (count($batch) >= $batchSize) {
+                $this->upsertPrograms($batch);
+                $batch = [];
+            }
+        }
+
+        if ($batch !== []) {
+            $this->upsertPrograms($batch);
+        }
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    private function upsertPrograms(array $rows): void
+    {
+        EpgProgram::query()->upsert(
+            $rows,
+            ['channel_id', 'fingerprint'],
+            [
+                'iptv_provider_id',
+                'sync_token',
+                'title',
+                'description',
+                'category',
+                'starts_at',
+                'ends_at',
+                'updated_at',
+            ],
+        );
     }
 
     /**

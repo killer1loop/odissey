@@ -17,6 +17,7 @@ class PlaybackAttemptRecorder
         string $outcome,
         ?int $upstreamStatus = null,
         ?string $errorCode = null,
+        bool $terminalOnThreshold = true,
     ): void {
         $outcome = in_array($outcome, ['started', 'failed'], true)
             ? $outcome
@@ -27,6 +28,7 @@ class PlaybackAttemptRecorder
             $outcome,
             $upstreamStatus,
             $errorCode,
+            $terminalOnThreshold,
         ): void {
             $session->refresh();
 
@@ -53,11 +55,40 @@ class PlaybackAttemptRecorder
                 ]);
             }
 
+            $failureCount = $outcome === 'started'
+                ? 0
+                : (
+                    $terminalOnThreshold
+                        ? min(
+                            1000,
+                            (int) $session->consecutive_failure_count + 1,
+                        )
+                        : (int) $session->consecutive_failure_count
+                );
+            $failureThreshold = min(
+                20,
+                max(
+                    2,
+                    (int) config('iptv.playback_failure_threshold', 3),
+                ),
+            );
+            $terminalFailure = (
+                $outcome === 'failed'
+                && $terminalOnThreshold
+                && $failureCount >= $failureThreshold
+            );
+
             $session->forceFill([
-                'status' => $outcome === 'started' ? 'playing' : 'failed',
+                'status' => $outcome === 'started'
+                    ? 'playing'
+                    : ($terminalFailure ? 'failed' : $session->status),
                 'attempt_count' => min($maxAttempts, $session->attempt_count + 1),
+                'consecutive_failure_count' => $failureCount,
                 'last_outcome' => $outcome,
                 'last_error_code' => $errorCode,
+                'last_failure_at' => $outcome === 'failed'
+                    ? now()
+                    : null,
                 'started_at' => $outcome === 'started'
                     ? ($session->started_at ?? now())
                     : $session->started_at,
@@ -66,7 +97,7 @@ class PlaybackAttemptRecorder
 
             if ($outcome === 'started') {
                 $this->lease->renew($session);
-            } else {
+            } elseif ($terminalFailure) {
                 $this->lease->release($session, 'failed', $errorCode);
             }
         });

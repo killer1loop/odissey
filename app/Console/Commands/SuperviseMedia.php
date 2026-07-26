@@ -23,7 +23,13 @@ class SuperviseMedia extends Command
         }
 
         do {
-            Cache::put('odissey:media-supervisor-heartbeat', now()->toIso8601String(), 120);
+            Cache::store(
+                (string) config('odissey.runtime_cache_store', 'file'),
+            )->put(
+                'odissey:media-supervisor-heartbeat',
+                now()->toIso8601String(),
+                120,
+            );
             $pruner->prune();
 
             if ($this->option('once')) {

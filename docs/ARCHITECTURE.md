@@ -77,6 +77,10 @@ capabilities()
   short-lived signed URL when doing so does not expose source credentials.
 - **WebDAV:** use a read-only account. Onboarding probes `PROPFIND`, `HEAD`, and
   byte-range behavior because seeking support varies by server.
+- **IPTV VOD:** Xtream movie and episode identifiers are stored as encrypted
+  opaque locators on a provider-managed media source. Credentials remain on
+  the encrypted provider record and playback is proxied through the same
+  authenticated range/transcode boundary.
 
 The catalog stores stable external locators and metadata. It never stores the
 source bytes.
@@ -91,16 +95,25 @@ domain objects; generic M3U/XMLTV support will implement the same contract:
 - channel;
 - EPG channel mapping;
 - EPG program.
+- VOD movie, series, and episode.
 
 The IPTV-first flow is:
 
 1. An admin enters a display name, base URL, username, and password.
 2. The server validates the URL and tests authentication asynchronously.
-3. Categories and channels are upserted by stable provider identifiers.
+3. Live categories/channels and on-demand movies/series are upserted by stable
+   provider identifiers.
 4. Current/next guide rows are fetched with bounded short-EPG requests and
    normalized to UTC. A streaming XMLTV importer is planned.
 5. Missing channels become inactive instead of being deleted.
 6. Users filter by provider/group and maintain their own favorites.
+
+Provider channel icon URLs are deliberately ignored. Odissey resolves channel
+identity against the public IPTV-org channel and logo catalogs using an exact
+EPG channel ID first, then unique country-aware name aliases after removing
+display-only quality suffixes. Only active HTTPS raster logos are eligible;
+ambiguous or unmatched channels render local initials. The catalog is bounded,
+cached, refreshed daily, and failures preserve the last approved match.
 
 Origin URLs and credentials must never enter HTML, HLS playlists, logs, queue
 payloads, or browser network requests. Playback uses an opaque, short-lived

@@ -88,7 +88,9 @@ class PlaybackResourceController extends Controller
             }
 
             $access->touch($session, $resource);
-            $resource->forceFill(['content_type' => $contentType])->save();
+            if ($resource->content_type !== $contentType) {
+                $resource->forceFill(['content_type' => $contentType])->save();
+            }
             $this->capStreamLifetime($session, $concurrencyLease);
 
             $response = $this->streamResponse(
@@ -110,6 +112,7 @@ class PlaybackResourceController extends Controller
                     ? $exception->upstreamStatus
                     : null,
                 $exception->errorCode,
+                terminalOnThreshold: false,
             );
 
             return response('Stream resource temporarily unavailable.', $exception->httpStatus(), [
@@ -117,7 +120,12 @@ class PlaybackResourceController extends Controller
                 'Content-Type' => 'text/plain; charset=UTF-8',
             ]);
         } catch (Throwable) {
-            $attempts->record($session, 'failed', errorCode: 'internal_proxy_error');
+            $attempts->record(
+                $session,
+                'failed',
+                errorCode: 'internal_proxy_error',
+                terminalOnThreshold: false,
+            );
 
             return response('Stream resource temporarily unavailable.', 502, [
                 'Cache-Control' => 'no-store',

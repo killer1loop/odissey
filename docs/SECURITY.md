@@ -53,6 +53,11 @@ EPG XML is parsed incrementally with external entities disabled. Compressed and
 decompressed bytes, element depth, rows, string lengths, and date ranges are
 bounded.
 
+Provider-supplied channel icon URLs are ignored. External IPTV-org catalog
+documents and matched logo images are fetched over HTTPS with public-IP
+pinning, redirect and byte limits, raster-image validation, and authenticated
+same-origin delivery. SVG logos are excluded.
+
 ## Media processing
 
 - FFmpeg and FFprobe receive an argument array, not a shell command.

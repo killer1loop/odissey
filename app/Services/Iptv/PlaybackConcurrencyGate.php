@@ -98,7 +98,9 @@ class PlaybackConcurrencyGate
         int $leaseSeconds,
     ): ?Lock {
         for ($slot = 1; $slot <= $slots; $slot++) {
-            $lock = Cache::lock("{$key}:{$slot}", $leaseSeconds);
+            $lock = Cache::store(
+                (string) config('iptv.lock_store', 'file'),
+            )->lock("{$key}:{$slot}", $leaseSeconds);
 
             if ($lock->get()) {
                 return $lock;

@@ -35,6 +35,8 @@
         class="live-player-shell"
         data-iptv-player
         data-manifest-url="{{ route('iptv.playback.manifest', $session) }}"
+        data-restart-url="{{ route('iptv.playback.restart', $session) }}"
+        data-diagnostic-url="{{ route('iptv.playback.diagnostics', $session) }}"
         data-active-channel-id="{{ $session->channel_id }}"
         data-rail-open="false"
         aria-label="{{ $session->channel->name }} live stream player"
@@ -188,6 +190,10 @@
                 <div>
                     <dt>Bitrate</dt>
                     <dd data-stream-bitrate>—</dd>
+                </div>
+                <div>
+                    <dt>Recovery</dt>
+                    <dd data-stream-recovery>Automatic</dd>
                 </div>
             </dl>
 

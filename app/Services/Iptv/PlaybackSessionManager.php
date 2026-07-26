@@ -24,7 +24,9 @@ class PlaybackSessionManager
     public function create(User $user, Channel $channel): IptvPlaybackSession
     {
         $channel->loadMissing('provider');
-        $lock = Cache::lock(
+        $lock = Cache::store(
+            (string) config('iptv.lock_store', 'file'),
+        )->lock(
             "odissey:iptv:provider-session-mutation:{$channel->provider->id}",
             10,
         );

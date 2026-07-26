@@ -14,10 +14,12 @@ class ProviderCatalogSynchronizer
     public function __construct(
         private readonly XtreamClient $client,
         private readonly M3uClient $m3u,
+        private readonly XtreamVodCatalogSynchronizer $vod,
+        private readonly ChannelLogoResolver $logos,
     ) {}
 
     /**
-     * @return array{groups: int, channels: int}
+     * @return array{groups: int, channels: int, movies: int, series: int}
      */
     public function sync(IptvProvider $provider): array
     {
@@ -28,11 +30,28 @@ class ProviderCatalogSynchronizer
 
         if (($provider->config['api'] ?? 'xtream') === 'm3u') {
             [$categories, $streams] = $this->m3u->catalog($provider);
+            $vodCategories = $movies = $seriesCategories = $series = [];
         } else {
-            $this->client->authenticate($provider);
+            $maxConnections = $this->client->authenticate($provider);
+
+            if ($maxConnections !== null) {
+                $provider->forceFill([
+                    'config' => [
+                        ...$provider->config,
+                        'max_connections' => $maxConnections,
+                        'max_connections_source' => 'provider',
+                    ],
+                ])->save();
+            }
+
             $categories = $this->client->categories($provider);
             $streams = $this->client->liveStreams($provider);
+            $vodCategories = $this->client->vodCategories($provider);
+            $movies = $this->client->vodStreams($provider);
+            $seriesCategories = $this->client->seriesCategories($provider);
+            $series = $this->client->series($provider);
         }
+        $logoResolution = $this->logos->resolve($streams);
         $now = now();
         $groupRows = [];
 
@@ -76,6 +95,7 @@ class ProviderCatalogSynchronizer
             if ($externalId === null || $name === null) {
                 continue;
             }
+            $logo = $logoResolution->match($externalId);
 
             $channelRows[$externalId] = [
                 'iptv_provider_id' => $provider->id,
@@ -84,9 +104,9 @@ class ProviderCatalogSynchronizer
                 'epg_channel_id' => $this->nullableText($stream['epg_channel_id'] ?? null),
                 'name' => $name,
                 'channel_number' => $this->nullableText($stream['num'] ?? null, 64),
-                'stream_icon' => $this->encryptNullable(
-                    $this->nullableUrl($stream['stream_icon'] ?? null),
-                ),
+                'stream_icon' => $this->encryptNullable($logo['url'] ?? null),
+                'logo_source' => $logo === null ? null : 'iptv-org',
+                'logo_channel_id' => $logo['channel_id'] ?? null,
                 'stream_extension' => 'm3u8',
                 'metadata' => Crypt::encryptString(json_encode(array_merge([
                     'archive' => (bool) ($stream['tv_archive'] ?? false),
@@ -102,6 +122,7 @@ class ProviderCatalogSynchronizer
 
         $result = DB::transaction(function () use (
             $provider,
+            $logoResolution,
             &$groupRows,
             &$channelRows,
         ): array {
@@ -148,13 +169,19 @@ class ProviderCatalogSynchronizer
                 unset($channelRows[$externalId]);
 
                 if (count($chunk) === 250) {
-                    $this->upsertChannels($chunk);
+                    $this->upsertChannels(
+                        $chunk,
+                        $logoResolution->available,
+                    );
                     $chunk = [];
                 }
             }
 
             if ($chunk !== []) {
-                $this->upsertChannels($chunk);
+                $this->upsertChannels(
+                    $chunk,
+                    $logoResolution->available,
+                );
             }
 
             return [
@@ -163,13 +190,23 @@ class ProviderCatalogSynchronizer
             ];
         });
 
+        $vodResult = ($provider->config['api'] ?? 'xtream') === 'm3u'
+            ? ['movies' => 0, 'series' => 0]
+            : $this->vod->sync(
+                $provider,
+                $vodCategories,
+                $movies,
+                $seriesCategories,
+                $series,
+            );
+
         $provider->forceFill([
             'sync_status' => 'ready',
             'last_error_code' => null,
             'last_synced_at' => now(),
         ])->save();
 
-        return $result;
+        return [...$result, ...$vodResult];
     }
 
     private function scalarId(mixed $value): ?string
@@ -242,22 +279,33 @@ class ProviderCatalogSynchronizer
     /**
      * @param  array<int, array<string, mixed>>  $rows
      */
-    private function upsertChannels(array $rows): void
-    {
+    private function upsertChannels(
+        array $rows,
+        bool $updateLogos,
+    ): void {
+        $updates = [
+            'channel_group_id',
+            'epg_channel_id',
+            'name',
+            'channel_number',
+            'stream_extension',
+            'metadata',
+            'is_active',
+            'updated_at',
+        ];
+        if ($updateLogos) {
+            $updates = [
+                ...$updates,
+                'stream_icon',
+                'logo_source',
+                'logo_channel_id',
+            ];
+        }
+
         Channel::query()->upsert(
             $rows,
             ['iptv_provider_id', 'external_id'],
-            [
-                'channel_group_id',
-                'epg_channel_id',
-                'name',
-                'channel_number',
-                'stream_icon',
-                'stream_extension',
-                'metadata',
-                'is_active',
-                'updated_at',
-            ],
+            $updates,
         );
     }
 }

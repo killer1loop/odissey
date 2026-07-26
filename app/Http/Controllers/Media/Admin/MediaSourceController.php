@@ -64,6 +64,7 @@ class MediaSourceController extends Controller
 
     public function scan(MediaSource $source): RedirectResponse
     {
+        abort_if($source->type === MediaSource::TYPE_IPTV, 404);
         ScanMediaSource::dispatch($source->id);
 
         return back()->with('status', 'Library scan queued.');
@@ -71,6 +72,7 @@ class MediaSourceController extends Controller
 
     public function destroy(MediaSource $source): RedirectResponse
     {
+        abort_if($source->type === MediaSource::TYPE_IPTV, 404);
         $source->items()->eachById(fn ($item) => $item->delete());
         $source->delete();
 

@@ -17,6 +17,11 @@ encrypted.
 TV episodes also use TVmaze's free public API as a no-key fallback for series,
 episode, image, summary, genre, and rating data.
 
+Xtream movie and series imports enter this same enrichment pipeline. Provider
+titles, years, series/season/episode numbers, and external identifiers seed the
+match; fetched artwork and captions are cached under the same bounded private
+storage rules as local, S3, and WebDAV items.
+
 Only parsed title, year, and media type are sent to an enabled metadata
 provider. Paths, source credentials, and media bytes remain private.
 

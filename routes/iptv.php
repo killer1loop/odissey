@@ -5,8 +5,10 @@ use App\Http\Controllers\Iptv\ChannelBrowserController;
 use App\Http\Controllers\Iptv\ChannelFavoriteController;
 use App\Http\Controllers\Iptv\ChannelIconController;
 use App\Http\Controllers\Iptv\GuideController;
+use App\Http\Controllers\Iptv\PlaybackDiagnosticController;
 use App\Http\Controllers\Iptv\PlaybackManifestController;
 use App\Http\Controllers\Iptv\PlaybackResourceController;
+use App\Http\Controllers\Iptv\PlaybackRestartController;
 use App\Http\Controllers\Iptv\PlaybackSessionController;
 use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\EnsureUserIsAdmin;
@@ -35,6 +37,15 @@ Route::middleware(['auth', EnsureUserIsActive::class])
             ->name('playback.destroy');
         Route::get('/play/{session}/master.m3u8', PlaybackManifestController::class)
             ->name('playback.manifest');
+        Route::post('/play/{session}/restart', PlaybackRestartController::class)
+            ->middleware('throttle:6,1')
+            ->name('playback.restart');
+        Route::post(
+            '/play/{session}/diagnostics',
+            PlaybackDiagnosticController::class,
+        )
+            ->middleware('throttle:20,1')
+            ->name('playback.diagnostics');
         Route::get(
             '/play/{session}/resources/{resource}',
             PlaybackResourceController::class,

@@ -20,6 +20,7 @@ class DockerBuildContextTest extends TestCase
     public function test_runtime_and_vendor_stages_use_selective_source_copies(): void
     {
         $dockerfile = file_get_contents(dirname(__DIR__, 2).'/Dockerfile');
+        $this->assertStringContainsString('CACHE_STORE=file', $dockerfile);
 
         $this->assertIsString($dockerfile);
         $this->assertSame(3, preg_match_all(

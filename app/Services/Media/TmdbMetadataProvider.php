@@ -17,8 +17,17 @@ class TmdbMetadataProvider
         if (! is_string($token) || $token === '') {
             return [];
         }
-        $isTv = ($parsed['kind'] ?? '') === 'episode';
-        $query = $isTv ? $parsed['series_title'] : $parsed['title'];
+        $isTv = in_array(
+            $parsed['kind'] ?? '',
+            ['episode', 'series'],
+            true,
+        );
+        $query = $isTv
+            ? ($parsed['series_title'] ?? $parsed['title'] ?? '')
+            : ($parsed['title'] ?? '');
+        if (! is_string($query) || trim($query) === '') {
+            return [];
+        }
         $params = ['query' => $query, 'include_adult' => 'false', 'language' => config('services.tmdb.language', 'en-US')];
         if (! $isTv && ! empty($parsed['year'])) {
             $params['primary_release_year'] = $parsed['year'];

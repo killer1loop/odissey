@@ -13,6 +13,7 @@ class MediaSourceRegistry
             MediaSource::TYPE_LOCAL => app(LocalSourceAdapter::class),
             MediaSource::TYPE_S3 => app(S3SourceAdapter::class),
             MediaSource::TYPE_WEBDAV => app(WebDavSourceAdapter::class),
+            MediaSource::TYPE_IPTV => app(IptvVodSourceAdapter::class),
             default => throw new InvalidArgumentException('Unsupported media source.'),
         };
     }

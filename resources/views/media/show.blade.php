@@ -14,7 +14,12 @@
                 <h1 id="player-heading">{{ $item->title }}</h1>
                 @if($item->metadata['year'] ?? null)<p>{{ $item->metadata['year'] }} · {{ implode(' · ', $item->metadata['genres'] ?? []) }} @if($item->metadata['rating'] ?? null) · ★ {{ number_format($item->metadata['rating'],1) }} @endif</p>@endif
             </div>
-            <a class="button button-muted" href="{{ route('media.index') }}">Back to video</a>
+            <a class="button button-muted" href="{{ route('media.index', array_filter([
+                'kind' => $item->media_kind,
+                'library' => ($item->metadata['kind'] ?? '') === 'episode' ? 'tv' : (($item->media_kind === 'video') ? 'movies' : null),
+                'series' => $item->metadata['series_title'] ?? null,
+                'source' => $item->media_source_id,
+            ])) }}">Back to {{ ($item->metadata['kind'] ?? '') === 'episode' ? 'episodes' : 'library' }}</a>
         </header>
 
         <div class="media-player-panel">
