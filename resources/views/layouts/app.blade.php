@@ -3,9 +3,8 @@
     $avatarLetter = mb_strtoupper(mb_substr($signedInUser?->name ?? 'O', 0, 1));
     $musicIsActive = request()->routeIs('media.index') && request('kind') === 'music';
     $videoIsActive = request()->routeIs('media.*') && ! request()->routeIs('media.admin.*') && ! $musicIsActive;
-    $guideIsActive = request()->routeIs('iptv.guide');
     $favoritesAreActive = request()->routeIs('iptv.channels.index') && request()->boolean('favorites');
-    $liveTvIsActive = request()->routeIs('iptv.*') && ! request()->routeIs('iptv.admin.*') && ! $guideIsActive && ! $favoritesAreActive;
+    $liveTvIsActive = request()->routeIs('iptv.*') && ! request()->routeIs('iptv.admin.*') && ! $favoritesAreActive;
 @endphp
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
@@ -74,8 +73,6 @@
                         </svg>
                         <span>Live TV</span>
                     </a>
-                    <a class="nav-item {{ $guideIsActive ? 'is-active' : '' }}" href="{{ route('iptv.guide') }}" @if ($guideIsActive) aria-current="page" @endif><span>Guide</span></a>
-
                     <p class="nav-label">Your media</p>
                     <a
                         class="nav-item {{ $favoritesAreActive ? 'is-active' : '' }}"
@@ -204,7 +201,7 @@
                 <span>Video</span>
             </a>
             <a
-                class="{{ $liveTvIsActive || $guideIsActive ? 'is-active' : '' }}"
+                class="{{ $liveTvIsActive ? 'is-active' : '' }}"
                 href="{{ route('iptv.channels.index') }}"
             >
                 <svg aria-hidden="true" viewBox="0 0 24 24">

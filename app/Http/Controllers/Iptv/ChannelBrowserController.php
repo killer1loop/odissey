@@ -7,6 +7,7 @@ use App\Models\Iptv\Channel;
 use App\Models\Iptv\ChannelFavorite;
 use App\Models\Iptv\ChannelGroup;
 use App\Models\Iptv\EpgProgram;
+use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
 
@@ -17,6 +18,10 @@ class ChannelBrowserController extends Controller
         $search = mb_substr(trim((string) $request->query('q')), 0, 100);
         $groupId = $request->integer('group') ?: null;
         $favoritesOnly = $request->boolean('favorites');
+        $viewMode = $request->query('view') === 'channels' ? 'channels' : 'guide';
+        $guideNow = CarbonImmutable::now();
+        $guideStart = $guideNow->startOfHour();
+        $guideEnd = $guideStart->addHours(6);
         $favoriteIds = ChannelFavorite::query()
             ->where('user_id', $request->user()->id)
             ->pluck('channel_id');
@@ -26,6 +31,13 @@ class ChannelBrowserController extends Controller
             ->join('iptv_providers', 'iptv_providers.id', '=', 'channels.iptv_provider_id')
             ->where('channels.is_active', true)
             ->where('iptv_providers.enabled', true)
+            ->where(function ($query): void {
+                $query->whereNull('channels.channel_group_id')
+                    ->orWhereHas(
+                        'group',
+                        fn ($group) => $group->where('is_active', true),
+                    );
+            })
             ->when($groupId, fn ($query) => $query->where('channel_group_id', $groupId))
             ->when(
                 $favoritesOnly,
@@ -43,13 +55,13 @@ class ChannelBrowserController extends Controller
                 "CASE WHEN channels.channel_number GLOB '[0-9]*' THEN CAST(channels.channel_number AS INTEGER) ELSE 2147483647 END"
             )
             ->orderBy('channels.name')
-            ->paginate(48)
+            ->paginate($viewMode === 'guide' ? 80 : 48)
             ->withQueryString();
 
         $programs = EpgProgram::query()
             ->whereIn('channel_id', $channels->getCollection()->pluck('id'))
-            ->where('ends_at', '>', now())
-            ->where('starts_at', '<', now()->addHours(8))
+            ->where('ends_at', '>', $viewMode === 'guide' ? $guideStart : $guideNow)
+            ->where('starts_at', '<', $viewMode === 'guide' ? $guideEnd : $guideNow->addHours(8))
             ->orderBy('starts_at')
             ->get()
             ->groupBy('channel_id');
@@ -69,6 +81,11 @@ class ChannelBrowserController extends Controller
             'selectedGroup' => $groupId,
             'search' => $search,
             'favoritesOnly' => $favoritesOnly,
+            'viewMode' => $viewMode,
+            'guideNow' => $guideNow,
+            'guideStart' => $guideStart,
+            'guideEnd' => $guideEnd,
+            'viewerTimezone' => $request->user()->timezone ?: config('app.timezone'),
         ]);
     }
 }

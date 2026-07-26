@@ -29,6 +29,10 @@ class IptvAvailabilityTest extends TestCase
 
         $this->actingAs($user)
             ->get(route('iptv.guide'))
+            ->assertRedirect(route('iptv.channels.index', ['view' => 'guide']));
+
+        $this->actingAs($user)
+            ->get(route('iptv.channels.index'))
             ->assertOk()
             ->assertSee($channel->name);
         $this->actingAs($user)
@@ -41,7 +45,7 @@ class IptvAvailabilityTest extends TestCase
 
         $channel->group->update(['is_active' => false]);
         $this->actingAs($user)
-            ->get(route('iptv.guide'))
+            ->get(route('iptv.channels.index'))
             ->assertOk()
             ->assertDontSee($channel->name);
         $this->actingAs($user)
@@ -55,7 +59,7 @@ class IptvAvailabilityTest extends TestCase
         $channel->group->update(['is_active' => true]);
         $provider->update(['enabled' => false]);
         $this->actingAs($user)
-            ->get(route('iptv.guide'))
+            ->get(route('iptv.channels.index'))
             ->assertOk()
             ->assertDontSee($channel->name);
         $this->actingAs($user)
@@ -68,7 +72,7 @@ class IptvAvailabilityTest extends TestCase
         $provider->update(['enabled' => true]);
         $channel->update(['is_active' => false]);
         $this->actingAs($user)
-            ->get(route('iptv.guide'))
+            ->get(route('iptv.channels.index'))
             ->assertOk()
             ->assertDontSee($channel->name);
         $this->actingAs($user)

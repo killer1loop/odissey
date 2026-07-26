@@ -176,7 +176,8 @@ copying branding or assets:
 - home shelves for continue-watching, recently added, favorites, and live now;
 - source-level tabs for recommendations, browse, categories, and collections;
 - poster-first detail pages with a clear play/resume action;
-- a time-grid EPG with sticky channels and group/favorites filters;
+- a responsive timeline EPG with sticky playable channels, current-time
+  markers, group/favorites filters, and an alternate channel-card grid;
 - a persistent mini-player for music.
 
 Relevant research:

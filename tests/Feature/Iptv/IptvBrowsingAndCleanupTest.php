@@ -3,6 +3,7 @@
 namespace Tests\Feature\Iptv;
 
 use App\Models\Iptv\ChannelFavorite;
+use App\Models\Iptv\EpgProgram;
 use App\Models\Iptv\IptvPlaybackResource;
 use App\Models\Iptv\IptvPlaybackSession;
 use App\Models\User;
@@ -48,6 +49,58 @@ class IptvBrowsingAndCleanupTest extends TestCase
             ->get(route('iptv.channels.index', ['favorites' => 1]))
             ->assertOk()
             ->assertDontSee($channel->name);
+    }
+
+    public function test_live_tv_and_favorites_default_to_the_epg_with_a_channel_grid_switch(): void
+    {
+        $user = User::factory()->create([
+            'is_active' => true,
+            'timezone' => 'Europe/Zurich',
+        ]);
+        $favorite = $this->makeChannel($this->makeProvider(), [
+            'name' => 'Favorite News',
+        ]);
+        $other = $this->makeChannel(
+            $this->makeProvider(['name' => 'Second Provider']),
+            ['name' => 'Other Sports'],
+        );
+        ChannelFavorite::query()->create([
+            'user_id' => $user->id,
+            'channel_id' => $favorite->id,
+        ]);
+        EpgProgram::query()->create([
+            'iptv_provider_id' => $favorite->iptv_provider_id,
+            'channel_id' => $favorite->id,
+            'fingerprint' => hash('sha256', 'favorite-news-live'),
+            'title' => 'Midday News',
+            'description' => 'The latest headlines.',
+            'starts_at' => now()->subMinutes(15),
+            'ends_at' => now()->addMinutes(45),
+        ]);
+
+        $this->actingAs($user)
+            ->get(route('iptv.channels.index'))
+            ->assertOk()
+            ->assertSee('data-live-tv-view="guide"', escape: false)
+            ->assertSee('Six-hour television guide')
+            ->assertSee('Midday News')
+            ->assertSee(route('iptv.playback.store', $favorite))
+            ->assertSee('TV guide')
+            ->assertSee('Channel grid');
+
+        $this->actingAs($user)
+            ->get(route('iptv.channels.index', ['view' => 'channels']))
+            ->assertOk()
+            ->assertSee('data-live-tv-view="channels"', escape: false)
+            ->assertSee('Watch live')
+            ->assertDontSee('Six-hour television guide');
+
+        $this->actingAs($user)
+            ->get(route('iptv.channels.index', ['favorites' => 1]))
+            ->assertOk()
+            ->assertSee('data-live-tv-view="guide"', escape: false)
+            ->assertSee($favorite->name)
+            ->assertDontSee($other->name);
     }
 
     public function test_prune_and_e2e_cleanup_remove_only_explicitly_selected_state(): void
