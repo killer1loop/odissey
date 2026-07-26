@@ -118,12 +118,19 @@ ODISSEY_FFMPEG_MAX_PIXELS=33177600
 ODISSEY_FFMPEG_MAX_VIDEO_BITRATE_KBPS=10000
 ODISSEY_SOURCE_CATALOG_MAX_ITEMS=100000
 ODISSEY_PLAYBACK_HISTORY_RETENTION_DAYS=365
+IPTV_IMPORT_MEMORY_LIMIT_MB=768
 IPTV_GUIDE_CHANNEL_LIMIT=20
 ```
 
 Transient HLS is also pruned every ten minutes. The byte quota is enforced
 during conversion even when the deployment platform does not mount the
 transcode path as tmpfs.
+
+Large Xtream live, VOD, series, and external-logo catalogs run in the single
+background worker with a temporary memory budget clamped between 256 MiB and
+1 GiB. The default is 768 MiB. Catalog response byte and row ceilings remain
+enforced independently, and the importer releases the live catalog before
+downloading VOD data.
 
 Never use provider or storage secrets as Docker build arguments. They must be
 runtime secrets and later be stored encrypted through Odissey's admin UI.

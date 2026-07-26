@@ -23,10 +23,10 @@ class XtreamVodCatalogSynchronizer
      */
     public function sync(
         IptvProvider $provider,
-        array $vodCategories,
-        array $movies,
-        array $seriesCategories,
-        array $series,
+        array &$vodCategories,
+        array &$movies,
+        array &$seriesCategories,
+        array &$series,
     ): array {
         $owner = User::query()
             ->where('is_admin', true)
@@ -55,11 +55,14 @@ class XtreamVodCatalogSynchronizer
         );
         $movieCategories = $this->categories($vodCategories);
         $showCategories = $this->categories($seriesCategories);
+        $vodCategories = [];
+        $seriesCategories = [];
         $scanToken = (string) Str::ulid();
         $movieRows = [];
         $seriesRows = [];
 
-        foreach ($movies as $movie) {
+        foreach ($movies as $position => $movie) {
+            unset($movies[$position]);
             $row = $this->movieRow(
                 $source,
                 $owner,
@@ -72,7 +75,8 @@ class XtreamVodCatalogSynchronizer
             }
         }
 
-        foreach ($series as $show) {
+        foreach ($series as $position => $show) {
+            unset($series[$position]);
             $row = $this->seriesRow(
                 $source,
                 $owner,

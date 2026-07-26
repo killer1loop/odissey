@@ -9,6 +9,7 @@ use App\Models\Iptv\Channel;
 use App\Models\Iptv\ChannelGroup;
 use App\Models\User;
 use App\Services\Iptv\Exceptions\SanitizedIptvException;
+use App\Services\Iptv\IptvImportMemoryBudget;
 use App\Services\Iptv\ProviderCatalogSynchronizer;
 use App\Services\Iptv\ShortEpgGuideImporter;
 use App\Services\Iptv\XmltvGuideImporter;
@@ -445,6 +446,15 @@ class IptvCatalogAndGuideTest extends TestCase
             21313,
             app(XtreamClient::class)->liveStreams($provider),
         );
+    }
+
+    public function test_provider_import_memory_budget_is_hard_clamped(): void
+    {
+        config()->set('iptv.import_memory_limit_mb', 1);
+        $this->assertSame(256, app(IptvImportMemoryBudget::class)->megabytes());
+
+        config()->set('iptv.import_memory_limit_mb', PHP_INT_MAX);
+        $this->assertSame(1024, app(IptvImportMemoryBudget::class)->megabytes());
     }
 
     public function test_decoded_xtream_payload_is_bounded_during_response_writes(): void

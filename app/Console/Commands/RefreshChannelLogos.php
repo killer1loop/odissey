@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Services\Iptv\ChannelLogoResolver;
+use App\Services\Iptv\IptvImportMemoryBudget;
 use Illuminate\Console\Command;
 use Throwable;
 
@@ -12,8 +13,12 @@ class RefreshChannelLogos extends Command
 
     protected $description = 'Refresh channel logos from the external IPTV-org catalog';
 
-    public function handle(ChannelLogoResolver $logos): int
-    {
+    public function handle(
+        ChannelLogoResolver $logos,
+        IptvImportMemoryBudget $memory,
+    ): int {
+        $memory->apply();
+
         try {
             $result = $logos->refreshExistingChannels();
         } catch (Throwable) {

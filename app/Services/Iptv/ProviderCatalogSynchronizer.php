@@ -30,7 +30,6 @@ class ProviderCatalogSynchronizer
 
         if (($provider->config['api'] ?? 'xtream') === 'm3u') {
             [$categories, $streams] = $this->m3u->catalog($provider);
-            $vodCategories = $movies = $seriesCategories = $series = [];
         } else {
             $maxConnections = $this->client->authenticate($provider);
 
@@ -46,10 +45,6 @@ class ProviderCatalogSynchronizer
 
             $categories = $this->client->categories($provider);
             $streams = $this->client->liveStreams($provider);
-            $vodCategories = $this->client->vodCategories($provider);
-            $movies = $this->client->vodStreams($provider);
-            $seriesCategories = $this->client->seriesCategories($provider);
-            $series = $this->client->series($provider);
         }
         $logoResolution = $this->logos->resolve($streams);
         $now = now();
@@ -190,15 +185,23 @@ class ProviderCatalogSynchronizer
             ];
         });
 
-        $vodResult = ($provider->config['api'] ?? 'xtream') === 'm3u'
-            ? ['movies' => 0, 'series' => 0]
-            : $this->vod->sync(
+        unset($categories, $streams, $logoResolution);
+
+        if (($provider->config['api'] ?? 'xtream') === 'm3u') {
+            $vodResult = ['movies' => 0, 'series' => 0];
+        } else {
+            $vodCategories = $this->client->vodCategories($provider);
+            $movies = $this->client->vodStreams($provider);
+            $seriesCategories = $this->client->seriesCategories($provider);
+            $series = $this->client->series($provider);
+            $vodResult = $this->vod->sync(
                 $provider,
                 $vodCategories,
                 $movies,
                 $seriesCategories,
                 $series,
             );
+        }
 
         $provider->forceFill([
             'sync_status' => 'ready',

@@ -30,6 +30,7 @@ return [
     'vod_series_max_rows' => (int) env('IPTV_VOD_SERIES_MAX_ROWS', 20000),
     'vod_episode_max_rows' => (int) env('IPTV_VOD_EPISODE_MAX_ROWS', 2500),
     'vod_metadata_jobs_per_sync' => (int) env('IPTV_VOD_METADATA_JOBS_PER_SYNC', 10000),
+    'import_memory_limit_mb' => (int) env('IPTV_IMPORT_MEMORY_LIMIT_MB', 768),
     'channel_logo_catalog_enabled' => filter_var(
         env('IPTV_CHANNEL_LOGO_CATALOG_ENABLED', true),
         FILTER_VALIDATE_BOOL,
