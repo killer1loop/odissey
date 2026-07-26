@@ -95,7 +95,7 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY --chown=www-data:www-data artisan ./
-COPY --chown=www-data:www-data composer.lock package-lock.json ./
+COPY --chown=www-data:www-data composer.json composer.lock package-lock.json ./
 COPY --chown=www-data:www-data app ./app
 COPY --chown=www-data:www-data bootstrap ./bootstrap
 COPY --chown=www-data:www-data config ./config

@@ -39,7 +39,7 @@ class DockerBuildContextTest extends TestCase
             $dockerfile,
         );
         $this->assertStringContainsString(
-            'COPY --chown=www-data:www-data composer.lock package-lock.json ./',
+            'COPY --chown=www-data:www-data composer.json composer.lock package-lock.json ./',
             $dockerfile,
         );
         $this->assertStringContainsString('USER www-data:www-data', $dockerfile);
