@@ -192,6 +192,16 @@ class IptvPlaybackProxyTest extends TestCase
         EpgProgram::query()->create([
             'iptv_provider_id' => $next->iptv_provider_id,
             'channel_id' => $next->id,
+            'fingerprint' => hash('sha256', 'favorite-sports-now-duplicate'),
+            'title' => 'Live Match',
+            'starts_at' => EpgProgram::query()
+                ->where('fingerprint', hash('sha256', 'favorite-sports-now'))
+                ->value('starts_at'),
+            'ends_at' => now()->addMinutes(40),
+        ]);
+        EpgProgram::query()->create([
+            'iptv_provider_id' => $next->iptv_provider_id,
+            'channel_id' => $next->id,
             'fingerprint' => hash('sha256', 'favorite-sports-later'),
             'title' => 'Post-match Review',
             'starts_at' => now()->addMinutes(35),
@@ -211,7 +221,7 @@ class IptvPlaybackProxyTest extends TestCase
             ->assertRedirect();
         $session = IptvPlaybackSession::query()->sole();
 
-        $this->actingAs($user)
+        $page = $this->actingAs($user)
             ->get(route('iptv.playback.show', $session))
             ->assertOk()
             ->assertSee('data-active-channel-id="'.$current->id.'"', escape: false)
@@ -224,6 +234,7 @@ class IptvPlaybackProxyTest extends TestCase
             ->assertDontSee('Tomorrow Preview')
             ->assertSee(route('iptv.channels.icon', $next))
             ->assertDontSee('images.example.test');
+        $this->assertSame(1, substr_count($page->getContent(), 'Live Match'));
     }
 
     public function test_bounded_redirects_are_manually_revalidated_before_fetching(): void

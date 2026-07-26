@@ -46,8 +46,13 @@ class PlaybackSessionController extends Controller
         $programs = $session->channel->programs()
             ->where('ends_at', '>', $guideNow)
             ->orderBy('starts_at')
-            ->limit(2)
-            ->get();
+            ->limit(12)
+            ->get()
+            ->unique(
+                fn (EpgProgram $program): string => $this->guideIdentity($program),
+            )
+            ->take(2)
+            ->values();
 
         $favoriteChannels = Channel::query()
             ->select('channels.*')
@@ -83,7 +88,14 @@ class PlaybackSessionController extends Controller
             ->where('starts_at', '<', $guideEnd)
             ->orderBy('starts_at')
             ->get()
-            ->groupBy('channel_id');
+            ->groupBy('channel_id')
+            ->map(
+                fn ($channelPrograms) => $channelPrograms
+                    ->unique(
+                        fn (EpgProgram $program): string => $this->guideIdentity($program),
+                    )
+                    ->values(),
+            );
 
         return view('iptv.playback.show', [
             'session' => $session,
@@ -93,6 +105,14 @@ class PlaybackSessionController extends Controller
             'guideNow' => $guideNow,
             'guideEnd' => $guideEnd,
             'viewerTimezone' => $request->user()->timezone ?: config('app.timezone'),
+        ]);
+    }
+
+    private function guideIdentity(EpgProgram $program): string
+    {
+        return implode('|', [
+            mb_strtolower(trim($program->title)),
+            $program->starts_at->getTimestamp(),
         ]);
     }
 
