@@ -20,8 +20,9 @@ class BoundedResponseSink implements StreamInterface
 
     public function __construct(
         private readonly int $maxBytes,
+        ?string $path = null,
     ) {
-        $handle = fopen('php://temp/maxmemory:2097152', 'w+b');
+        $handle = fopen($path ?? 'php://temp/maxmemory:2097152', 'w+b');
 
         if ($handle === false) {
             throw new RuntimeException('Unable to create bounded IPTV response stream.');
@@ -49,6 +50,11 @@ class BoundedResponseSink implements StreamInterface
     public function limitExceeded(): bool
     {
         return $this->limitExceeded;
+    }
+
+    public function bytesWritten(): int
+    {
+        return $this->bytesWritten;
     }
 
     public function contents(): string

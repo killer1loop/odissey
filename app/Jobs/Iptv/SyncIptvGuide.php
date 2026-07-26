@@ -4,7 +4,6 @@ namespace App\Jobs\Iptv;
 
 use App\Models\Iptv\IptvProvider;
 use App\Services\Iptv\Exceptions\SanitizedIptvException;
-use App\Services\Iptv\ShortEpgGuideImporter;
 use App\Services\Iptv\XmltvGuideImporter;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -32,7 +31,7 @@ class SyncIptvGuide implements ShouldBeUnique, ShouldQueue
         return (string) $this->providerId;
     }
 
-    public function handle(ShortEpgGuideImporter $importer): void
+    public function handle(XmltvGuideImporter $xmltvImporter): void
     {
         $provider = IptvProvider::query()->find($this->providerId);
 
@@ -42,9 +41,9 @@ class SyncIptvGuide implements ShouldBeUnique, ShouldQueue
 
         try {
             if (($provider->config['api'] ?? 'xtream') === 'm3u') {
-                app(XmltvGuideImporter::class)->import($provider);
+                $xmltvImporter->import($provider);
             } else {
-                $importer->import($provider, $this->channelLimit ?? (int) config('iptv.guide_channel_limit'));
+                $xmltvImporter->importXtream($provider);
             }
 
             $provider->forceFill([

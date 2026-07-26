@@ -24,10 +24,58 @@ class BoundedIptvDocumentFetcher
         int $unavailableStatus = 502,
         int $invalidStatus = 422,
     ): string {
+        $path = $this->fetchToTemporaryFile(
+            url: $url,
+            allowInsecureHttp: $allowInsecureHttp,
+            maxBytes: $maxBytes,
+            timeoutSeconds: $timeoutSeconds,
+            unavailableCode: $unavailableCode,
+            invalidCode: $invalidCode,
+            unavailableStatus: $unavailableStatus,
+            invalidStatus: $invalidStatus,
+        );
+
+        try {
+            $body = file_get_contents($path);
+
+            if ($body === false) {
+                throw new SanitizedIptvException(
+                    $unavailableCode,
+                    $unavailableStatus,
+                );
+            }
+
+            return $body;
+        } finally {
+            if (is_file($path)) {
+                unlink($path);
+            }
+        }
+    }
+
+    public function fetchToTemporaryFile(
+        string $url,
+        bool $allowInsecureHttp,
+        int $maxBytes,
+        int $timeoutSeconds,
+        string $unavailableCode,
+        string $invalidCode,
+        int $unavailableStatus = 502,
+        int $invalidStatus = 422,
+    ): string {
         $maxBytes = max(1, $maxBytes);
         $target = $this->urlGuard->pin($url, $allowInsecureHttp);
         $curlOptions = $target->curlOptions();
-        $sink = new BoundedResponseSink($maxBytes);
+        $path = tempnam(sys_get_temp_dir(), 'odissey-xmltv-');
+
+        if ($path === false) {
+            throw new SanitizedIptvException(
+                $unavailableCode,
+                $unavailableStatus,
+            );
+        }
+
+        $sink = new BoundedResponseSink($maxBytes, $path);
         $headerLimitExceeded = false;
 
         try {
@@ -69,6 +117,7 @@ class BoundedIptvDocumentFetcher
             $response = $request->get($target->url);
         } catch (SanitizedIptvException $exception) {
             $sink->close();
+            $this->removeTemporaryFile($path);
 
             if (
                 $headerLimitExceeded
@@ -82,6 +131,7 @@ class BoundedIptvDocumentFetcher
         } catch (Throwable) {
             $limitExceeded = $headerLimitExceeded || $sink->limitExceeded();
             $sink->close();
+            $this->removeTemporaryFile($path);
 
             throw new SanitizedIptvException(
                 $limitExceeded ? $invalidCode : $unavailableCode,
@@ -92,6 +142,7 @@ class BoundedIptvDocumentFetcher
         if (! $response->successful()) {
             $response->toPsrResponse()->getBody()->close();
             $sink->close();
+            $this->removeTemporaryFile($path);
 
             throw new SanitizedIptvException($unavailableCode, $unavailableStatus);
         }
@@ -105,29 +156,46 @@ class BoundedIptvDocumentFetcher
         ) {
             $response->toPsrResponse()->getBody()->close();
             $sink->close();
+            $this->removeTemporaryFile($path);
 
             throw new SanitizedIptvException($invalidCode, $invalidStatus);
         }
 
         try {
-            $body = $sink->contents();
-            if ($body === '') {
-                $body = $response->body();
+            // Laravel's fake HTTP transport does not write through Guzzle's
+            // sink, so tests and custom transports need this bounded fallback.
+            if ($sink->bytesWritten() === 0) {
+                $sink->write($response->body());
             }
         } catch (Throwable) {
             $response->toPsrResponse()->getBody()->close();
             $sink->close();
+            $this->removeTemporaryFile($path);
 
-            throw new SanitizedIptvException($unavailableCode, $unavailableStatus);
+            throw new SanitizedIptvException(
+                $invalidCode,
+                $invalidStatus,
+            );
         }
 
         $response->toPsrResponse()->getBody()->close();
         $sink->close();
 
-        if (strlen($body) > $maxBytes) {
+        $size = filesize($path);
+
+        if ($size === false || $size > $maxBytes) {
+            $this->removeTemporaryFile($path);
+
             throw new SanitizedIptvException($invalidCode, $invalidStatus);
         }
 
-        return $body;
+        return $path;
+    }
+
+    private function removeTemporaryFile(string $path): void
+    {
+        if (is_file($path)) {
+            unlink($path);
+        }
     }
 }

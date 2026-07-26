@@ -21,15 +21,24 @@ class XmltvGuideImporter
      */
     private const MAX_XMLTV_BYTES = 8 * 1024 * 1024;
 
+    private const MAX_XTREAM_XMLTV_BYTES = 128 * 1024 * 1024;
+
     private const MAX_XMLTV_CHANNELS = 100000;
 
     private const MAX_XMLTV_PROGRAMS = 200000;
+
+    private const MAX_XTREAM_XMLTV_PROGRAMS_SCANNED = 2000000;
+
+    private const MAX_XTREAM_PROGRAMS_PER_CHANNEL = 48;
+
+    private const MAX_XTREAM_HORIZON_HOURS = 48;
 
     private const MAX_PROGRAM_XML_BYTES = 256 * 1024;
 
     public function __construct(
         private readonly BoundedIptvDocumentFetcher $documents,
         private readonly EpgGuideLimiter $guideLimiter,
+        private readonly UpstreamUrlGuard $urlGuard,
     ) {}
 
     public function import(IptvProvider $provider): int
@@ -40,18 +49,76 @@ class XmltvGuideImporter
             return 0;
         }
 
-        $body = $this->documents->fetch(
+        return $this->importFromUrl(
+            provider: $provider,
             url: $url,
-            allowInsecureHttp: (bool) $provider->allow_insecure_http,
             maxBytes: min(
                 self::MAX_XMLTV_BYTES,
                 max(1, (int) config('iptv.xmltv_max_bytes', self::MAX_XMLTV_BYTES)),
             ),
-            timeoutSeconds: 60,
-            unavailableCode: 'xmltv_invalid',
-            invalidCode: 'xmltv_invalid',
-            unavailableStatus: 422,
+            distributeAcrossChannels: false,
         );
+    }
+
+    public function importXtream(IptvProvider $provider): int
+    {
+        $baseUrl = $this->urlGuard->normalizeBaseUrl(
+            $provider->base_url,
+            (bool) $provider->allow_insecure_http,
+        );
+        $url = $baseUrl.'/xmltv.php?'.http_build_query([
+            'username' => $provider->username,
+            'password' => $provider->password,
+        ], '', '&', PHP_QUERY_RFC3986);
+
+        return $this->importFromUrl(
+            provider: $provider,
+            url: $url,
+            maxBytes: min(
+                self::MAX_XTREAM_XMLTV_BYTES,
+                max(1, (int) config(
+                    'iptv.xtream_xmltv_max_bytes',
+                    self::MAX_XTREAM_XMLTV_BYTES,
+                )),
+            ),
+            distributeAcrossChannels: true,
+        );
+    }
+
+    private function importFromUrl(
+        IptvProvider $provider,
+        string $url,
+        int $maxBytes,
+        bool $distributeAcrossChannels,
+    ): int {
+        $path = $this->documents->fetchToTemporaryFile(
+            url: $url,
+            allowInsecureHttp: (bool) $provider->allow_insecure_http,
+            maxBytes: $maxBytes,
+            timeoutSeconds: 120,
+            unavailableCode: 'xmltv_unavailable',
+            invalidCode: 'xmltv_invalid',
+            invalidStatus: 422,
+        );
+
+        try {
+            return $this->importFile(
+                $provider,
+                $path,
+                $distributeAcrossChannels,
+            );
+        } finally {
+            if (is_file($path)) {
+                unlink($path);
+            }
+        }
+    }
+
+    private function importFile(
+        IptvProvider $provider,
+        string $path,
+        bool $distributeAcrossChannels,
+    ): int {
         $channelLimit = min(
             self::MAX_XMLTV_CHANNELS,
             max(1, (int) config('iptv.xmltv_max_channels', 50000)),
@@ -62,8 +129,40 @@ class XmltvGuideImporter
             self::MAX_XMLTV_PROGRAMS,
             max(1, (int) config('iptv.xmltv_max_programs', 100000)),
         );
+        $scanLimit = $distributeAcrossChannels
+            ? min(
+                self::MAX_XTREAM_XMLTV_PROGRAMS_SCANNED,
+                max(1, (int) config(
+                    'iptv.xtream_xmltv_max_programs_scanned',
+                    1000000,
+                )),
+            )
+            : $programLimit;
+        $programsPerChannel = $distributeAcrossChannels
+            ? min(
+                self::MAX_XTREAM_PROGRAMS_PER_CHANNEL,
+                max(1, (int) config(
+                    'iptv.xtream_xmltv_programs_per_channel',
+                    24,
+                )),
+            )
+            : PHP_INT_MAX;
+        $windowStart = CarbonImmutable::now()->startOfHour();
+        $windowEnd = $windowStart->addHours(
+            $distributeAcrossChannels
+                ? min(
+                    self::MAX_XTREAM_HORIZON_HOURS,
+                    max(1, (int) config(
+                        'iptv.xtream_xmltv_horizon_hours',
+                        24,
+                    )),
+                )
+                : 24 * 14,
+        );
         $channels = $provider->channels()
+            ->where('is_active', true)
             ->whereNotNull('epg_channel_id')
+            ->where('epg_channel_id', '!=', '')
             ->orderBy('id')
             ->limit($channelLimit)
             ->pluck('id', 'epg_channel_id');
@@ -73,24 +172,29 @@ class XmltvGuideImporter
         libxml_clear_errors();
 
         try {
-            if (preg_match('/<!DOCTYPE/i', $body) === 1) {
+            if ($this->containsDoctype($path)) {
                 throw new SanitizedIptvException('xmltv_invalid', 422);
             }
 
-            if (! $reader->XML($body, 'UTF-8', LIBXML_NONET | LIBXML_COMPACT)) {
+            if (! $reader->open($path, 'UTF-8', LIBXML_NONET | LIBXML_COMPACT)) {
                 throw new SanitizedIptvException('xmltv_invalid', 422);
             }
 
             return DB::transaction(function () use (
                 $channels,
                 $programLimit,
+                $programsPerChannel,
                 $provider,
                 $reader,
+                $scanLimit,
                 $syncToken,
+                $windowEnd,
+                $windowStart,
             ): int {
                 $count = 0;
                 $scanned = 0;
                 $capped = false;
+                $channelCounts = [];
 
                 while ($reader->read()) {
                     if (
@@ -100,7 +204,7 @@ class XmltvGuideImporter
                         continue;
                     }
 
-                    if (++$scanned > $programLimit) {
+                    if (++$scanned > $scanLimit) {
                         $capped = true;
 
                         // Keep parsing through a clean EOF so malformed input
@@ -116,9 +220,23 @@ class XmltvGuideImporter
                         continue;
                     }
 
-                    $program = $this->programFromReader($reader, $channelId);
+                    $program = $this->programFromReader(
+                        $reader,
+                        $channelId,
+                        $windowStart,
+                        $windowEnd,
+                    );
 
                     if ($program === null) {
+                        continue;
+                    }
+
+                    if (
+                        $count >= $programLimit
+                        || ($channelCounts[$channelId] ?? 0) >= $programsPerChannel
+                    ) {
+                        $capped = true;
+
                         continue;
                     }
 
@@ -138,6 +256,7 @@ class XmltvGuideImporter
                         ],
                     );
                     $count++;
+                    $channelCounts[$channelId] = ($channelCounts[$channelId] ?? 0) + 1;
                 }
 
                 if (libxml_get_errors() !== []) {
@@ -176,6 +295,8 @@ class XmltvGuideImporter
     private function programFromReader(
         XMLReader $reader,
         int $channelId,
+        CarbonImmutable $windowStart,
+        CarbonImmutable $windowEnd,
     ): ?array {
         try {
             $start = $this->date($reader->getAttribute('start'));
@@ -206,8 +327,8 @@ class XmltvGuideImporter
 
         if (
             $title === ''
-            || $end <= CarbonImmutable::now()->subDay()
-            || $start >= CarbonImmutable::now()->addDays(14)
+            || $end <= $windowStart
+            || $start >= $windowEnd
         ) {
             return null;
         }
@@ -270,5 +391,38 @@ class XmltvGuideImporter
                 ? '+0000'
                 : ($matches[2] ?? '+0000')),
         )->utc();
+    }
+
+    private function containsDoctype(string $path): bool
+    {
+        $handle = fopen($path, 'rb');
+
+        if ($handle === false) {
+            throw new SanitizedIptvException('xmltv_invalid', 422);
+        }
+
+        $carry = '';
+
+        try {
+            while (! feof($handle)) {
+                $chunk = fread($handle, 8192);
+
+                if ($chunk === false) {
+                    throw new SanitizedIptvException('xmltv_invalid', 422);
+                }
+
+                $candidate = $carry.$chunk;
+
+                if (preg_match('/<!DOCTYPE/i', $candidate) === 1) {
+                    return true;
+                }
+
+                $carry = substr($candidate, -16);
+            }
+        } finally {
+            fclose($handle);
+        }
+
+        return false;
     }
 }

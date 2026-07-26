@@ -6,16 +6,14 @@ use App\Jobs\Iptv\SyncIptvGuide;
 use App\Models\Iptv\Channel;
 use App\Models\Iptv\ChannelGroup;
 use App\Services\Iptv\Exceptions\SanitizedIptvException;
-use App\Services\Iptv\GuideImportResult;
 use App\Services\Iptv\ProviderCatalogSynchronizer;
 use App\Services\Iptv\ShortEpgGuideImporter;
+use App\Services\Iptv\XmltvGuideImporter;
 use App\Services\Iptv\XtreamClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Queue;
-use Mockery\MockInterface;
 use Tests\Concerns\InteractsWithIptv;
 use Tests\TestCase;
 
@@ -227,7 +225,7 @@ class IptvCatalogAndGuideTest extends TestCase
         $this->assertDatabaseCount('channels', 0);
     }
 
-    public function test_manual_guide_sync_is_hard_capped_without_chaining_the_full_catalog(): void
+    public function test_short_guide_batches_can_resume_after_the_hard_request_cap(): void
     {
         $provider = $this->makeProvider();
         $group = ChannelGroup::query()->create([
@@ -270,20 +268,84 @@ class IptvCatalogAndGuideTest extends TestCase
         $second = $importer->import($provider, 250, $first->lastChannelId);
         $this->assertFalse($second->hasMore);
         $this->assertSame(25, $shortRequests);
+    }
 
-        Queue::fake();
-        $mockImporter = $this->mock(
-            ShortEpgGuideImporter::class,
-            fn (MockInterface $mock) => $mock
-                ->shouldReceive('import')
-                ->once()
-                ->andReturn(new GuideImportResult(0, $first->lastChannelId, true)),
-        );
+    public function test_xtream_guide_sync_uses_bulk_xmltv_beyond_the_short_guide_cap(): void
+    {
+        $provider = $this->makeProvider();
+        $group = ChannelGroup::query()->create([
+            'iptv_provider_id' => $provider->id,
+            'external_id' => 'bulk',
+            'name' => 'Bulk',
+            'is_active' => true,
+        ]);
+        $start = now()->utc()->addHour();
+        $programmes = '';
 
-        (new SyncIptvGuide($provider->id))->handle($mockImporter);
+        foreach (range(1, 25) as $index) {
+            Channel::query()->create([
+                'iptv_provider_id' => $provider->id,
+                'channel_group_id' => $group->id,
+                'external_id' => (string) (4000 + $index),
+                'epg_channel_id' => "bulk.{$index}",
+                'name' => "Bulk channel {$index}",
+                'stream_extension' => 'm3u8',
+                'metadata' => [],
+                'is_active' => true,
+            ]);
+            $programmes .= sprintf(
+                '<programme channel="bulk.%d" start="%s +0000" stop="%s +0000"><title>Programme %d</title></programme>',
+                $index,
+                $start->format('YmdHis'),
+                $start->copy()->addHour()->format('YmdHis'),
+                $index,
+            );
+        }
 
-        Queue::assertNothingPushed();
+        Http::fake(function (Request $request) use ($programmes) {
+            $this->assertStringEndsWith('/xmltv.php', (string) parse_url(
+                $request->url(),
+                PHP_URL_PATH,
+            ));
+
+            return Http::response(
+                "<?xml version=\"1.0\"?><tv>{$programmes}</tv>",
+                200,
+                ['Content-Type' => 'application/xml'],
+            );
+        });
+
+        (new SyncIptvGuide($provider->id))
+            ->handle(app(XmltvGuideImporter::class));
+
+        $this->assertDatabaseCount('epg_programs', 25);
+        $this->assertDatabaseHas('epg_programs', [
+            'title' => 'Programme 25',
+        ]);
         $this->assertNotNull($provider->fresh()->last_guide_synced_at);
+    }
+
+    public function test_xtream_bulk_xmltv_hard_limit_cannot_be_configured_away(): void
+    {
+        config()->set('iptv.xtream_xmltv_max_bytes', PHP_INT_MAX);
+        $provider = $this->makeProvider();
+
+        Http::fake([
+            'iptv.example.test/*' => Http::response(
+                '<tv></tv>',
+                200,
+                ['Content-Length' => (string) ((128 * 1024 * 1024) + 1)],
+            ),
+        ]);
+
+        try {
+            app(XmltvGuideImporter::class)->importXtream($provider);
+            $this->fail('The Xtream XMLTV hard limit must not be configurable away.');
+        } catch (SanitizedIptvException $exception) {
+            $this->assertSame('xmltv_invalid', $exception->errorCode);
+        }
+
+        $this->assertDatabaseCount('epg_programs', 0);
     }
 
     public function test_catalog_response_size_and_row_limits_are_enforced_before_persistence(): void
