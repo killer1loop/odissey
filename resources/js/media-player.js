@@ -77,6 +77,8 @@ function initializePlayer(player) {
     let ambientTimer = null;
     let ambientUnavailable = false;
     let activeCaptionIndex = -1;
+    let playbackRequested = false;
+    let hlsRecoveryTimer = null;
 
     const announce = (message) => {
         text(player, '[data-player-message]', message);
@@ -304,14 +306,56 @@ function initializePlayer(player) {
             setStatus('ready', 'Press play to start.');
         });
     };
+    const isAtBufferEdge = () => {
+        const currentTime = video.currentTime;
+
+        for (let index = 0; index < video.buffered.length; index += 1) {
+            if (
+                currentTime >= video.buffered.start(index) - 0.1
+                && currentTime <= video.buffered.end(index) + 0.1
+            ) {
+                return video.buffered.end(index) - currentTime <= 1;
+            }
+        }
+
+        return true;
+    };
+    const recoverGrowingHlsPlayback = () => {
+        if (
+            sourceType !== 'hls'
+            || !hls
+            || !playbackRequested
+            || disposed
+            || video.ended
+            || !isAtBufferEdge()
+            || hlsRecoveryTimer !== null
+        ) {
+            return false;
+        }
+
+        setStatus('buffering', 'Waiting for the next converted segment…');
+        hls.startLoad(Math.max(0, video.currentTime + 0.01), true);
+        hlsRecoveryTimer = window.setTimeout(() => {
+            hlsRecoveryTimer = null;
+
+            if (playbackRequested && video.paused && !disposed) {
+                play();
+            }
+        }, 500);
+
+        return true;
+    };
     const handlePlayClick = () => {
         if (video.paused) {
+            playbackRequested = true;
             play();
         } else {
+            playbackRequested = false;
             video.pause();
         }
     };
     const handlePlaying = () => {
+        playbackRequested = true;
         updateControls();
         updateResolution();
         startAmbientLighting();
@@ -322,12 +366,21 @@ function initializePlayer(player) {
         updateControls();
         sendHeartbeat(false);
 
+        if (recoverGrowingHlsPlayback()) {
+            return;
+        }
+
         if (!video.ended) {
             setStatus('paused', 'Playback paused.');
         }
     };
-    const handleWaiting = () => setStatus('buffering', 'Buffering video…');
+    const handleWaiting = () => {
+        if (!recoverGrowingHlsPlayback()) {
+            setStatus('buffering', 'Buffering video…');
+        }
+    };
     const handleEnded = () => {
+        playbackRequested = false;
         stopAmbientLighting();
         updateControls();
         updateTimeline();
@@ -352,11 +405,14 @@ function initializePlayer(player) {
         setStatus('ready', 'Video ready.');
     };
     const handleCanPlay = () => {
-        if (video.paused) {
+        if (playbackRequested && video.paused) {
+            play();
+        } else if (video.paused) {
             setStatus('ready', 'Video ready.');
         }
     };
     const handleVideoError = () => {
+        playbackRequested = false;
         stopAmbientLighting();
         setStatus('unavailable', 'This video could not be played.');
     };
@@ -578,6 +634,8 @@ function initializePlayer(player) {
         video.removeEventListener('error', handleVideoError);
         window.removeEventListener('pagehide', handlePageHide);
         stopAmbientLighting();
+        window.clearTimeout(hlsRecoveryTimer);
+        hlsRecoveryTimer = null;
         hls?.destroy();
         hls = null;
         video.pause();
