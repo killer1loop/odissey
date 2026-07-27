@@ -43,7 +43,7 @@
 @if($isVideo)
     @section('topbar')
         <div class="player-topbar-copy">
-            @if (($item->metadata['poster_cached'] ?? false))
+            @if (($item->metadata['poster_cached'] ?? false) || ($item->metadata['poster_url'] ?? false))
                 <img
                     class="player-media-poster"
                     src="{{ route('media.artwork', [$item, 'poster']) }}"
@@ -181,7 +181,7 @@
                                 data-player-history-item
                                 @if($historyEntry['is_current']) data-history-current aria-current="page" @endif
                             >
-                                @if (($historyItem->metadata['poster_cached'] ?? false))
+                                @if (($historyItem->metadata['poster_cached'] ?? false) || ($historyItem->metadata['poster_url'] ?? false))
                                     <img
                                         class="player-rail-poster"
                                         src="{{ route('media.artwork', [$historyItem, 'poster']) }}"

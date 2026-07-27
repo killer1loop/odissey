@@ -8,12 +8,17 @@ use App\Models\Iptv\IptvProvider;
 use App\Models\MediaItem;
 use App\Models\MediaSource;
 use App\Models\User;
+use App\Services\Media\TrustedArtworkUrl;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class XtreamVodCatalogSynchronizer
 {
+    public function __construct(
+        private readonly TrustedArtworkUrl $artworkUrls,
+    ) {}
+
     /**
      * @param  array<int, array<string, mixed>>  $vodCategories
      * @param  array<int, array<string, mixed>>  $movies
@@ -257,6 +262,9 @@ class XtreamVodCatalogSynchronizer
             'tmdb_id' => $this->positiveInteger(
                 $movie['tmdb'] ?? $movie['tmdb_id'] ?? null,
             ),
+            'poster_url' => $this->artworkUrls->normalize(
+                $movie['stream_icon'] ?? null,
+            ),
         ], fn (mixed $value): bool => $value !== null && $value !== []);
 
         return $this->row(
@@ -311,6 +319,12 @@ class XtreamVodCatalogSynchronizer
             'genres' => $this->genres($show['genre'] ?? null),
             'tmdb_id' => $this->positiveInteger(
                 $show['tmdb'] ?? $show['tmdb_id'] ?? null,
+            ),
+            'poster_url' => $this->artworkUrls->normalize(
+                $show['cover'] ?? null,
+            ),
+            'backdrop_url' => $this->artworkUrls->first(
+                $show['backdrop_path'] ?? null,
             ),
         ], fn (mixed $value): bool => $value !== null && $value !== []);
 

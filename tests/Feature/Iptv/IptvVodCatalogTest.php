@@ -9,6 +9,7 @@ use App\Models\MediaSource;
 use App\Models\User;
 use App\Services\Iptv\ProviderCatalogSynchronizer;
 use App\Services\Iptv\XtreamClient;
+use App\Services\Iptv\XtreamVodArtworkSynchronizer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
@@ -60,7 +61,19 @@ class IptvVodCatalogTest extends TestCase
             ->sole();
         $this->assertSame('Example Movie', $movie->title);
         $this->assertSame('Drama', $movie->metadata['category']);
+        $this->assertSame(
+            'https://image.tmdb.org/t/p/w500/movie.jpg',
+            $movie->metadata['poster_url'],
+        );
         $this->assertSame('Example Show', $show->metadata['series_title']);
+        $this->assertSame(
+            'https://image.tmdb.org/t/p/w500/show.jpg',
+            $show->metadata['poster_url'],
+        );
+        $this->assertSame(
+            'https://image.tmdb.org/t/p/w1280/show-backdrop.jpg',
+            $show->metadata['backdrop_url'],
+        );
         $this->assertStringNotContainsString(
             'test-user-secret',
             (string) DB::table('media_items')
@@ -85,6 +98,7 @@ class IptvVodCatalogTest extends TestCase
             ]))
             ->assertOk()
             ->assertSee('Example Movie')
+            ->assertSee(route('media.artwork', [$movie, 'poster']), false)
             ->assertSee('Nera IPTV')
             ->assertDontSee('Example Show');
 
@@ -185,6 +199,48 @@ class IptvVodCatalogTest extends TestCase
         $this->assertSame([], $payload['episodes']);
     }
 
+    public function test_artwork_refresh_backfills_existing_catalog_records(): void
+    {
+        Queue::fake([EnrichMediaItem::class, SyncXtreamSeries::class]);
+        User::factory()->create(['is_admin' => true, 'is_active' => true]);
+        $provider = $this->makeProvider(['name' => 'Nera IPTV']);
+        $this->fakeCatalog();
+        app(ProviderCatalogSynchronizer::class)->sync($provider);
+
+        MediaItem::query()->get()->each(function (MediaItem $item): void {
+            $metadata = $item->metadata;
+            unset(
+                $metadata['poster_url'],
+                $metadata['backdrop_url'],
+            );
+            $item->update(['metadata' => $metadata]);
+        });
+
+        $this->assertSame(
+            ['movies' => 1, 'series' => 1, 'updated' => 2],
+            app(XtreamVodArtworkSynchronizer::class)->sync($provider),
+        );
+
+        $movie = MediaItem::query()
+            ->where('metadata->kind', 'movie')
+            ->sole();
+        $show = MediaItem::query()
+            ->where('metadata->kind', 'series')
+            ->sole();
+        $this->assertSame(
+            'https://image.tmdb.org/t/p/w500/movie.jpg',
+            $movie->metadata['poster_url'],
+        );
+        $this->assertSame(
+            'https://image.tmdb.org/t/p/w500/show.jpg',
+            $show->metadata['poster_url'],
+        );
+        $this->assertSame(
+            'https://image.tmdb.org/t/p/w1280/show-backdrop.jpg',
+            $show->metadata['backdrop_url'],
+        );
+    }
+
     public function test_iptv_vod_uses_the_authenticated_media_proxy_with_ranges(): void
     {
         $viewer = User::factory()->create(['is_active' => true]);
@@ -267,6 +323,7 @@ class IptvVodCatalogTest extends TestCase
                     'container_extension' => 'mp4',
                     'plot' => 'A sample film.',
                     'year' => '2024',
+                    'stream_icon' => 'http://image.tmdb.org/t/p/w500/movie.jpg',
                 ]],
                 'get_series_categories' => [[
                     'category_id' => '20',
@@ -277,6 +334,10 @@ class IptvVodCatalogTest extends TestCase
                     'name' => 'Example Show',
                     'category_id' => '20',
                     'plot' => 'A sample series.',
+                    'cover' => 'https://www.themoviedb.org/t/p/w500/show.jpg',
+                    'backdrop_path' => [
+                        'https://image.tmdb.org/t/p/w1280/show-backdrop.jpg',
+                    ],
                 ]],
                 'get_series_info' => [
                     'info' => ['name' => 'Example Show'],

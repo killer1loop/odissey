@@ -72,7 +72,7 @@
                                 'source' => request('source'),
                             ])) }}">
                                 <div class="media-poster">
-                                    @if (($show->metadata['poster_cached'] ?? false))
+                                    @if (($show->metadata['poster_cached'] ?? false) || ($show->metadata['poster_url'] ?? false))
                                         <img src="{{ route('media.artwork', [$show, 'poster']) }}" alt="">
                                     @else
                                         <span class="media-placeholder">{{ mb_strtoupper(mb_substr($name, 0, 2)) }}</span>
@@ -104,7 +104,7 @@
                             <article class="media-card">
                                 <a href="{{ route('media.show', $item) }}">
                                     <div class="media-poster">
-                                        @if (($item->metadata['poster_cached'] ?? false))
+                                        @if (($item->metadata['poster_cached'] ?? false) || ($item->metadata['poster_url'] ?? false))
                                             <img src="{{ route('media.artwork', [$item, 'poster']) }}" alt="">
                                         @else
                                             <span class="media-placeholder">
