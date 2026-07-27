@@ -8,6 +8,7 @@ use App\Models\MediaItem;
 use App\Models\MediaSource;
 use App\Models\User;
 use App\Services\Iptv\ProviderCatalogSynchronizer;
+use App\Services\Iptv\XtreamClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
@@ -134,6 +135,31 @@ class IptvVodCatalogTest extends TestCase
         $this->assertSame('ready', $source->refresh()->scan_status);
         $this->assertSame(1, $source->scan_processed);
         $this->assertSame('ready', $provider->refresh()->sync_status);
+    }
+
+    public function test_provider_series_metadata_without_episodes_is_an_empty_series(): void
+    {
+        $provider = $this->makeProvider(['name' => 'Nera IPTV']);
+        Http::fake(function (Request $request) {
+            parse_str(
+                (string) parse_url($request->url(), PHP_URL_QUERY),
+                $query,
+            );
+            $this->assertSame('get_series_info', $query['action']);
+            $this->assertSame('49926', $query['series_id']);
+
+            return Http::response([
+                'info' => ['name' => 'Empty Nera series'],
+                'seasons' => [],
+            ]);
+        });
+
+        $payload = app(XtreamClient::class)->seriesInfo(
+            $provider,
+            '49926',
+        );
+
+        $this->assertSame([], $payload['episodes']);
     }
 
     public function test_iptv_vod_uses_the_authenticated_media_proxy_with_ranges(): void

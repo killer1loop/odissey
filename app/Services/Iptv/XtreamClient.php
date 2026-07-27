@@ -133,7 +133,17 @@ class XtreamClient
             'series' => $seriesId,
         ]);
 
-        if (! isset($payload['episodes']) || ! is_array($payload['episodes'])) {
+        if (
+            ! array_key_exists('episodes', $payload)
+            && (
+                is_array($payload['info'] ?? null)
+                || is_array($payload['seasons'] ?? null)
+            )
+        ) {
+            $payload['episodes'] = [];
+        }
+
+        if (! is_array($payload['episodes'] ?? null)) {
             throw new SanitizedIptvException('provider_invalid_series');
         }
 
