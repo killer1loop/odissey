@@ -28,6 +28,7 @@ class XtreamVodCatalogSynchronizer
         array &$seriesCategories,
         array &$series,
     ): array {
+        $scanToken = (string) Str::ulid();
         $owner = User::query()
             ->where('is_admin', true)
             ->orderBy('id')
@@ -50,6 +51,12 @@ class XtreamVodCatalogSynchronizer
                 'enabled' => $provider->enabled,
                 'allow_private_network' => false,
                 'scan_status' => 'scanning',
+                'active_scan_token' => $scanToken,
+                'scan_discovery_complete' => false,
+                'scan_discovered' => 0,
+                'scan_processed' => 0,
+                'scan_failed' => 0,
+                'scan_caption_jobs' => 0,
                 'last_error_code' => null,
             ],
         );
@@ -57,7 +64,6 @@ class XtreamVodCatalogSynchronizer
         $showCategories = $this->categories($seriesCategories);
         $vodCategories = [];
         $seriesCategories = [];
-        $scanToken = (string) Str::ulid();
         $movieRows = [];
         $seriesRows = [];
 
@@ -125,13 +131,27 @@ class XtreamVodCatalogSynchronizer
                 ->update(['missing_at' => now()]);
 
             $source->forceFill([
-                'scan_status' => 'ready',
+                'scan_status' => $seriesRows === []
+                    ? 'ready'
+                    : 'scanning',
+                'active_scan_token' => $seriesRows === []
+                    ? null
+                    : $scanToken,
+                'scan_discovery_complete' => true,
+                'scan_discovered' => count($seriesRows),
+                'scan_processed' => 0,
+                'scan_failed' => 0,
                 'last_error_code' => null,
-                'last_scanned_at' => now(),
+                'last_scanned_at' => $seriesRows === [] ? now() : null,
             ])->save();
         });
 
-        $this->dispatchEnrichment($source, $movieRows, $seriesRows);
+        $this->dispatchEnrichment(
+            $source,
+            $movieRows,
+            $seriesRows,
+            $scanToken,
+        );
 
         return [
             'movies' => count($movieRows),
@@ -147,6 +167,7 @@ class XtreamVodCatalogSynchronizer
         MediaSource $source,
         array $movieRows,
         array $seriesRows,
+        string $scanToken,
     ): void {
         $maximumMetadataJobs = min(
             50000,
@@ -169,6 +190,7 @@ class XtreamVodCatalogSynchronizer
                 $source->id,
                 (string) $metadata['xtream_series_id'],
                 (string) $metadata['series_title'],
+                $scanToken,
             );
         }
     }

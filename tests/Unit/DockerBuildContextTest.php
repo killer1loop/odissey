@@ -81,12 +81,20 @@ class DockerBuildContextTest extends TestCase
             "numprocs=2\ncommand=php -d memory_limit=256M artisan queue:work --queue=media-enrichment",
             $supervisor,
         );
+        $this->assertStringContainsString(
+            '[program:queue-iptv-vod]',
+            $supervisor,
+        );
+        $this->assertStringContainsString(
+            "numprocs=4\ncommand=php -d memory_limit=256M artisan queue:work --queue=iptv-vod",
+            $supervisor,
+        );
         $healthcheck = file_get_contents(
             dirname(__DIR__, 2).'/docker/healthcheck.sh',
         );
         $this->assertIsString($healthcheck);
         $this->assertStringContainsString(
-            '[ "${running_processes}" -eq 9 ]',
+            '[ "${running_processes}" -eq 13 ]',
             $healthcheck,
         );
     }
@@ -134,6 +142,10 @@ class DockerBuildContextTest extends TestCase
             'media:sources:scan --recover-interrupted --no-interaction',
             $entrypoint,
         );
+        $this->assertStringContainsString(
+            'iptv:catalog:refresh --recover-upgrade --no-interaction',
+            $entrypoint,
+        );
 
         $restore = file_get_contents(
             dirname(__DIR__, 2).'/app/Console/Commands/RestoreApplication.php',
@@ -149,6 +161,10 @@ class DockerBuildContextTest extends TestCase
         );
         $this->assertStringContainsString(
             'queue-media-enrichment_01',
+            $restore,
+        );
+        $this->assertStringContainsString(
+            'queue-iptv-vod_03',
             $restore,
         );
     }

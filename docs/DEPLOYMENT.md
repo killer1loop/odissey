@@ -53,6 +53,12 @@ S3, and WebDAV source for one complete rescan, so catalogs produced by the old
 serial scanner are rebuilt once after upgrading. Each attempt has a fresh claim
 token; jobs left behind by an older attempt become safe no-ops.
 
+The parallel-VOD migration similarly queues one refresh for every enabled
+Xtream provider. Four bounded `iptv-vod` workers fetch series details while the
+managed IPTV media source retains durable discovered, processed, and failed
+counts. Normal container restarts do not trigger another complete provider
+refresh.
+
 ## Environment
 
 The image supplies secure production defaults. Set at least:

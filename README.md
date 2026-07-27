@@ -43,8 +43,9 @@ and credential-safe streaming proxies.
 - queued FFmpeg H.264/AAC HLS conversion with authenticated derivatives;
 - encrypted Xtream provider settings and asynchronous catalog synchronization;
 - bounded Xtream movie and series imports into the same source-filtered
-  catalog as local, S3, and WebDAV media, with queued episode, metadata,
-  artwork, and caption enrichment;
+  catalog as local, S3, and WebDAV media, with four bounded series-detail
+  workers, durable progress, and queued metadata, artwork, and caption
+  enrichment;
 - channel groups, search, an hourly refreshed timeline guide that is the
   default Live TV and Favorites view, per-user favorites, and opaque live HLS
   sessions;

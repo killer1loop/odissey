@@ -278,6 +278,7 @@ class RestoreApplication extends Command
             'status',
             'web',
             'queue',
+            'queue-iptv-vod:*',
             'queue-media-discovery',
             'queue-media-scan:*',
             'queue-media-enrichment:*',
@@ -290,6 +291,10 @@ class RestoreApplication extends Command
         foreach ([
             'web',
             'queue',
+            'queue-iptv-vod:queue-iptv-vod_00',
+            'queue-iptv-vod:queue-iptv-vod_01',
+            'queue-iptv-vod:queue-iptv-vod_02',
+            'queue-iptv-vod:queue-iptv-vod_03',
             'queue-media-discovery',
             'queue-media-scan:queue-media-scan_00',
             'queue-media-scan:queue-media-scan_01',

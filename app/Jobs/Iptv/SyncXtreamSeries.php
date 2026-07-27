@@ -6,14 +6,15 @@ use App\Jobs\Media\EnrichMediaItem;
 use App\Models\Iptv\IptvProvider;
 use App\Models\MediaItem;
 use App\Models\MediaSource;
+use App\Services\Iptv\IptvVodImportProgress;
 use App\Services\Iptv\XtreamClient;
-use Illuminate\Contracts\Queue\ShouldBeUnique;
+use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Support\Str;
 
-class SyncXtreamSeries implements ShouldBeUnique, ShouldQueue
+class SyncXtreamSeries implements ShouldBeUniqueUntilProcessing, ShouldQueue
 {
     use Queueable;
 
@@ -23,18 +24,23 @@ class SyncXtreamSeries implements ShouldBeUnique, ShouldQueue
 
     public int $uniqueFor = 900;
 
+    public ?string $importToken = null;
+
     public function __construct(
         public readonly int $providerId,
         public readonly string $sourceId,
         public readonly string $seriesId,
         public readonly string $seriesTitle,
+        ?string $importToken = null,
     ) {
+        $this->importToken = $importToken;
         $this->onQueue('iptv-vod');
     }
 
     public function uniqueId(): string
     {
-        return $this->providerId.':'.$this->seriesId;
+        return $this->providerId.':'.$this->seriesId.':'
+            .($this->importToken ?? 'legacy');
     }
 
     public function middleware(): array
@@ -46,14 +52,31 @@ class SyncXtreamSeries implements ShouldBeUnique, ShouldQueue
         ];
     }
 
-    public function handle(XtreamClient $client): void
-    {
+    public function handle(
+        XtreamClient $client,
+        IptvVodImportProgress $progress,
+    ): void {
+        if ($this->importToken === null) {
+            return;
+        }
+
         $provider = IptvProvider::query()->find($this->providerId);
         $source = MediaSource::query()
             ->whereKey($this->sourceId)
             ->where('iptv_provider_id', $this->providerId)
+            ->where('active_scan_token', $this->importToken)
             ->first();
-        if ($provider === null || ! $provider->enabled || $source === null) {
+        if ($source === null) {
+            return;
+        }
+        if ($provider === null || ! $provider->enabled) {
+            $progress->complete(
+                $this->providerId,
+                $this->sourceId,
+                $this->importToken,
+                true,
+            );
+
             return;
         }
 
@@ -75,10 +98,17 @@ class SyncXtreamSeries implements ShouldBeUnique, ShouldQueue
             ))
             ->value('user_id');
         if ($ownerId === null) {
+            $progress->complete(
+                $this->providerId,
+                $this->sourceId,
+                $this->importToken,
+                true,
+            );
+
             return;
         }
 
-        $scanToken = (string) Str::ulid();
+        $scanToken = $this->importToken;
         $itemIds = [];
         foreach ($episodes as $entry) {
             $id = $this->scalarId($entry['id'] ?? $entry['stream_id'] ?? null);
@@ -179,6 +209,27 @@ class SyncXtreamSeries implements ShouldBeUnique, ShouldQueue
         foreach ($itemIds as $itemId) {
             EnrichMediaItem::dispatch($itemId);
         }
+
+        $progress->complete(
+            $this->providerId,
+            $this->sourceId,
+            $this->importToken,
+            false,
+        );
+    }
+
+    public function failed(?\Throwable $exception): void
+    {
+        if ($this->importToken === null) {
+            return;
+        }
+
+        app(IptvVodImportProgress::class)->complete(
+            $this->providerId,
+            $this->sourceId,
+            $this->importToken,
+            true,
+        );
     }
 
     /**

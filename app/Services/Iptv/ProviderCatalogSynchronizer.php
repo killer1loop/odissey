@@ -203,10 +203,15 @@ class ProviderCatalogSynchronizer
             );
         }
 
+        $vodPending = $provider->vodSource()
+            ->whereNotNull('active_scan_token')
+            ->exists();
         $provider->forceFill([
-            'sync_status' => 'ready',
+            'sync_status' => $vodPending ? 'syncing' : 'ready',
             'last_error_code' => null,
-            'last_synced_at' => now(),
+            'last_synced_at' => $vodPending
+                ? $provider->last_synced_at
+                : now(),
         ])->save();
 
         return [...$result, ...$vodResult];

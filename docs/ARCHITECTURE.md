@@ -64,6 +64,12 @@ scan can safely ignore stale discovery and object jobs. Startup requeues
 interrupted claims, while the parallel-scan schema upgrade forces one complete
 rebuild of pre-upgrade local, S3, and WebDAV catalogs.
 
+Xtream top-level movie and series discovery remains bounded in the provider
+sync, then four dedicated IPTV VOD workers fetch series details in parallel.
+The IPTV media source records discovered, processed, and failed series counts;
+an import token makes jobs from a superseded catalog refresh safe no-ops. The
+parallel-VOD upgrade queues one complete provider refresh at container startup.
+
 ## Source contracts
 
 ### Media sources

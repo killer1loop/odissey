@@ -3,6 +3,7 @@
 namespace Tests\Feature\Iptv;
 
 use App\Jobs\Iptv\SyncIptvGuide;
+use App\Jobs\Iptv\SyncIptvProvider;
 use App\Jobs\Iptv\SyncXtreamSeries;
 use App\Jobs\Media\EnrichMediaItem;
 use App\Models\Iptv\Channel;
@@ -32,6 +33,34 @@ class IptvCatalogAndGuideTest extends TestCase
         parent::setUp();
         $this->allowPublicIptvDns();
         Http::preventStrayRequests();
+    }
+
+    public function test_upgrade_recovery_queues_enabled_provider_catalogs(): void
+    {
+        Queue::fake();
+        $provider = $this->makeProvider([
+            'sync_status' => 'pending',
+            'last_error_code' => 'provider_catalog_upgrade_required',
+        ]);
+        $this->makeProvider([
+            'name' => 'Already current',
+            'last_error_code' => null,
+        ]);
+
+        $this->artisan(
+            'iptv:catalog:refresh',
+            ['--recover-upgrade' => true],
+        )->expectsOutput('Queued 1 IPTV catalog refresh(es).')
+            ->assertSuccessful();
+
+        Queue::assertPushed(
+            SyncIptvProvider::class,
+            fn (SyncIptvProvider $job): bool => (
+                $job->providerId === $provider->id
+            ),
+        );
+        $this->assertSame('queued', $provider->refresh()->sync_status);
+        $this->assertNull($provider->last_error_code);
     }
 
     public function test_catalog_sync_is_batched_idempotent_and_marks_missing_rows_inactive(): void

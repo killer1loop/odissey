@@ -8,7 +8,6 @@ use App\Models\MediaItem;
 use App\Models\MediaSource;
 use App\Models\User;
 use App\Services\Iptv\ProviderCatalogSynchronizer;
-use App\Services\Iptv\XtreamClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
@@ -72,6 +71,10 @@ class IptvVodCatalogTest extends TestCase
             fn (SyncXtreamSeries $job): bool => $job->seriesId === '901',
         );
         Queue::assertPushed(EnrichMediaItem::class, 2);
+        $this->assertSame('scanning', $source->refresh()->scan_status);
+        $this->assertSame(1, $source->scan_discovered);
+        $this->assertSame(0, $source->scan_processed);
+        $this->assertSame('syncing', $provider->refresh()->sync_status);
 
         $this->actingAs($admin)
             ->get(route('media.index', [
@@ -107,12 +110,9 @@ class IptvVodCatalogTest extends TestCase
         app(ProviderCatalogSynchronizer::class)->sync($provider);
         $source = MediaSource::query()->sole();
 
-        (new SyncXtreamSeries(
-            $provider->id,
-            $source->id,
-            '901',
-            'Example Show',
-        ))->handle(app(XtreamClient::class));
+        $job = Queue::pushed(SyncXtreamSeries::class)->first();
+        $this->assertInstanceOf(SyncXtreamSeries::class, $job);
+        app()->call([$job, 'handle']);
 
         $episode = MediaItem::query()
             ->where('metadata->kind', 'episode')
@@ -131,6 +131,9 @@ class IptvVodCatalogTest extends TestCase
             EnrichMediaItem::class,
             fn (EnrichMediaItem $job): bool => $job->mediaItemId === $episode->id,
         );
+        $this->assertSame('ready', $source->refresh()->scan_status);
+        $this->assertSame(1, $source->scan_processed);
+        $this->assertSame('ready', $provider->refresh()->sync_status);
     }
 
     public function test_iptv_vod_uses_the_authenticated_media_proxy_with_ranges(): void
