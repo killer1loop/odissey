@@ -14,6 +14,7 @@ use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\URL;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Exception\ProcessTimedOutException;
 use Throwable;
@@ -24,13 +25,26 @@ class TranscodeMediaToHls implements ShouldQueue
 
     public int $backoff = 5;
 
-    public int $timeout = 300;
+    public bool $failOnTimeout = true;
 
     public int $tries = 60;
 
+    public int $timeout;
+
     public function __construct(public readonly string $sessionId)
     {
-        $this->onQueue('high');
+        $this->timeout = min(
+            86400,
+            max(
+                300,
+                (int) config(
+                    'odissey.transcode_timeout_seconds',
+                    21600,
+                ),
+            ),
+        );
+        $this->onConnection('database-transcodes');
+        $this->onQueue('transcodes');
     }
 
     /**
@@ -74,6 +88,7 @@ class TranscodeMediaToHls implements ShouldQueue
                 'status' => TranscodeSession::STATUS_PROCESSING,
                 'error_code' => null,
                 'started_at' => now(),
+                'heartbeat_at' => now(),
                 'finished_at' => null,
                 'expires_at' => null,
             ]);
@@ -81,10 +96,13 @@ class TranscodeMediaToHls implements ShouldQueue
             $materialized = null;
 
             try {
-                $materialized = app(SourceMaterializer::class)->materialize($session->mediaItem);
+                $materialized = $this->sourceFor($session);
                 $sourcePath = $materialized['path'];
 
-                if (! File::isFile($sourcePath) || ! File::isReadable($sourcePath)) {
+                if (
+                    ! str_starts_with($sourcePath, 'http://127.0.0.1:8000/')
+                    && (! File::isFile($sourcePath) || ! File::isReadable($sourcePath))
+                ) {
                     $this->markFailed($session, 'source_unavailable', $storage);
 
                     return;
@@ -92,6 +110,7 @@ class TranscodeMediaToHls implements ShouldQueue
 
                 $storage->prepare($session);
                 $storage->assertWithinQuota();
+                $lastHeartbeatAt = 0;
                 $runner->run(
                     $arguments->hls(
                         $sourcePath,
@@ -100,8 +119,37 @@ class TranscodeMediaToHls implements ShouldQueue
                         $session->profile,
                         $session->audio_track,
                     ),
-                    $this->timeout - 20,
-                    fn (): bool => $storage->isWithinStorageLimits(),
+                    $this->timeout - 30,
+                    function () use (
+                        $session,
+                        $storage,
+                        &$lastHeartbeatAt,
+                    ): bool {
+                        $now = hrtime(true);
+
+                        if (
+                            $lastHeartbeatAt === 0
+                            || $now - $lastHeartbeatAt >= 5_000_000_000
+                        ) {
+                            $lastHeartbeatAt = $now;
+                            $updates = ['heartbeat_at' => now()];
+
+                            if (
+                                $session->status
+                                    === TranscodeSession::STATUS_PROCESSING
+                                && $storage->hasCompleteOutput($session)
+                            ) {
+                                $updates += [
+                                    'status' => TranscodeSession::STATUS_READY,
+                                    'manifest_relative_path' => 'index.m3u8',
+                                ];
+                            }
+
+                            $session->update($updates);
+                        }
+
+                        return $storage->isWithinStorageLimits();
+                    },
                 );
                 $storage->assertWithinQuota();
 
@@ -115,6 +163,7 @@ class TranscodeMediaToHls implements ShouldQueue
                     'status' => TranscodeSession::STATUS_READY,
                     'manifest_relative_path' => 'index.m3u8',
                     'error_code' => null,
+                    'heartbeat_at' => now(),
                     'finished_at' => now(),
                     'expires_at' => now()->addMinutes(
                         max(1, (int) config('odissey.transcode_ttl_minutes', 30)),
@@ -158,7 +207,9 @@ class TranscodeMediaToHls implements ShouldQueue
             && in_array($session->status, [
                 TranscodeSession::STATUS_PENDING,
                 TranscodeSession::STATUS_PROCESSING,
+                TranscodeSession::STATUS_READY,
             ], true)
+            && $session->finished_at === null
         ) {
             $this->markFailed(
                 $session,
@@ -186,8 +237,32 @@ class TranscodeMediaToHls implements ShouldQueue
             'status' => TranscodeSession::STATUS_FAILED,
             'manifest_relative_path' => null,
             'error_code' => $errorCode,
+            'heartbeat_at' => now(),
             'finished_at' => now(),
             'expires_at' => null,
         ]);
+    }
+
+    /**
+     * @return array{path: string, temporary: bool}
+     */
+    private function sourceFor(TranscodeSession $session): array
+    {
+        if ($session->mediaItem->source === null) {
+            return app(SourceMaterializer::class)
+                ->materialize($session->mediaItem);
+        }
+
+        $relativeUrl = URL::temporarySignedRoute(
+            'internal.media.transcodes.source',
+            now()->addSeconds($this->timeout + 300),
+            ['session' => $session->getKey()],
+            absolute: false,
+        );
+
+        return [
+            'path' => 'http://127.0.0.1:8000'.$relativeUrl,
+            'temporary' => false,
+        ];
     }
 }

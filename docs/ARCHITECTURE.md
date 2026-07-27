@@ -27,7 +27,7 @@ flowchart LR
     A --> O["S3-compatible storage"]
     A --> V["WebDAV"]
     A --> I["External IPTV provider"]
-    Q --> M["Bounded transcode job<br>current vertical slice"]
+    Q --> M["Dedicated bounded transcode worker"]
     M --> F["FFmpeg / FFprobe"]
     F --> T[("Transient HLS cache")]
     T --> W
@@ -36,8 +36,9 @@ flowchart LR
 The Docker image supervises the web process, a finite role-separated worker
 pool, and the scheduler. Source discovery is serial per source; two bounded
 workers process media objects and two bounded workers handle metadata and
-caption enrichment. Transcodes remain finite high-priority jobs while the
-dedicated media supervisor owns leases and cleanup.
+caption enrichment. Long-running conversions use a dedicated single-purpose
+queue connection so they cannot block interactive or catalog jobs. The media
+supervisor owns stale-session cleanup and cache pruning.
 
 ## Request and job model
 
@@ -147,8 +148,12 @@ For each playable item:
 
 FFmpeg is executed with an argument array, never a shell command. Protocols,
 threads, resolution, bitrate, concurrent sessions, scratch bytes, and lifetime
-are bounded. One daemon owns FFmpeg children and stream leases. A signed segment
-route verifies the user and session before serving a small transient file.
+are bounded. Remote media reaches FFmpeg through a short-lived signed loopback
+route backed by the validated source adapter, so credentials and upstream URLs
+never enter FFmpeg arguments or browser responses. The session becomes playable
+as soon as the first complete HLS segment is present; conversion continues on
+the dedicated worker. Signed segment routes verify the user and session before
+serving transient output.
 
 The browser sends a sequenced playback heartbeat every 10–15 seconds and on
 pause, seek, completion, and page exit. The server upserts the current resume

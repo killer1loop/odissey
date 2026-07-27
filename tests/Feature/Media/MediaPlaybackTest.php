@@ -220,7 +220,8 @@ class MediaPlaybackTest extends TestCase
         Queue::assertPushed(
             TranscodeMediaToHls::class,
             fn (TranscodeMediaToHls $job): bool => $job->sessionId === $session->getKey()
-                && $job->queue === 'high',
+                && $job->queue === 'transcodes'
+                && $job->connection === 'database-transcodes',
         );
     }
 
@@ -244,7 +245,7 @@ class MediaPlaybackTest extends TestCase
         $this->actingAs($owner)
             ->get(route('media.show', $item))
             ->assertOk()
-            ->assertSee('Prepare HLS stream');
+            ->assertSee('Start conversion');
 
         $this->assertDatabaseMissing('transcode_sessions', [
             'id' => $staleSession->getKey(),

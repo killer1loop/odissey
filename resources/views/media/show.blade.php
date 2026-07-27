@@ -123,9 +123,11 @@
                         @endif
                     </div>
 
-                    <div class="live-video-message" data-player-message role="status" aria-live="polite">
-                        {{ $item->requires_transcode && ! $session?->isAvailable() ? '' : 'Preparing playback…' }}
-                    </div>
+                    @if(! $item->requires_transcode || $session?->isAvailable())
+                        <div class="live-video-message" data-player-message role="status" aria-live="polite">
+                            Preparing playback…
+                        </div>
+                    @endif
 
                     <button
                         class="player-rail-trigger"

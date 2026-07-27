@@ -23,7 +23,7 @@
     <body class="@yield('body-class')" hx-boost="true">
         <a class="skip-link" href="#main-content">Skip to content</a>
 
-        <div class="app-shell">
+        <div class="app-shell" data-page-body-class="@yield('body-class')">
             <aside class="sidebar" aria-label="Primary navigation">
                 <a class="brand" href="{{ route('home') }}" aria-label="Odissey home">
                     <span class="brand-mark" aria-hidden="true">

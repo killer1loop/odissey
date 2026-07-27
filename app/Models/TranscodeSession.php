@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'manifest_relative_path',
     'error_code',
     'started_at',
+    'heartbeat_at',
     'finished_at',
     'expires_at',
     'profile',
@@ -51,6 +52,7 @@ class TranscodeSession extends Model
     {
         return [
             'started_at' => 'immutable_datetime',
+            'heartbeat_at' => 'immutable_datetime',
             'finished_at' => 'immutable_datetime',
             'expires_at' => 'immutable_datetime',
         ];

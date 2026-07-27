@@ -115,6 +115,60 @@ class TranscodeMediaToHlsTest extends TestCase
         );
     }
 
+    public function test_session_becomes_playable_after_the_first_hls_segment(): void
+    {
+        [$session, $sourcePath] = $this->makeTranscodeSession();
+        File::put($sourcePath, 'unsupported source');
+        $runner = new class($session) extends FfmpegRunner
+        {
+            public ?string $statusDuringRun = null;
+
+            public bool $finishedDuringRun = true;
+
+            public function __construct(
+                private readonly TranscodeSession $session,
+            ) {}
+
+            public function run(
+                array $arguments,
+                int $timeoutSeconds,
+                ?callable $shouldContinue = null,
+            ): void {
+                $manifest = $arguments[array_key_last($arguments)];
+                $patternIndex = array_search(
+                    '-hls_segment_filename',
+                    $arguments,
+                    true,
+                );
+                $segmentPattern = $arguments[$patternIndex + 1];
+                File::put($manifest, "#EXTM3U\nsegment-00000.ts\n");
+                File::put(
+                    str_replace('%05d', '00000', $segmentPattern),
+                    'segment',
+                );
+
+                $shouldContinue?->__invoke();
+                $this->session->refresh();
+                $this->statusDuringRun = $this->session->status;
+                $this->finishedDuringRun = $this->session->finished_at !== null;
+            }
+        };
+
+        (new TranscodeMediaToHls($session->getKey()))->handle(
+            $runner,
+            app(FfmpegArguments::class),
+            app(TranscodeStorage::class),
+            app(TranscodeConcurrencyGate::class),
+        );
+
+        $this->assertSame(
+            TranscodeSession::STATUS_READY,
+            $runner->statusDuringRun,
+        );
+        $this->assertFalse($runner->finishedDuringRun);
+        $this->assertNotNull($session->refresh()->finished_at);
+    }
+
     public function test_job_is_released_without_starting_when_all_concurrency_slots_are_busy(): void
     {
         [$session, $sourcePath] = $this->makeTranscodeSession();

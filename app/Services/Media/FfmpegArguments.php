@@ -9,6 +9,12 @@ class FfmpegArguments
      */
     public function hls(string $sourcePath, string $manifestPath, string $segmentPattern, string $profile = 'auto', ?int $audioTrack = null): array
     {
+        $protocolWhitelist = preg_match(
+            '#\Ahttp://127\.0\.0\.1:8000/_internal/media/transcodes/[0-9A-HJKMNP-TV-Z]{26}/source\?#i',
+            $sourcePath,
+        ) === 1
+            ? 'file,pipe,http,tcp'
+            : 'file,pipe';
         $arguments = [
             $this->binary(),
             '-hide_banner',
@@ -23,7 +29,7 @@ class FfmpegArguments
             '-threads',
             (string) $this->threads(),
             '-protocol_whitelist',
-            'file,pipe',
+            $protocolWhitelist,
             '-i',
             $sourcePath,
             '-map',
@@ -69,7 +75,7 @@ class FfmpegArguments
             '-hls_time',
             '4',
             '-hls_playlist_type',
-            'vod',
+            'event',
             '-hls_flags',
             'independent_segments',
             '-hls_segment_filename',

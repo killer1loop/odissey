@@ -50,8 +50,33 @@ class TranscodeStorage
 
     public function hasCompleteOutput(TranscodeSession $session): bool
     {
-        return File::isFile($this->manifestPath($session))
-            && File::glob($this->sessionDirectory($session).DIRECTORY_SEPARATOR.'segment-*.ts') !== [];
+        $manifestPath = $this->manifestPath($session);
+
+        if (! File::isFile($manifestPath)) {
+            return false;
+        }
+
+        try {
+            $manifest = File::get($manifestPath);
+        } catch (Throwable) {
+            return false;
+        }
+
+        if (
+            preg_match(
+                '/^segment-\d{5}\.ts$/m',
+                $manifest,
+                $match,
+            ) !== 1
+        ) {
+            return false;
+        }
+
+        return File::isFile(
+            $this->sessionDirectory($session)
+                .DIRECTORY_SEPARATOR
+                .$match[0],
+        );
     }
 
     public function delete(TranscodeSession $session): void

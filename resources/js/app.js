@@ -11,6 +11,14 @@ htmx.config.selfRequestsOnly = true;
 
 let visibleRequests = 0;
 
+function synchronizePageBodyClass() {
+    const pageClass = document.querySelector('[data-page-body-class]')
+        ?.dataset.pageBodyClass
+        ?.trim();
+
+    document.body.className = pageClass || '';
+}
+
 function isBackgroundRequest(event) {
     return Boolean(event.detail.elt?.closest?.('[data-background-request]'));
 }
@@ -43,6 +51,9 @@ document.addEventListener('htmx:afterRequest', (event) => {
         delete document.documentElement.dataset.loading;
     }
 });
+
+document.addEventListener('DOMContentLoaded', synchronizePageBodyClass);
+document.addEventListener('htmx:afterSwap', synchronizePageBodyClass);
 
 document.addEventListener('htmx:responseError', () => {
     const announcer = document.querySelector('[data-request-announcer]');

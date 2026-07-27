@@ -115,6 +115,50 @@ class TranscodePruneCommandTest extends TestCase
         $this->assertFalse(File::exists(config('odissey.transcode_path')));
     }
 
+    public function test_recovery_fails_interrupted_sessions_and_removes_their_jobs(): void
+    {
+        $pending = $this->makeSession([
+            'status' => TranscodeSession::STATUS_PENDING,
+        ]);
+        $processing = $this->makeSession([
+            'status' => TranscodeSession::STATUS_PROCESSING,
+            'started_at' => now(),
+        ]);
+        DB::table('jobs')->insert([
+            [
+                'queue' => 'transcodes',
+                'payload' => '{"displayName":"App\\\\Jobs\\\\Media\\\\TranscodeMediaToHls"}',
+                'attempts' => 1,
+                'reserved_at' => now()->timestamp,
+                'available_at' => now()->timestamp,
+                'created_at' => now()->timestamp,
+            ],
+            [
+                'queue' => 'high',
+                'payload' => '{"displayName":"App\\\\Jobs\\\\Media\\\\TranscodeMediaToHls"}',
+                'attempts' => 1,
+                'reserved_at' => now()->timestamp,
+                'available_at' => now()->timestamp,
+                'created_at' => now()->timestamp,
+            ],
+        ]);
+
+        $this->artisan('media:transcodes:recover')->assertSuccessful();
+
+        foreach ([$pending, $processing] as $session) {
+            $session->refresh();
+            $this->assertSame(
+                TranscodeSession::STATUS_FAILED,
+                $session->status,
+            );
+            $this->assertSame(
+                'transcode_interrupted',
+                $session->error_code,
+            );
+        }
+        $this->assertSame(0, DB::table('jobs')->count());
+    }
+
     public function test_command_prunes_stale_materialized_sources_and_subtitle_cache(): void
     {
         config(['odissey.embedded_subtitle_cache_minutes' => 10]);

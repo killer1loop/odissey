@@ -42,17 +42,36 @@ class TranscodePruner
                     })
                     ->orWhere(function ($query) use ($staleCutoff): void {
                         $query
-                            ->whereIn('status', [
-                                TranscodeSession::STATUS_PENDING,
-                                TranscodeSession::STATUS_PROCESSING,
-                            ])
+                            ->where(function ($query): void {
+                                $query
+                                    ->whereIn('status', [
+                                        TranscodeSession::STATUS_PENDING,
+                                        TranscodeSession::STATUS_PROCESSING,
+                                    ])
+                                    ->orWhere(function ($query): void {
+                                        $query
+                                            ->where(
+                                                'status',
+                                                TranscodeSession::STATUS_READY,
+                                            )
+                                            ->whereNull('finished_at');
+                                    });
+                            })
                             ->where(function ($query) use ($staleCutoff): void {
                                 $query
-                                    ->where('started_at', '<=', $staleCutoff)
+                                    ->where('heartbeat_at', '<=', $staleCutoff)
                                     ->orWhere(function ($query) use ($staleCutoff): void {
                                         $query
-                                            ->whereNull('started_at')
-                                            ->where('updated_at', '<=', $staleCutoff);
+                                            ->whereNull('heartbeat_at')
+                                            ->where(function ($query) use ($staleCutoff): void {
+                                                $query
+                                                    ->where('started_at', '<=', $staleCutoff)
+                                                    ->orWhere(function ($query) use ($staleCutoff): void {
+                                                        $query
+                                                            ->whereNull('started_at')
+                                                            ->where('updated_at', '<=', $staleCutoff);
+                                                    });
+                                            });
                                     });
                             });
                     });

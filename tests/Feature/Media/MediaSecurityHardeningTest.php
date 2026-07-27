@@ -24,6 +24,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Mockery;
 use RuntimeException;
@@ -89,6 +90,65 @@ class MediaSecurityHardeningTest extends TestCase
             ->assertOk()
             ->assertHeader('Content-Type', 'application/octet-stream')
             ->assertHeader('Content-Disposition', 'attachment; filename=movie.mp4');
+    }
+
+    public function test_transcode_source_is_signed_loopback_only_and_streams_without_a_snapshot(): void
+    {
+        $user = User::factory()->create();
+        [, $item] = $this->remoteMedia(
+            $user,
+            mimeType: 'video/x-matroska',
+            sizeBytes: 12,
+        );
+        $item->update(['requires_transcode' => true]);
+        $session = TranscodeSession::query()->create([
+            'user_id' => $user->id,
+            'media_item_id' => $item->id,
+            'status' => TranscodeSession::STATUS_PROCESSING,
+            'started_at' => now(),
+        ]);
+        $adapter = $this->adapterReturning(
+            new SourceResponse(
+                Utils::streamFor('remote bytes'),
+                200,
+                12,
+                'video/x-matroska',
+            ),
+        );
+        $this->app->instance(
+            MediaSourceRegistry::class,
+            $this->registryReturning($adapter),
+        );
+        $url = URL::temporarySignedRoute(
+            'internal.media.transcodes.source',
+            now()->addMinute(),
+            ['session' => $session->id],
+            absolute: false,
+        );
+
+        $this->get(route(
+            'internal.media.transcodes.source',
+            $session,
+        ))->assertForbidden();
+
+        $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.5'])
+            ->get($url)
+            ->assertNotFound();
+
+        $this->withServerVariables(['REMOTE_ADDR' => '127.0.0.1'])
+            ->get($url)
+            ->assertOk()
+            ->assertHeader('Content-Type', 'application/octet-stream')
+            ->assertStreamedContent('remote bytes');
+
+        $sourceDirectory = app(TranscodeStorage::class)
+            ->transientDirectory('sources');
+        $this->assertSame(
+            [],
+            File::isDirectory($sourceDirectory)
+                ? File::files($sourceDirectory)
+                : [],
+        );
     }
 
     public function test_remote_stream_cannot_exceed_the_catalogued_object_size(): void

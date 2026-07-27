@@ -21,6 +21,7 @@ class FfmpegArgumentsTest extends TestCase
         $this->assertContains('libx264', $arguments);
         $this->assertContains('aac', $arguments);
         $this->assertContains('independent_segments', $arguments);
+        $this->assertContains('event', $arguments);
         $this->assertContains('-max_alloc', $arguments);
         $this->assertContains('-max_pixels', $arguments);
         $this->assertContains('-maxrate:v', $arguments);
@@ -30,6 +31,42 @@ class FfmpegArgumentsTest extends TestCase
         $this->assertSame('file,pipe', $arguments[$protocolIndex + 1]);
         $this->assertNotContains('sh', $arguments);
         $this->assertNotContains('-c', $arguments);
+    }
+
+    public function test_hls_allows_http_only_for_the_signed_loopback_source_shape(): void
+    {
+        $arguments = (new FfmpegArguments)->hls(
+            'http://127.0.0.1:8000/_internal/media/transcodes/01kyj20qfzxk7ke5050q2mxas5/source?expires=1&signature=test',
+            '/cache/index.m3u8',
+            '/cache/segment-%05d.ts',
+        );
+        $protocolIndex = array_search(
+            '-protocol_whitelist',
+            $arguments,
+            true,
+        );
+
+        $this->assertIsInt($protocolIndex);
+        $this->assertSame(
+            'file,pipe,http,tcp',
+            $arguments[$protocolIndex + 1],
+        );
+
+        $untrusted = (new FfmpegArguments)->hls(
+            'https://media.example.test/video.mkv',
+            '/cache/index.m3u8',
+            '/cache/segment-%05d.ts',
+        );
+        $untrustedProtocolIndex = array_search(
+            '-protocol_whitelist',
+            $untrusted,
+            true,
+        );
+
+        $this->assertSame(
+            'file,pipe',
+            $untrusted[$untrustedProtocolIndex + 1],
+        );
     }
 
     public function test_subtitle_input_is_limited_to_local_file_protocols(): void
