@@ -71,21 +71,51 @@ class MediaIndexController extends Controller
         }
 
         $seriesGroups = collect();
+        $seriesPaginator = null;
         if ($kind === 'video' && $library === 'tv' && $series === null) {
-            $seriesGroups = (clone $base)
+            $seriesName = "COALESCE(json_extract(metadata, '$.series_title'), title)";
+            $seriesPaginator = (clone $base)
+                ->selectRaw($seriesName.' AS series_name')
+                ->selectRaw(
+                    "COALESCE(
+                        MIN(CASE
+                            WHEN json_extract(metadata, '$.kind') = 'series'
+                            THEN id
+                        END),
+                        MIN(id)
+                    ) AS representative_id",
+                )
+                ->selectRaw(
+                    "SUM(CASE
+                        WHEN json_extract(metadata, '$.kind') = 'episode'
+                        THEN 1
+                        ELSE 0
+                    END) AS episode_count",
+                )
+                ->groupByRaw($seriesName)
+                ->orderBy('series_name')
+                ->paginate(100)
+                ->withQueryString();
+
+            $shows = MediaItem::query()
+                ->accessibleTo($request->user())
                 ->with('source')
-                ->orderBy('title')
-                ->limit(min(
-                    10000,
-                    max(
-                        100,
-                        (int) config('odissey.library_series_group_limit', 5000),
-                    ),
-                ))
+                ->whereKey(
+                    $seriesPaginator->getCollection()
+                        ->pluck('representative_id')
+                        ->filter(),
+                )
                 ->get()
-                ->groupBy(fn (MediaItem $item): string => (string) (
-                    $item->metadata['series_title'] ?? $item->title
-                ));
+                ->keyBy('id');
+
+            $seriesGroups = $seriesPaginator->getCollection()
+                ->map(fn (MediaItem $group): array => [
+                    'name' => (string) $group->series_name,
+                    'show' => $shows->get($group->representative_id),
+                    'episode_count' => (int) $group->episode_count,
+                ])
+                ->filter(fn (array $group): bool => $group['show'] !== null)
+                ->values();
         }
 
         $items = (clone $base)
@@ -99,7 +129,7 @@ class MediaIndexController extends Controller
                 'favorites' => fn ($query) => $query->where('user_id', $request->user()->id),
             ])
             ->orderBy('title')
-            ->paginate(60)
+            ->paginate($kind === 'video' ? 100 : 60)
             ->withQueryString();
 
         $sources = MediaSource::query()
@@ -126,6 +156,7 @@ class MediaIndexController extends Controller
             'library',
             'series',
             'seriesGroups',
+            'seriesPaginator',
             'sources',
         ));
     }

@@ -60,10 +60,11 @@
                 <section class="library-section" aria-labelledby="series-heading">
                     <div class="shelf-heading"><h2 id="series-heading">TV series</h2></div>
                     <div class="library-grid">
-                        @foreach ($seriesGroups as $name => $entries)
+                        @foreach ($seriesGroups as $group)
                             @php
-                                $show = $entries->first(fn ($entry) => ($entry->metadata['kind'] ?? '') === 'series') ?? $entries->first();
-                                $episodes = $entries->filter(fn ($entry) => ($entry->metadata['kind'] ?? '') === 'episode');
+                                $name = $group['name'];
+                                $show = $group['show'];
+                                $episodeCount = $group['episode_count'];
                             @endphp
                             <a class="media-card" href="{{ route('media.index', array_filter([
                                 'kind' => 'video',
@@ -73,25 +74,27 @@
                             ])) }}">
                                 <div class="media-poster">
                                     @if (($show->metadata['poster_cached'] ?? false) || ($show->metadata['poster_url'] ?? false))
-                                        <img src="{{ route('media.artwork', [$show, 'poster']) }}" alt="">
+                                        <img src="{{ route('media.artwork', [$show, 'poster']) }}" alt="" loading="lazy" decoding="async">
                                     @else
                                         <span class="media-placeholder">{{ mb_strtoupper(mb_substr($name, 0, 2)) }}</span>
                                     @endif
                                     <span class="source-badge">
-                                        {{ $show->source?->type === 'iptv' ? 'IPTV' : ($episodes->count().' eps') }}
+                                        {{ $show->source?->type === 'iptv' ? 'IPTV' : ($episodeCount.' eps') }}
                                     </span>
                                 </div>
                                 <div class="card-copy">
                                     <h3>{{ $name }}</h3>
                                     <p>
                                         {{ $show->source?->name ?? 'Personal library' }}
-                                        @if ($episodes->isNotEmpty()) · {{ $episodes->count() }} episodes @endif
+                                        @if ($episodeCount > 0) · {{ $episodeCount }} episodes @endif
                                     </p>
                                 </div>
                             </a>
                         @endforeach
                     </div>
                 </section>
+
+                <div class="pagination">{{ $seriesPaginator->links() }}</div>
             @endif
 
             @if ($items->isNotEmpty())
@@ -105,7 +108,7 @@
                                 <a href="{{ route('media.show', $item) }}">
                                     <div class="media-poster">
                                         @if (($item->metadata['poster_cached'] ?? false) || ($item->metadata['poster_url'] ?? false))
-                                            <img src="{{ route('media.artwork', [$item, 'poster']) }}" alt="">
+                                            <img src="{{ route('media.artwork', [$item, 'poster']) }}" alt="" loading="lazy" decoding="async">
                                         @else
                                             <span class="media-placeholder">
                                                 <svg aria-hidden="true" viewBox="0 0 64 64">
