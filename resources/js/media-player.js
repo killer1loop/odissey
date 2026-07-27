@@ -644,6 +644,21 @@ function initializePlayers(root = document) {
     root.querySelectorAll?.('[data-media-player]').forEach(initializePlayer);
 }
 
+function synchronizePlayerLayout(root) {
+    const player = playerFor(root);
+    const stage = player?.querySelector('.live-video-stage');
+
+    if (!stage) {
+        return;
+    }
+
+    // Replacing the transcode panel changes the controls row height. Chromium can
+    // otherwise keep the video layers at their pre-swap grid coordinates.
+    stage.style.display = 'none';
+    void stage.offsetHeight;
+    stage.style.removeProperty('display');
+}
+
 function disposePlayers(root) {
     if (root.matches?.('[data-media-player]')) {
         players.get(root)?.dispose();
@@ -655,6 +670,9 @@ function disposePlayers(root) {
 }
 
 document.addEventListener('DOMContentLoaded', () => initializePlayers());
-document.addEventListener('htmx:afterSwap', (event) => initializePlayers(event.detail.elt));
+document.addEventListener('htmx:afterSwap', (event) => {
+    synchronizePlayerLayout(event.detail.elt);
+    initializePlayers(event.detail.elt);
+});
 document.addEventListener('htmx:beforeCleanupElement', (event) => disposePlayers(event.detail.elt));
 window.addEventListener('pageshow', () => initializePlayers());
