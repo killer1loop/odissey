@@ -601,6 +601,10 @@ function initializePlayer(player) {
         hls = new Hls({
             enableWorker: true,
             startPosition: 0,
+            liveDurationInfinity: true,
+            liveSyncDurationCount: 1_000_000,
+            liveMaxLatencyDurationCount: Infinity,
+            maxLiveSyncPlaybackRate: 1,
             xhrSetup: (xhr) => {
                 xhr.withCredentials = true;
             },
