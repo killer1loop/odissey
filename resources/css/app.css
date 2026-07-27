@@ -3380,7 +3380,11 @@ input[type="radio"] {
     text-align: right;
 }
 
-.media-player-shell:has(.transcode-panel) .live-control-bar,
+.media-player-shell:has(.transcode-panel) .live-control-bar {
+    visibility: hidden;
+    pointer-events: none;
+}
+
 .media-player-shell:has(.transcode-panel) .player-rail-trigger {
     display: none;
 }
