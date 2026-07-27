@@ -45,6 +45,29 @@ class FfmpegRunnerTest extends TestCase
         );
     }
 
+    public function test_validated_source_streams_can_be_piped_to_ffmpeg_stdin(): void
+    {
+        $input = fopen('php://temp', 'w+');
+        fwrite($input, 'streamed media bytes');
+        rewind($input);
+
+        try {
+            (new FfmpegRunner)->runWithInput(
+                [
+                    PHP_BINARY,
+                    '-r',
+                    'exit(stream_get_contents(STDIN) === "streamed media bytes" ? 0 : 1);',
+                ],
+                5,
+                $input,
+            );
+        } finally {
+            fclose($input);
+        }
+
+        $this->addToAssertionCount(1);
+    }
+
     public function test_child_processes_do_not_inherit_application_secrets_or_proxies(): void
     {
         $previousKey = getenv('APP_KEY');

@@ -4,12 +4,17 @@ namespace Tests\Unit\Media;
 
 use App\Jobs\Media\TranscodeMediaToHls;
 use App\Models\MediaItem;
+use App\Models\MediaSource;
 use App\Models\TranscodeSession;
 use App\Models\User;
 use App\Services\Media\FfmpegArguments;
 use App\Services\Media\FfmpegRunner;
+use App\Services\Media\Sources\MediaSourceAdapter;
+use App\Services\Media\Sources\MediaSourceRegistry;
+use App\Services\Media\Sources\SourceResponse;
 use App\Services\Media\TranscodeConcurrencyGate;
 use App\Services\Media\TranscodeStorage;
+use GuzzleHttp\Psr7\Utils;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
@@ -167,6 +172,123 @@ class TranscodeMediaToHlsTest extends TestCase
         );
         $this->assertFalse($runner->finishedDuringRun);
         $this->assertNotNull($session->refresh()->finished_at);
+    }
+
+    public function test_remote_sources_are_streamed_to_ffmpeg_stdin(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $source = MediaSource::query()->create([
+            'name' => 'Remote transcode source',
+            'type' => MediaSource::TYPE_S3,
+            'configuration' => ['endpoint' => 'https://media.example.test'],
+            'capabilities' => ['range' => true],
+            'enabled' => true,
+        ]);
+        $item = MediaItem::query()->create([
+            'user_id' => $user->getKey(),
+            'media_source_id' => $source->getKey(),
+            'stable_id' => hash('sha256', (string) Str::uuid()),
+            'title' => 'Remote transcode fixture',
+            'relative_path' => 'fixture.mkv',
+            'source_type' => MediaSource::TYPE_S3,
+            'source_locator' => 'fixture.mkv',
+            'mime_type' => 'video/x-matroska',
+            'size_bytes' => 19,
+            'requires_transcode' => true,
+        ]);
+        $session = TranscodeSession::query()->create([
+            'user_id' => $user->getKey(),
+            'media_item_id' => $item->getKey(),
+            'status' => TranscodeSession::STATUS_PENDING,
+        ]);
+        $adapter = new class implements MediaSourceAdapter
+        {
+            public function objects(MediaSource $source): iterable
+            {
+                return [];
+            }
+
+            public function capabilities(MediaSource $source): array
+            {
+                return ['range' => true];
+            }
+
+            public function open(
+                MediaSource $source,
+                string $locator,
+                ?int $start,
+                ?int $end,
+            ): SourceResponse {
+                return new SourceResponse(
+                    Utils::streamFor('streamed media bytes'),
+                    200,
+                    19,
+                    'video/x-matroska',
+                );
+            }
+
+            public function localPath(
+                MediaSource $source,
+                string $locator,
+            ): ?string {
+                return null;
+            }
+        };
+        $registry = new class($adapter) extends MediaSourceRegistry
+        {
+            public function __construct(
+                private readonly MediaSourceAdapter $adapter,
+            ) {}
+
+            public function for(MediaSource $source): MediaSourceAdapter
+            {
+                return $this->adapter;
+            }
+        };
+        $runner = new class extends FfmpegRunner
+        {
+            public ?string $sourceArgument = null;
+
+            public string $inputBytes = '';
+
+            public function runWithInput(
+                array $arguments,
+                int $timeoutSeconds,
+                mixed $input,
+                ?callable $shouldContinue = null,
+            ): void {
+                $inputIndex = array_search('-i', $arguments, true);
+                $this->sourceArgument = $arguments[$inputIndex + 1];
+                $this->inputBytes = stream_get_contents($input);
+                $manifest = $arguments[array_key_last($arguments)];
+                $patternIndex = array_search(
+                    '-hls_segment_filename',
+                    $arguments,
+                    true,
+                );
+                File::put($manifest, "#EXTM3U\nsegment-00000.ts\n");
+                File::put(
+                    str_replace('%05d', '00000', $arguments[$patternIndex + 1]),
+                    'segment',
+                );
+                $shouldContinue?->__invoke();
+            }
+        };
+
+        (new TranscodeMediaToHls($session->getKey()))->handle(
+            $runner,
+            app(FfmpegArguments::class),
+            app(TranscodeStorage::class),
+            app(TranscodeConcurrencyGate::class),
+            $registry,
+        );
+
+        $this->assertSame('pipe:0', $runner->sourceArgument);
+        $this->assertSame('streamed media bytes', $runner->inputBytes);
+        $this->assertSame(
+            TranscodeSession::STATUS_READY,
+            $session->refresh()->status,
+        );
     }
 
     public function test_job_is_released_without_starting_when_all_concurrency_slots_are_busy(): void

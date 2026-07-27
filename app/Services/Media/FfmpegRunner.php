@@ -24,6 +24,40 @@ class FfmpegRunner
         int $timeoutSeconds,
         ?callable $shouldContinue = null,
     ): void {
+        $this->execute($arguments, $timeoutSeconds, $shouldContinue);
+    }
+
+    /**
+     * Stream a validated source into FFmpeg without exposing its URL in the
+     * process arguments or buffering the full object on disk.
+     *
+     * @param  list<string>  $arguments
+     * @param  (callable(): bool)|null  $shouldContinue
+     */
+    public function runWithInput(
+        array $arguments,
+        int $timeoutSeconds,
+        mixed $input,
+        ?callable $shouldContinue = null,
+    ): void {
+        $this->execute(
+            $arguments,
+            $timeoutSeconds,
+            $shouldContinue,
+            $input,
+        );
+    }
+
+    /**
+     * @param  list<string>  $arguments
+     * @param  (callable(): bool)|null  $shouldContinue
+     */
+    private function execute(
+        array $arguments,
+        int $timeoutSeconds,
+        ?callable $shouldContinue = null,
+        mixed $input = null,
+    ): void {
         if ($arguments === [] || ! array_is_list($arguments)) {
             throw new InvalidArgumentException('A non-empty argument vector is required.');
         }
@@ -35,6 +69,9 @@ class FfmpegRunner
         }
 
         $process = $this->makeProcess($arguments, $timeoutSeconds);
+        if ($input !== null) {
+            $process->setInput($input);
+        }
 
         if ($shouldContinue === null) {
             $process->mustRun();

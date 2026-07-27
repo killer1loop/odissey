@@ -94,7 +94,7 @@ class DockerBuildContextTest extends TestCase
         );
         $this->assertIsString($healthcheck);
         $this->assertStringContainsString(
-            '[ "${running_processes}" -eq 13 ]',
+            '[ "${running_processes}" -eq 14 ]',
             $healthcheck,
         );
     }

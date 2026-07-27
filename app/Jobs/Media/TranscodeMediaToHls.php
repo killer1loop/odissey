@@ -7,14 +7,19 @@ use App\Services\Media\Exceptions\TranscodeQuotaExceeded;
 use App\Services\Media\FfmpegArguments;
 use App\Services\Media\FfmpegRunner;
 use App\Services\Media\SourceMaterializer;
+use App\Services\Media\Sources\MediaSourceRegistry;
 use App\Services\Media\TranscodeConcurrencyGate;
 use App\Services\Media\TranscodeStorage;
+use GuzzleHttp\Psr7\LimitStream;
+use GuzzleHttp\Psr7\StreamWrapper;
+use GuzzleHttp\Psr7\Utils;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\URL;
+use Psr\Http\Message\StreamInterface;
+use RuntimeException;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Exception\ProcessTimedOutException;
 use Throwable;
@@ -64,6 +69,7 @@ class TranscodeMediaToHls implements ShouldQueue
         FfmpegArguments $arguments,
         TranscodeStorage $storage,
         TranscodeConcurrencyGate $concurrency,
+        ?MediaSourceRegistry $registry = null,
     ): void {
         $session = TranscodeSession::query()
             ->with('mediaItem')
@@ -96,11 +102,14 @@ class TranscodeMediaToHls implements ShouldQueue
             $materialized = null;
 
             try {
-                $materialized = $this->sourceFor($session);
+                $materialized = $this->sourceFor(
+                    $session,
+                    $registry ?? app(MediaSourceRegistry::class),
+                );
                 $sourcePath = $materialized['path'];
 
                 if (
-                    ! str_starts_with($sourcePath, 'http://127.0.0.1:8000/')
+                    $sourcePath !== 'pipe:0'
                     && (! File::isFile($sourcePath) || ! File::isReadable($sourcePath))
                 ) {
                     $this->markFailed($session, 'source_unavailable', $storage);
@@ -111,46 +120,58 @@ class TranscodeMediaToHls implements ShouldQueue
                 $storage->prepare($session);
                 $storage->assertWithinQuota();
                 $lastHeartbeatAt = 0;
-                $runner->run(
-                    $arguments->hls(
-                        $sourcePath,
-                        $storage->manifestPath($session),
-                        $storage->segmentPattern($session),
-                        $session->profile,
-                        $session->audio_track,
-                    ),
-                    $this->timeout - 30,
-                    function () use (
-                        $session,
-                        $storage,
-                        &$lastHeartbeatAt,
-                    ): bool {
-                        $now = hrtime(true);
+                $ffmpegArguments = $arguments->hls(
+                    $sourcePath,
+                    $storage->manifestPath($session),
+                    $storage->segmentPattern($session),
+                    $session->profile,
+                    $session->audio_track,
+                );
+                $watchdog = function () use (
+                    $session,
+                    $storage,
+                    &$lastHeartbeatAt,
+                ): bool {
+                    $now = hrtime(true);
+
+                    if (
+                        $lastHeartbeatAt === 0
+                        || $now - $lastHeartbeatAt >= 5_000_000_000
+                    ) {
+                        $lastHeartbeatAt = $now;
+                        $updates = ['heartbeat_at' => now()];
 
                         if (
-                            $lastHeartbeatAt === 0
-                            || $now - $lastHeartbeatAt >= 5_000_000_000
+                            $session->status
+                                === TranscodeSession::STATUS_PROCESSING
+                            && $storage->hasCompleteOutput($session)
                         ) {
-                            $lastHeartbeatAt = $now;
-                            $updates = ['heartbeat_at' => now()];
-
-                            if (
-                                $session->status
-                                    === TranscodeSession::STATUS_PROCESSING
-                                && $storage->hasCompleteOutput($session)
-                            ) {
-                                $updates += [
-                                    'status' => TranscodeSession::STATUS_READY,
-                                    'manifest_relative_path' => 'index.m3u8',
-                                ];
-                            }
-
-                            $session->update($updates);
+                            $updates += [
+                                'status' => TranscodeSession::STATUS_READY,
+                                'manifest_relative_path' => 'index.m3u8',
+                            ];
                         }
 
-                        return $storage->isWithinStorageLimits();
-                    },
-                );
+                        $session->update($updates);
+                    }
+
+                    return $storage->isWithinStorageLimits();
+                };
+
+                if (($materialized['input'] ?? null) !== null) {
+                    $runner->runWithInput(
+                        $ffmpegArguments,
+                        $this->timeout - 30,
+                        $materialized['input'],
+                        $watchdog,
+                    );
+                } else {
+                    $runner->run(
+                        $ffmpegArguments,
+                        $this->timeout - 30,
+                        $watchdog,
+                    );
+                }
                 $storage->assertWithinQuota();
 
                 if (! $storage->hasCompleteOutput($session)) {
@@ -175,6 +196,15 @@ class TranscodeMediaToHls implements ShouldQueue
                 $this->markFailed($session, 'transcode_timeout', $storage);
             } catch (ProcessFailedException) {
                 $this->markFailed($session, 'transcode_failed', $storage);
+            } catch (RuntimeException $exception) {
+                $errorCode = in_array($exception->getMessage(), [
+                    'remote_source_too_large',
+                    'source_unavailable',
+                    'source_read_failed',
+                ], true)
+                    ? $exception->getMessage()
+                    : 'transcode_internal';
+                $this->markFailed($session, $errorCode, $storage);
             } catch (Throwable $exception) {
                 Log::warning('Media transcode failed unexpectedly.', [
                     'session_id' => $session->getKey(),
@@ -184,6 +214,9 @@ class TranscodeMediaToHls implements ShouldQueue
             } finally {
                 if (($materialized['temporary'] ?? false) === true) {
                     File::delete($materialized['path']);
+                }
+                if (is_resource($materialized['input'] ?? null)) {
+                    fclose($materialized['input']);
                 }
             }
         } finally {
@@ -244,25 +277,75 @@ class TranscodeMediaToHls implements ShouldQueue
     }
 
     /**
-     * @return array{path: string, temporary: bool}
+     * @return array{path: string, temporary: bool, input?: mixed}
      */
-    private function sourceFor(TranscodeSession $session): array
-    {
+    private function sourceFor(
+        TranscodeSession $session,
+        MediaSourceRegistry $registry,
+    ): array {
         if ($session->mediaItem->source === null) {
             return app(SourceMaterializer::class)
                 ->materialize($session->mediaItem);
         }
 
-        $relativeUrl = URL::temporarySignedRoute(
-            'internal.media.transcodes.source',
-            now()->addSeconds($this->timeout + 300),
-            ['session' => $session->getKey()],
-            absolute: false,
+        $maximumBytes = min(
+            16 * 1024 * 1024 * 1024,
+            max(
+                1,
+                (int) config(
+                    'odissey.remote_transcode_max_source_bytes',
+                    3 * 1024 * 1024 * 1024,
+                ),
+            ),
+        );
+        $result = $registry
+            ->for($session->mediaItem->source)
+            ->open(
+                $session->mediaItem->source,
+                $session->mediaItem->source_locator,
+                null,
+                null,
+            );
+
+        if ($result->size > $maximumBytes) {
+            if (
+                is_object($result->body)
+                && method_exists($result->body, 'close')
+            ) {
+                $result->body->close();
+            } elseif (is_resource($result->body)) {
+                fclose($result->body);
+            }
+
+            throw new RuntimeException('remote_source_too_large');
+        }
+
+        if (is_string($result->body)) {
+            if (
+                $result->body === ''
+                || strlen($result->body) > $maximumBytes
+            ) {
+                throw new RuntimeException('source_unavailable');
+            }
+
+            return [
+                'path' => 'pipe:0',
+                'temporary' => false,
+                'input' => $result->body,
+            ];
+        }
+
+        $stream = $result->body instanceof StreamInterface
+            ? $result->body
+            : Utils::streamFor($result->body);
+        $input = StreamWrapper::getResource(
+            new LimitStream($stream, $maximumBytes),
         );
 
         return [
-            'path' => 'http://127.0.0.1:8000'.$relativeUrl,
+            'path' => 'pipe:0',
             'temporary' => false,
+            'input' => $input,
         ];
     }
 }
