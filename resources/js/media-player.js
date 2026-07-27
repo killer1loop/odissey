@@ -600,6 +600,7 @@ function initializePlayer(player) {
 
         hls = new Hls({
             enableWorker: true,
+            startPosition: 0,
             xhrSetup: (xhr) => {
                 xhr.withCredentials = true;
             },
