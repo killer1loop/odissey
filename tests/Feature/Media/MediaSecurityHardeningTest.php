@@ -577,6 +577,7 @@ class MediaSecurityHardeningTest extends TestCase
 
     public function test_asset_publication_is_serialized_across_workers(): void
     {
+        config(['odissey.media_asset_lock_wait_seconds' => 1]);
         $held = Cache::lock('odissey:media:asset-storage', 30);
         $this->assertTrue($held->get());
 
@@ -594,6 +595,31 @@ class MediaSecurityHardeningTest extends TestCase
             );
         } finally {
             $held->release();
+        }
+    }
+
+    public function test_empty_artwork_cleanup_preserves_files_and_symlinks(): void
+    {
+        $root = $this->temporaryPath.'/artwork-prune';
+        $outside = $this->temporaryPath.'/outside-artwork-prune';
+        File::ensureDirectoryExists($root.'/empty');
+        File::ensureDirectoryExists($root.'/with-poster');
+        File::ensureDirectoryExists($outside);
+        File::put($root.'/with-poster/poster.jpg', 'poster');
+        File::put($outside.'/preserved.txt', 'preserved');
+        config(['odissey.artwork_path' => $root]);
+
+        $symlinkCreated = @symlink($outside, $root.'/linked');
+
+        $this->artisan('media:artwork:prune-empty')
+            ->expectsOutput('Pruned 1 empty artwork directory.')
+            ->assertSuccessful();
+
+        $this->assertDirectoryDoesNotExist($root.'/empty');
+        $this->assertFileExists($root.'/with-poster/poster.jpg');
+        $this->assertFileExists($outside.'/preserved.txt');
+        if ($symlinkCreated) {
+            $this->assertTrue(is_link($root.'/linked'));
         }
     }
 

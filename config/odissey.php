@@ -69,6 +69,7 @@ return [
     'caption_auto_fetch_max_items_per_scan' => (int) env('ODISSEY_CAPTION_AUTO_FETCH_MAX_ITEMS_PER_SCAN', 250),
     'media_asset_max_bytes' => (int) env('ODISSEY_MEDIA_ASSET_MAX_BYTES', 10 * 1024 * 1024 * 1024),
     'media_asset_min_free_bytes' => (int) env('ODISSEY_MEDIA_ASSET_MIN_FREE_BYTES', 256 * 1024 * 1024),
+    'media_asset_lock_wait_seconds' => (int) env('ODISSEY_MEDIA_ASSET_LOCK_WAIT_SECONDS', 5),
     'caption_languages' => array_values(array_filter(array_map(fn ($language) => strtolower(trim($language)), explode(',', env('ODISSEY_CAPTION_LANGUAGES', 'en'))), fn ($language) => preg_match('/^[a-z]{2,3}$/', $language))),
     'source_catalog_max_bytes' => (int) env('ODISSEY_SOURCE_CATALOG_MAX_BYTES', 4 * 1024 * 1024),
     'source_catalog_max_items' => (int) env('ODISSEY_SOURCE_CATALOG_MAX_ITEMS', 100000),

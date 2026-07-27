@@ -4,6 +4,7 @@ namespace App\Services\Media;
 
 use FilesystemIterator;
 use Illuminate\Contracts\Cache\Lock;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -26,12 +27,15 @@ class MediaAssetStorage
 
         try {
             $lock = Cache::lock('odissey:media:asset-storage', 300);
-
-            if (! $lock->get()) {
-                throw new RuntimeException('media_asset_storage_busy');
-            }
-        } catch (RuntimeException $exception) {
-            throw $exception;
+            $lock->block(min(
+                30,
+                max(1, (int) config(
+                    'odissey.media_asset_lock_wait_seconds',
+                    5,
+                )),
+            ));
+        } catch (LockTimeoutException) {
+            throw new RuntimeException('media_asset_storage_busy');
         } catch (Throwable $exception) {
             throw new RuntimeException(
                 'media_asset_storage_busy',

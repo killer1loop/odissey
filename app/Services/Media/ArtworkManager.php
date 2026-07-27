@@ -20,12 +20,6 @@ class ArtworkManager
             10 * 1024 * 1024,
             max(1, (int) config('odissey.artwork_max_bytes')),
         );
-        $root = $this->root();
-        $directory = $root.DIRECTORY_SEPARATOR.$item->getKey();
-        File::ensureDirectoryExists($directory, 0700);
-        if (is_link($directory)) {
-            throw new \RuntimeException('artwork_storage_path_invalid');
-        }
         $metadata = $item->metadata ?? [];
         foreach (['poster', 'backdrop'] as $kind) {
             $url = $metadata[$kind.'_url'] ?? null;
@@ -49,7 +43,6 @@ class ArtworkManager
                 } catch (\RuntimeException) {
                     continue;
                 }
-                $path = $directory.'/'.$kind.'.jpg';
                 $imageInfo = $download['body'] === ''
                     ? false
                     : @getimagesizefromstring($download['body']);
@@ -59,7 +52,8 @@ class ArtworkManager
                     && is_array($imageInfo)
                     && ($imageInfo[2] ?? null) === IMAGETYPE_JPEG
                 ) {
-                    $this->assets->assertCanStore(strlen($download['body']), $path);
+                    $directory = $this->directory($item);
+                    $path = $directory.'/'.$kind.'.jpg';
                     $temporary = $path.'.'.Str::lower((string) Str::ulid()).'.tmp';
                     try {
                         if (
@@ -96,6 +90,7 @@ class ArtworkManager
             }
         }
         if (empty($metadata['poster_cached']) && $localPath && $item->media_kind === 'video') {
+            $directory = $this->directory($item);
             $path = $directory.'/poster.jpg';
             $temporary = $path.'.'.Str::lower((string) Str::ulid()).'.tmp';
             $process = $this->processes->make([
@@ -173,6 +168,22 @@ class ArtworkManager
             .DIRECTORY_SEPARATOR.$kind.'.jpg';
 
         return File::isFile($path) ? $path : null;
+    }
+
+    private function directory(MediaItem $item): string
+    {
+        $directory = $this->root()
+            .DIRECTORY_SEPARATOR.$item->getKey();
+        if (is_link($directory)) {
+            throw new \RuntimeException('artwork_storage_path_invalid');
+        }
+
+        File::ensureDirectoryExists($directory, 0700);
+        if (is_link($directory)) {
+            throw new \RuntimeException('artwork_storage_path_invalid');
+        }
+
+        return $directory;
     }
 
     private function root(): string
