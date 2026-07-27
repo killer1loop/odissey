@@ -1,7 +1,7 @@
 @php
-    $windowMinutes = max(1, (int) (($guideEnd->timestamp - $guideStart->timestamp) / 60));
-    $nowMinutes = (int) (($guideNow->timestamp - $guideStart->timestamp) / 60);
-    $nowPosition = max(0, min(100, ($nowMinutes / $windowMinutes) * 100));
+    $windowSeconds = max(1, $guideEnd->timestamp - $guideStart->timestamp);
+    $nowSeconds = $guideNow->timestamp - $guideStart->timestamp;
+    $nowPosition = max(0, min(100, ($nowSeconds / $windowSeconds) * 100));
     $nowIsVisible = $guideNow >= $guideStart && $guideNow < $guideEnd;
 @endphp
 
@@ -59,10 +59,23 @@
                 @php
                     $programs = $guideByChannel
                         ->get($channel->id, collect())
-                        ->groupBy(fn ($program) => $program->starts_at->timestamp)
+                        ->groupBy(
+                            fn ($program) => max(
+                                $guideStart->timestamp,
+                                $program->starts_at->timestamp,
+                            )
+                        )
                         ->map(
                             fn ($slot) => $slot
-                                ->sortByDesc(fn ($program) => $program->ends_at->timestamp)
+                                ->sort(function ($first, $second) {
+                                    $startComparison = $second->starts_at->timestamp
+                                        <=> $first->starts_at->timestamp;
+
+                                    return $startComparison !== 0
+                                        ? $startComparison
+                                        : $second->ends_at->timestamp
+                                            <=> $first->ends_at->timestamp;
+                                })
                                 ->first()
                         )
                         ->sortBy(fn ($program) => $program->starts_at->timestamp)
@@ -118,10 +131,10 @@
                                     );
                                 }
 
-                                $offsetMinutes = max(0, ($visibleStart - $guideStart->timestamp) / 60);
-                                $durationMinutes = max(1, ($visibleEnd - $visibleStart) / 60);
-                                $programStart = ($offsetMinutes / $windowMinutes) * 100;
-                                $programWidth = ($durationMinutes / $windowMinutes) * 100;
+                                $offsetSeconds = max(0, $visibleStart - $guideStart->timestamp);
+                                $durationSeconds = max(1, $visibleEnd - $visibleStart);
+                                $programStart = ($offsetSeconds / $windowSeconds) * 100;
+                                $programWidth = ($durationSeconds / $windowSeconds) * 100;
                                 $isLive = $program->starts_at <= $guideNow && $program->ends_at > $guideNow;
                                 $viewerStart = $program->starts_at->timezone($viewerTimezone)->format('H:i');
                                 $viewerEnd = $program->ends_at->timezone($viewerTimezone)->format('H:i');
