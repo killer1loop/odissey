@@ -3465,6 +3465,7 @@ input[type="radio"] {
 .live-control-bar {
     display: grid;
     min-height: 64px;
+    flex: 0 0 auto;
     grid-template-columns: minmax(260px, 1fr) auto minmax(42px, 1fr);
     align-items: center;
     gap: 1rem;
