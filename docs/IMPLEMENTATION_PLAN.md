@@ -14,8 +14,8 @@ milestones below now have an implemented path and automated contract coverage:
 - encrypted Xtream and generic M3U/XMLTV IPTV onboarding, live catalog/EPG
   sync, Xtream VOD movie/series import, guide grid, groups, search, per-user
   favorites, provider concurrency limits, and credential-safe playback;
-- single-image FrankenPHP deployment with SQLite, one queue worker, scheduler,
-  FFmpeg, and health checks.
+- single-image FrankenPHP deployment with SQLite, a bounded queue-worker pool,
+  scheduler, FFmpeg, and health checks.
 
 The remaining publication work is environment-dependent validation: execute
 the release audit, multi-architecture Docker build, image scan, backup/restore
@@ -28,7 +28,8 @@ mobile client. The planned defaults are:
 
 - Laravel 13, PHP 8.5, Blade, HTMX 2, and small player-specific JavaScript;
 - SQLite on a local persistent volume, one application replica;
-- FrankenPHP, one finite queue worker, and the scheduler in one image;
+- FrankenPHP, a finite role-separated worker pool, and the scheduler in one
+  image;
 - IPTV live TV first through an Xtream-style adapter, followed by generic
   M3U/XMLTV;
 - CPU transcoding with one concurrent FFmpeg session initially;
@@ -127,7 +128,9 @@ Deliverables:
 - opaque stream sessions with owner, lease, heartbeat, and expiry;
 - authenticated upstream proxy and manifest/key/segment URL rewriting;
 - direct HLS proxy path;
-- HTML video player with browser-native controls and recovery states;
+- full-viewport movie, episode, and Live TV players with persistent custom
+  controls, ambient lighting, responsive landscape layouts, keyboard/remote
+  fullscreen navigation, diagnostics, and click-open quick-switch rails;
 - playback decisions, selectable transcode quality/audio, detected captions,
   detailed watched-duration history, and configurable provider-wide
   concurrency limits.
@@ -149,8 +152,9 @@ Deliverables:
 - local adapter with allowed-root and symlink escape protection;
 - S3/S3-compatible adapter with prefix-scoped configuration;
 - WebDAV adapter with range/seek capability detection;
-- asynchronous scans, stable identity, incremental updates, and missing-item
-  handling;
+- asynchronous discovery, two bounded parallel per-item processors, stable
+  identity, unchanged-item fast paths, progress counters, incremental updates,
+  and missing-item handling;
 - `ffprobe` metadata extraction;
 - video browse/detail/direct-play experience;
 - artist/album/track views, play queue, and mini-player;

@@ -20,7 +20,7 @@ an authenticated stream session, and removed after expiry.
 flowchart LR
     B["Browser<br>Blade + HTMX + media JS"] --> W["FrankenPHP + Laravel"]
     W --> D[("SQLite metadata")]
-    W --> Q["Finite queue worker"]
+    W --> Q["Finite role-separated worker pool"]
     W --> S["Scheduler"]
     Q --> A["Read-only source adapters"]
     A --> L["Local mounts"]
@@ -33,11 +33,11 @@ flowchart LR
     T --> W
 ```
 
-The Docker image supervises the web process, one finite queue worker, and the
-scheduler. The current vertical slice runs a bounded, idempotently keyed VOD
-transcode as a finite high-priority queue job. A dedicated media supervisor is
-still planned for long-running, on-demand sessions because it can own leases,
-process groups, resource limits, and graceful shutdown more directly.
+The Docker image supervises the web process, a finite role-separated worker
+pool, and the scheduler. Source discovery is serial per source; two bounded
+workers process media objects and two bounded workers handle metadata and
+caption enrichment. Transcodes remain finite high-priority jobs while the
+dedicated media supervisor owns leases and cleanup.
 
 ## Request and job model
 
@@ -57,6 +57,12 @@ Finite work runs on the database queue:
 Network reads and XML parsing happen outside database transactions. Imports
 commit bounded, idempotent batches and hold a per-source lock. Jobs contain
 record identifiers, not credentials.
+
+Storage discovery runs on one bounded queue and fans supported objects out to
+two media processors. Scan tokens claim one attempt end to end, so a replacement
+scan can safely ignore stale discovery and object jobs. Startup requeues
+interrupted claims, while the parallel-scan schema upgrade forces one complete
+rebuild of pre-upgrade local, S3, and WebDAV catalogs.
 
 ## Source contracts
 
@@ -140,6 +146,12 @@ pause, seek, completion, and page exit. The server upserts the current resume
 row and rejects out-of-order updates; it does not append a history row for every
 heartbeat.
 
+Movie and episode playback uses the same full-viewport shell as Live TV. The
+server renders a user-scoped recent-history rail with resume percentages and
+remaining time; the browser updates the active row as playback advances.
+Fullscreen is available from the persistent control bar or the `F` key, with
+WebKit video fullscreen as a fallback.
+
 ## Core data model
 
 | Table | Purpose and important constraints |
@@ -173,7 +185,8 @@ deployment:
 - foreign keys enabled;
 - five-second busy timeout;
 - short transactions and chunked EPG upserts;
-- one finite background worker initially;
+- fixed, bounded background-worker roles with two media processors and two
+  enrichment processors;
 - periodic checkpoint, integrity check, and retention cleanup.
 
 Backups use SQLite's online backup API or `VACUUM INTO`. Copying only a live

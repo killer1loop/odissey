@@ -17,6 +17,7 @@
 @elseif (in_array($status, [\App\Models\TranscodeSession::STATUS_PENDING, \App\Models\TranscodeSession::STATUS_PROCESSING], true))
     <div
         id="transcode-status"
+        data-transcode-status
         hx-get="{{ route('media.transcodes.status', [$item, $session]) }}"
         hx-trigger="every 1s"
         hx-swap="outerHTML"

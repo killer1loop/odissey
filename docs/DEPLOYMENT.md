@@ -5,8 +5,8 @@
 The production image:
 
 - listens on `0.0.0.0:8000`;
-- runs FrankenPHP, one finite database queue worker, Laravel's scheduler, and
-  the media cleanup/lease supervisor;
+- runs FrankenPHP, a finite database-backed worker pool, Laravel's scheduler,
+  and the media cleanup/lease supervisor;
 - includes FFmpeg, FFprobe, SQLite, and the required PHP extensions;
 - runs application processes as `www-data`;
 - performs migrations and Laravel optimization at startup;
@@ -46,6 +46,12 @@ Set `ODISSEY_LOCAL_SOURCE_ROOTS=/media` (or a comma-separated narrower set),
 then add the mounted path under **Administration → Media sources**. S3 and
 WebDAV sources are configured in the same screen and are probed for range/seek
 capability before their first asynchronous scan.
+
+Container startup reclaims only scans that were interrupted while queued or
+running. The parallel-scan migration also marks every existing enabled local,
+S3, and WebDAV source for one complete rescan, so catalogs produced by the old
+serial scanner are rebuilt once after upgrading. Each attempt has a fresh claim
+token; jobs left behind by an older attempt become safe no-ops.
 
 ## Environment
 
@@ -132,6 +138,12 @@ background worker with a temporary memory budget clamped between 256 MiB and
 enforced independently, and the importer releases the live catalog before
 downloading VOD data.
 
+Library discovery remains serial per source, while two 384 MiB media workers
+probe and enrich separate files concurrently. Two 256 MiB enrichment workers
+handle metadata and caption network work without blocking discovery or IPTV
+synchronization. These fixed counts intentionally limit SQLite write
+contention and peak memory.
+
 Never use provider or storage secrets as Docker build arguments. They must be
 runtime secrets and later be stored encrypted through Odissey's admin UI.
 
@@ -176,7 +188,7 @@ docker exec odissey sqlite3 /var/lib/odissey/database.sqlite \
   'PRAGMA integrity_check; PRAGMA journal_mode; PRAGMA foreign_key_check;'
 ```
 
-Expected results are HTTP 200, four `RUNNING` processes, all migrations
+Expected results are HTTP 200, nine `RUNNING` processes, all migrations
 applied, `ok`, `wal`, and no foreign-key errors.
 
 ## Dokploy
@@ -277,7 +289,7 @@ the container immediately:
 ```sh
 docker exec odissey supervisorctl \
   -c /etc/supervisor/conf.d/odissey.conf \
-  stop web queue scheduler media-supervisor
+  stop web queue queue-media-discovery queue-media-scan:* queue-media-enrichment:* scheduler media-supervisor
 docker exec odissey php artisan odissey:restore \
   /safe/off-host/odissey.zip --force --offline
 docker restart odissey

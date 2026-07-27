@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\Media\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\Media\ScanMediaSource;
 use App\Models\MediaSource;
+use App\Services\Media\MediaScanDispatcher;
 use App\Services\Media\Sources\MediaSourceRegistry;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -25,8 +25,11 @@ class MediaSourceController extends Controller
         return view('media.admin.sources.form', ['source' => new MediaSource]);
     }
 
-    public function store(Request $request, MediaSourceRegistry $registry): RedirectResponse
-    {
+    public function store(
+        Request $request,
+        MediaSourceRegistry $registry,
+        MediaScanDispatcher $dispatcher,
+    ): RedirectResponse {
         $data = $request->validate([
             'name' => ['required', 'string', 'max:100', 'unique:media_sources,name'],
             'type' => ['required', Rule::in([MediaSource::TYPE_LOCAL, MediaSource::TYPE_S3, MediaSource::TYPE_WEBDAV])],
@@ -57,15 +60,20 @@ class MediaSourceController extends Controller
             $source->delete();
             throw ValidationException::withMessages(['name' => 'The read-only source could not be reached or validated.']);
         }
-        ScanMediaSource::dispatch($source->id);
+        $dispatcher->queue($source);
 
         return redirect()->route('media.admin.sources.index')->with('status', 'Source validated. Its initial scan is queued.');
     }
 
-    public function scan(MediaSource $source): RedirectResponse
-    {
+    public function scan(
+        MediaSource $source,
+        MediaScanDispatcher $dispatcher,
+    ): RedirectResponse {
         abort_if($source->type === MediaSource::TYPE_IPTV, 404);
-        ScanMediaSource::dispatch($source->id);
+        if (in_array($source->scan_status, ['queued', 'scanning'], true)) {
+            return back()->with('status', 'This library scan is already running.');
+        }
+        $dispatcher->queue($source);
 
         return back()->with('status', 'Library scan queued.');
     }

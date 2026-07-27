@@ -57,6 +57,38 @@ class DockerBuildContextTest extends TestCase
         );
         $this->assertIsString($supervisor);
         $this->assertStringNotContainsString('user=root', $supervisor);
+        $this->assertStringContainsString(
+            '[program:queue-media-discovery]',
+            $supervisor,
+        );
+        $this->assertStringContainsString(
+            'memory_limit=256M artisan queue:work --queue=media-discovery',
+            $supervisor,
+        );
+        $this->assertStringContainsString(
+            '[program:queue-media-scan]',
+            $supervisor,
+        );
+        $this->assertStringContainsString(
+            "numprocs=2\ncommand=php -d memory_limit=384M artisan queue:work --queue=media-scan",
+            $supervisor,
+        );
+        $this->assertStringContainsString(
+            '[program:queue-media-enrichment]',
+            $supervisor,
+        );
+        $this->assertStringContainsString(
+            "numprocs=2\ncommand=php -d memory_limit=256M artisan queue:work --queue=media-enrichment",
+            $supervisor,
+        );
+        $healthcheck = file_get_contents(
+            dirname(__DIR__, 2).'/docker/healthcheck.sh',
+        );
+        $this->assertIsString($healthcheck);
+        $this->assertStringContainsString(
+            '[ "${running_processes}" -eq 9 ]',
+            $healthcheck,
+        );
     }
 
     public function test_compose_requires_safe_first_launch_and_runtime_limits(): void
@@ -97,6 +129,27 @@ class DockerBuildContextTest extends TestCase
         $this->assertStringContainsString(
             'refusing to generate a replacement',
             $entrypoint,
+        );
+        $this->assertStringContainsString(
+            'media:sources:scan --recover-interrupted --no-interaction',
+            $entrypoint,
+        );
+
+        $restore = file_get_contents(
+            dirname(__DIR__, 2).'/app/Console/Commands/RestoreApplication.php',
+        );
+        $this->assertIsString($restore);
+        $this->assertStringContainsString(
+            'queue-media-discovery',
+            $restore,
+        );
+        $this->assertStringContainsString(
+            'queue-media-scan_00',
+            $restore,
+        );
+        $this->assertStringContainsString(
+            'queue-media-enrichment_01',
+            $restore,
         );
     }
 

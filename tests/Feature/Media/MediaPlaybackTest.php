@@ -4,6 +4,7 @@ namespace Tests\Feature\Media;
 
 use App\Jobs\Media\TranscodeMediaToHls;
 use App\Models\MediaItem;
+use App\Models\PlaybackHistory;
 use App\Models\PlaybackProgress;
 use App\Models\TranscodeSession;
 use App\Models\User;
@@ -70,7 +71,12 @@ class MediaPlaybackTest extends TestCase
         $this->actingAs($owner)
             ->get(route('media.show', $item))
             ->assertOk()
-            ->assertSee('data-media-player', escape: false);
+            ->assertSee('data-media-player', escape: false)
+            ->assertSee('media-player-shell', escape: false)
+            ->assertSee('data-player-fullscreen', escape: false)
+            ->assertSee('data-player-ambient', escape: false)
+            ->assertSee('>History<', escape: false)
+            ->assertSee('F</kbd> full screen', escape: false);
 
         $this->assertDatabaseHas('playback_history', [
             'user_id' => $owner->getKey(),
@@ -149,6 +155,48 @@ class MediaPlaybackTest extends TestCase
             ->assertNotFound();
 
         $this->assertSame(1, PlaybackProgress::query()->count());
+    }
+
+    public function test_video_player_history_rail_shows_progress_and_remaining_time(): void
+    {
+        $owner = User::factory()->create(['is_active' => true]);
+        $current = $this->mediaItem(
+            $owner,
+            $this->temporaryPath.'/current.mp4',
+            title: 'Current movie',
+        );
+        $previous = $this->mediaItem(
+            $owner,
+            $this->temporaryPath.'/previous.mp4',
+            title: 'Previous movie',
+        );
+        $previous->forceFill(['duration_ms' => 3_600_000])->save();
+
+        PlaybackProgress::query()->create([
+            'user_id' => $owner->getKey(),
+            'media_item_id' => $previous->getKey(),
+            'position_ms' => 1_800_000,
+            'duration_ms' => 3_600_000,
+            'sequence' => 3,
+        ]);
+        PlaybackHistory::query()->create([
+            'user_id' => $owner->getKey(),
+            'media_item_id' => $previous->getKey(),
+            'event' => 'progress',
+            'position_ms' => 1_800_000,
+            'watched_ms' => 60_000,
+            'played_at' => now()->subMinute(),
+        ]);
+
+        $this->actingAs($owner)
+            ->get(route('media.show', $current))
+            ->assertOk()
+            ->assertSee('data-player-history-rail', escape: false)
+            ->assertSee('data-player-history-item', escape: false)
+            ->assertSee('Previous movie')
+            ->assertSee('50% watched · 30m remaining')
+            ->assertSee('aria-valuenow="50"', escape: false)
+            ->assertSee(route('media.show', $previous));
     }
 
     public function test_starting_a_transcode_creates_a_database_queued_job(): void
@@ -293,10 +341,11 @@ class MediaPlaybackTest extends TestCase
         User $owner,
         string $path,
         bool $requiresTranscode = false,
+        string $title = 'Owned sample video',
     ): MediaItem {
         return MediaItem::query()->create([
             'user_id' => $owner->getKey(),
-            'title' => 'Owned sample video',
+            'title' => $title,
             'source_type' => 'local',
             'source_locator' => $path,
             'mime_type' => $requiresTranscode ? 'video/x-matroska' : 'video/mp4',

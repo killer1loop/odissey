@@ -144,12 +144,14 @@ fi
 
 if [ "$(id -u)" -eq 0 ]; then
     gosu www-data php artisan migrate --force --no-interaction
+    gosu www-data php artisan media:sources:scan --recover-interrupted --no-interaction
     gosu www-data php artisan optimize
 
     exec gosu www-data "$@"
 fi
 
 php artisan migrate --force --no-interaction
+php artisan media:sources:scan --recover-interrupted --no-interaction
 php artisan optimize
 
 exec "$@"

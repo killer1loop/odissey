@@ -33,7 +33,9 @@ and credential-safe streaming proxies.
 - one-time, production-token-protected first-admin setup;
 - login, logout, admin-created users, disablement, and per-user authorization;
 - direct MP4 range playback, resume position, and playback history;
-- asynchronous local/S3/WebDAV scans with stable identities and missing-item handling;
+- asynchronous local/S3/WebDAV discovery with two bounded parallel media
+  processors, unchanged-item fast paths, visible progress, stable identities,
+  missing-item handling, and restart-safe scan claims;
 - movie, episode, season, album and track organization with extracted artwork;
 - optional TMDB artwork/details and automatic free TVmaze series enrichment;
 - embedded subtitle extraction plus automated SubDL/OpenSubtitles caption
@@ -50,8 +52,8 @@ and credential-safe streaming proxies.
   name matching and initials for unmatched channels; provider-supplied artwork
   is ignored;
 - a Plex-inspired dark Blade interface enhanced with HTMX and hls.js;
-- one Docker image containing FrankenPHP, SQLite, FFmpeg, the queue worker, and
-  the scheduler.
+- one Docker image containing FrankenPHP, SQLite, FFmpeg, the bounded worker
+  pool, and the scheduler.
 
 ## Local development
 

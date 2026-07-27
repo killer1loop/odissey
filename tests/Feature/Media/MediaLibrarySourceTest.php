@@ -3,18 +3,18 @@
 namespace Tests\Feature\Media;
 
 use App\Jobs\Media\FetchMediaCaptions;
+use App\Jobs\Media\FinalizeMediaSourceScan;
+use App\Jobs\Media\ProcessMediaSourceObject;
 use App\Jobs\Media\ScanMediaSource;
 use App\Models\MediaFavorite;
 use App\Models\MediaItem;
 use App\Models\MediaSource;
 use App\Models\User;
 use App\Services\Media\ArtworkManager;
-use App\Services\Media\MediaNameParser;
 use App\Services\Media\MediaProbe;
+use App\Services\Media\MediaScanDispatcher;
 use App\Services\Media\SourceMaterializer;
 use App\Services\Media\Sources\LocalSourceAdapter;
-use App\Services\Media\Sources\MediaSourceRegistry;
-use App\Services\Media\TmdbMetadataProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Queue;
@@ -90,6 +90,155 @@ class MediaLibrarySourceTest extends TestCase
         $this->assertNotNull($item->fresh()->missing_at);
     }
 
+    public function test_discovery_fans_media_objects_out_to_the_bounded_scan_queue(): void
+    {
+        Queue::fake();
+        $admin = User::factory()->create([
+            'is_admin' => true,
+            'is_active' => true,
+        ]);
+        File::put($this->root.'/Movie.One.mp4', 'synthetic video one');
+        File::put($this->root.'/Movie.Two.mp4', 'synthetic video two');
+        $source = MediaSource::create([
+            'name' => 'Parallel movies',
+            'type' => 'local',
+            'configuration' => ['path' => $this->root],
+        ]);
+
+        $this->runDiscovery($source);
+
+        $source->refresh();
+        $this->assertSame('scanning', $source->scan_status);
+        $this->assertTrue($source->scan_discovery_complete);
+        $this->assertSame(2, $source->scan_discovered);
+        $this->assertSame(0, $source->scan_processed);
+        Queue::assertPushed(
+            ProcessMediaSourceObject::class,
+            2,
+        );
+        Queue::assertPushed(
+            ProcessMediaSourceObject::class,
+            fn (ProcessMediaSourceObject $job, string $queue): bool => $queue === 'media-scan',
+        );
+        $this->actingAs($admin)
+            ->get(route('media.admin.sources.index'))
+            ->assertOk()
+            ->assertSee('2 discovered')
+            ->assertSee('hx-trigger="every 3s"', escape: false);
+    }
+
+    public function test_unchanged_media_skips_probe_and_artwork_work_on_repeat_scans(): void
+    {
+        User::factory()->create(['is_admin' => true, 'is_active' => true]);
+        File::put($this->root.'/Movie.One.mp4', 'synthetic video');
+        $source = MediaSource::create([
+            'name' => 'Incremental movies',
+            'type' => 'local',
+            'configuration' => ['path' => $this->root],
+        ]);
+        $this->scan($source);
+
+        Queue::fake();
+        $this->runDiscovery($source);
+        $probe = Mockery::mock(MediaProbe::class);
+        $probe->shouldNotReceive('inspect');
+        $artwork = Mockery::mock(ArtworkManager::class);
+        $artwork->shouldNotReceive('populate');
+
+        foreach (Queue::pushed(ProcessMediaSourceObject::class) as $job) {
+            app()->call(
+                [$job, 'handle'],
+                ['probe' => $probe, 'artwork' => $artwork],
+            );
+        }
+        foreach (Queue::pushed(FinalizeMediaSourceScan::class) as $job) {
+            app()->call([$job, 'handle']);
+        }
+
+        $source->refresh();
+        $this->assertSame('ready', $source->scan_status);
+        $this->assertSame(1, $source->scan_processed);
+        $this->assertNull($source->last_error_code);
+    }
+
+    public function test_one_media_failure_does_not_stall_parallel_scan_finalization(): void
+    {
+        Queue::fake();
+        User::factory()->create(['is_admin' => true, 'is_active' => true]);
+        File::put($this->root.'/Movie.One.mp4', 'synthetic video');
+        $source = MediaSource::create([
+            'name' => 'Recoverable scan',
+            'type' => 'local',
+            'configuration' => ['path' => $this->root],
+        ]);
+        $this->runDiscovery($source);
+        $materializer = Mockery::mock(SourceMaterializer::class);
+        $materializer->shouldReceive('materializeObject')
+            ->once()
+            ->andThrow(new RuntimeException('synthetic scan failure'));
+
+        foreach (Queue::pushed(ProcessMediaSourceObject::class) as $job) {
+            app()->call(
+                [$job, 'handle'],
+                ['materializer' => $materializer],
+            );
+        }
+        foreach (Queue::pushed(FinalizeMediaSourceScan::class) as $job) {
+            app()->call([$job, 'handle']);
+        }
+
+        $source->refresh();
+        $this->assertSame('ready', $source->scan_status);
+        $this->assertSame(1, $source->scan_processed);
+        $this->assertSame(1, $source->scan_failed);
+        $this->assertSame(
+            'source_scan_partial_failure',
+            $source->last_error_code,
+        );
+    }
+
+    public function test_interrupted_scan_is_requeued_with_a_new_claim_token(): void
+    {
+        Queue::fake();
+        User::factory()->create([
+            'is_admin' => true,
+            'is_active' => true,
+        ]);
+        $source = MediaSource::create([
+            'name' => 'Interrupted scan',
+            'type' => 'local',
+            'configuration' => ['path' => $this->root],
+            'scan_status' => 'scanning',
+            'active_scan_token' => '01J00000000000000000000000',
+        ]);
+        $oldToken = $source->active_scan_token;
+
+        $this->artisan(
+            'media:sources:scan',
+            ['--recover-interrupted' => true],
+        )->expectsOutput('Queued 1 media source scan(s).')
+            ->assertSuccessful();
+
+        $source->refresh();
+        $this->assertSame('queued', $source->scan_status);
+        $this->assertNotSame($oldToken, $source->active_scan_token);
+        Queue::assertPushed(
+            ScanMediaSource::class,
+            fn (ScanMediaSource $job): bool => (
+                $job->sourceId === $source->id
+                && $job->scanToken === $source->active_scan_token
+            ),
+        );
+
+        app()->call([
+            new ScanMediaSource($source->id, $oldToken),
+            'handle',
+        ]);
+
+        $this->assertSame('queued', $source->refresh()->scan_status);
+        Queue::assertNotPushed(ProcessMediaSourceObject::class);
+    }
+
     public function test_local_adapter_rejects_symlink_escape(): void
     {
         $outside = tempnam(sys_get_temp_dir(), 'outside-');
@@ -145,13 +294,7 @@ class MediaLibrarySourceTest extends TestCase
             ->twice()
             ->andThrow(new RuntimeException('synthetic quota failure'));
 
-        (new ScanMediaSource($source->id))->handle(
-            app(MediaSourceRegistry::class),
-            app(MediaProbe::class),
-            app(MediaNameParser::class),
-            app(TmdbMetadataProvider::class),
-            $artwork,
-        );
+        $this->scan($source, $artwork);
 
         $this->assertSame(2, MediaItem::query()->count());
         $this->assertSame('ready', $source->refresh()->scan_status);
@@ -179,24 +322,36 @@ class MediaLibrarySourceTest extends TestCase
         $artwork = Mockery::mock(ArtworkManager::class);
         $artwork->shouldReceive('populate')->times(4);
 
-        (new ScanMediaSource($source->id))->handle(
-            app(MediaSourceRegistry::class),
-            app(MediaProbe::class),
-            app(MediaNameParser::class),
-            app(TmdbMetadataProvider::class),
-            $artwork,
-        );
+        $this->scan($source, $artwork);
 
         Queue::assertPushed(FetchMediaCaptions::class, 2);
         $this->assertSame(4, MediaItem::query()->count());
         $this->assertSame('ready', $source->refresh()->scan_status);
     }
 
-    private function scan(MediaSource $source): void
+    private function scan(
+        MediaSource $source,
+        ?ArtworkManager $artwork = null,
+    ): void {
+        Queue::fake();
+        $this->runDiscovery($source);
+        $jobs = Queue::pushed(ProcessMediaSourceObject::class);
+        foreach ($jobs as $job) {
+            app()->call(
+                [$job, 'handle'],
+                $artwork === null ? [] : ['artwork' => $artwork],
+            );
+        }
+        foreach (Queue::pushed(FinalizeMediaSourceScan::class) as $job) {
+            app()->call([$job, 'handle']);
+        }
+    }
+
+    private function runDiscovery(MediaSource $source): void
     {
-        (new ScanMediaSource($source->id))->handle(
-            app(MediaSourceRegistry::class), app(MediaProbe::class), app(MediaNameParser::class),
-            app(TmdbMetadataProvider::class), app(ArtworkManager::class),
-        );
+        $this->assertTrue(app(MediaScanDispatcher::class)->queue($source));
+        $job = Queue::pushed(ScanMediaSource::class)->last();
+        $this->assertInstanceOf(ScanMediaSource::class, $job);
+        app()->call([$job, 'handle']);
     }
 }

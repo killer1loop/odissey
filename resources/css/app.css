@@ -1818,6 +1818,28 @@ input[type="radio"] {
     font-size: 0.75rem;
 }
 
+.scan-progress {
+    display: grid;
+    width: min(420px, 60vw);
+    gap: 0.3rem;
+    margin-top: 0.55rem;
+}
+
+.scan-progress progress {
+    width: 100%;
+    height: 4px;
+    overflow: hidden;
+    border: 0;
+    border-radius: 2px;
+    accent-color: var(--accent);
+    background: rgba(255, 255, 255, 0.09);
+}
+
+.scan-progress span {
+    color: var(--soft);
+    font-size: 0.68rem;
+}
+
 .meta-list {
     display: flex;
     flex-wrap: wrap;
@@ -2836,6 +2858,24 @@ input[type="radio"] {
     font-weight: 850;
 }
 
+.player-media-poster {
+    display: grid;
+    width: 36px;
+    height: 36px;
+    flex: 0 0 auto;
+    place-items: center;
+    border: 1px solid var(--line);
+    background: #1b2027;
+    color: var(--accent-bright);
+    font-size: 0.7rem;
+    font-weight: 850;
+    object-fit: cover;
+}
+
+.player-media-poster-fallback {
+    text-transform: uppercase;
+}
+
 .player-program {
     max-width: min(36vw, 520px);
     overflow: hidden;
@@ -3170,6 +3210,49 @@ input[type="radio"] {
     background: transparent;
 }
 
+.media-video-mount {
+    position: absolute;
+    z-index: 2;
+    inset: 0;
+    display: grid;
+    min-width: 0;
+    min-height: 0;
+    place-items: center;
+}
+
+.media-video-mount > video {
+    max-height: none;
+}
+
+.media-video-mount > form,
+.media-video-mount > [data-transcode-status] {
+    z-index: 3;
+    width: min(calc(100% - 2rem), 520px);
+    padding: 1rem;
+    border: 1px solid var(--line-strong);
+    background: rgba(18, 21, 26, 0.94);
+    color: var(--muted);
+    text-align: center;
+}
+
+.media-video-mount > form p,
+.media-video-mount > [data-transcode-status] p {
+    margin-top: 0;
+}
+
+.media-video-mount > form label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin: 0 0.35rem 0.7rem;
+    color: var(--soft);
+    font-size: 0.7rem;
+}
+
+.media-video-mount > form .button {
+    margin-top: 0.2rem;
+}
+
 .live-video-message {
     position: absolute;
     z-index: 4;
@@ -3188,6 +3271,13 @@ input[type="radio"] {
 
 .live-player-shell[data-player-state="healthy"] .live-video-message,
 .live-player-shell[data-player-state="paused"] .live-video-message {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.media-player-shell[data-player-state="ready"] .live-video-message,
+.media-player-shell[data-player-state="healthy"] .live-video-message,
+.media-player-shell[data-player-state="paused"] .live-video-message {
     opacity: 0;
     pointer-events: none;
 }
@@ -3343,6 +3433,166 @@ input[type="radio"] {
 .live-player-shell:fullscreen .live-control-bar,
 .live-player-shell:-webkit-full-screen .live-control-bar {
     min-height: 72px;
+}
+
+.media-history-rail {
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.media-history-item {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: 42px minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 0.6rem;
+    padding: 0.62rem 0.55rem;
+    border: 1px solid transparent;
+    color: var(--text);
+    text-align: left;
+}
+
+.media-history-item:hover,
+.media-history-item:focus-visible,
+.media-history-item.is-active {
+    border-color: var(--line-strong);
+    background: #222831;
+}
+
+.media-history-item.is-active {
+    border-left-color: var(--accent);
+}
+
+.player-rail-poster {
+    display: grid;
+    width: 42px;
+    height: 58px;
+    place-items: center;
+    border: 1px solid var(--line);
+    background: #171c22;
+    color: var(--accent-bright);
+    font-size: 0.68rem;
+    font-weight: 850;
+    object-fit: cover;
+}
+
+.history-progress-copy {
+    display: block;
+    margin-top: 0.42rem;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 0.6rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.history-progress-track {
+    display: block;
+    height: 3px;
+    margin-top: 0.36rem;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.history-progress-track > span {
+    display: block;
+    width: var(--history-progress);
+    height: 100%;
+    background: var(--accent);
+    transition: width 180ms linear;
+}
+
+.media-rail-caption-action {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+    padding: 0.65rem;
+    border-top: 1px solid var(--line);
+    background: #15191f;
+}
+
+.media-rail-caption-action span {
+    color: var(--soft);
+    font-size: 0.6rem;
+}
+
+.vod-control-bar {
+    min-height: 86px;
+    grid-template-columns: minmax(250px, 1fr) auto minmax(100px, 1fr);
+    grid-template-rows: auto auto;
+    gap: 0.45rem 1rem;
+}
+
+.vod-progress-row {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: 48px minmax(0, 1fr) 58px;
+    align-items: center;
+    gap: 0.65rem;
+}
+
+.vod-progress-row label {
+    display: flex;
+    min-width: 0;
+}
+
+.vod-progress-row input {
+    width: 100%;
+    height: 3px;
+    margin: 0;
+    accent-color: var(--accent);
+}
+
+.vod-progress-row time {
+    color: var(--muted);
+    font-size: 0.62rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.vod-progress-row time:last-child {
+    text-align: right;
+}
+
+.vod-control-actions {
+    display: flex;
+    justify-self: end;
+    gap: 0.45rem;
+}
+
+.player-caption-control {
+    position: relative;
+}
+
+.player-caption-control > span {
+    position: absolute;
+    right: 2px;
+    bottom: 1px;
+    max-width: 30px;
+    overflow: hidden;
+    color: currentColor;
+    font-size: 0.42rem;
+    font-weight: 900;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.player-caption-control:disabled {
+    opacity: 0.4;
+}
+
+.media-player-shell[data-captions="true"] .player-caption-control {
+    border-color: var(--accent);
+    color: var(--accent-bright);
+}
+
+.player-icon-number {
+    fill: currentColor;
+    font-family: inherit;
+    font-size: 6px;
+    font-weight: 850;
+    stroke: none;
 }
 
 html[data-tv-navigation="true"] :focus-visible {
@@ -3678,6 +3928,11 @@ html[data-tv-navigation="true"] .epg-program-block:focus-within {
         height: 32px;
     }
 
+    .player-media-poster {
+        width: 32px;
+        height: 32px;
+    }
+
     .player-topbar-copy p,
     .player-program {
         display: none;
@@ -3741,6 +3996,37 @@ html[data-tv-navigation="true"] .epg-program-block:focus-within {
         grid-row: 1;
     }
 
+    .vod-control-bar {
+        min-height: 112px;
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-rows: auto auto auto;
+    }
+
+    .vod-progress-row {
+        grid-column: 1 / -1;
+        grid-row: 1;
+    }
+
+    .vod-control-bar .live-control-group {
+        grid-column: 1;
+        grid-row: 2;
+    }
+
+    .vod-control-bar .vod-control-actions {
+        grid-column: 2;
+        grid-row: 2;
+    }
+
+    .vod-control-bar .stream-diagnostics {
+        grid-column: 1 / -1;
+        grid-row: 3;
+    }
+
+    .vod-control-bar .player-control {
+        width: 36px;
+        height: 36px;
+    }
+
     .auth-shell {
         width: min(calc(100% - 1.25rem), 400px);
         padding: 1rem 0;
@@ -3766,6 +4052,10 @@ html[data-tv-navigation="true"] .epg-program-block:focus-within {
         width: 100vw;
         height: 100dvh;
         grid-template-rows: minmax(0, 1fr) 52px;
+    }
+
+    .media-player-shell {
+        grid-template-rows: minmax(0, 1fr) 76px;
     }
 
     .live-control-bar {
@@ -3811,6 +4101,33 @@ html[data-tv-navigation="true"] .epg-program-block:focus-within {
         grid-row: 1;
     }
 
+    .vod-control-bar {
+        min-height: 76px;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        grid-template-rows: 20px 42px;
+        gap: 0.2rem 0.55rem;
+    }
+
+    .vod-progress-row {
+        grid-column: 1 / -1;
+        grid-row: 1;
+    }
+
+    .vod-control-bar .live-control-group {
+        grid-column: 1;
+        grid-row: 2;
+    }
+
+    .vod-control-bar .stream-diagnostics {
+        grid-column: 2;
+        grid-row: 2;
+    }
+
+    .vod-control-bar .vod-control-actions {
+        grid-column: 3;
+        grid-row: 2;
+    }
+
     .player-channel-rail {
         width: min(340px, 48vw);
     }
@@ -3829,6 +4146,10 @@ html[data-tv-navigation="true"] .epg-program-block:focus-within {
     .player-control {
         width: 36px;
         height: 36px;
+    }
+
+    .vod-control-bar .stream-diagnostics {
+        display: none;
     }
 }
 

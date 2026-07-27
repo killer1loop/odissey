@@ -9,4 +9,4 @@ running_processes="$(
         | awk '$2 == "RUNNING" { count++ } END { print count + 0 }'
 )"
 
-[ "${running_processes}" -eq 4 ]
+[ "${running_processes}" -eq 9 ]

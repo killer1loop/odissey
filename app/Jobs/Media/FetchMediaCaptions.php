@@ -25,7 +25,10 @@ class FetchMediaCaptions implements ShouldBeUnique, ShouldQueue
 
     public int $uniqueFor = 600;
 
-    public function __construct(public readonly string $mediaItemId) {}
+    public function __construct(public readonly string $mediaItemId)
+    {
+        $this->onQueue('media-enrichment');
+    }
 
     public function uniqueId(): string
     {

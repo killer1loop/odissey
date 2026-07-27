@@ -278,13 +278,26 @@ class RestoreApplication extends Command
             'status',
             'web',
             'queue',
+            'queue-media-discovery',
+            'queue-media-scan:*',
+            'queue-media-enrichment:*',
             'scheduler',
             'media-supervisor',
         ], timeout: 10);
         $process->run();
         $output = $process->getOutput()."\n".$process->getErrorOutput();
 
-        foreach (['web', 'queue', 'scheduler', 'media-supervisor'] as $program) {
+        foreach ([
+            'web',
+            'queue',
+            'queue-media-discovery',
+            'queue-media-scan:queue-media-scan_00',
+            'queue-media-scan:queue-media-scan_01',
+            'queue-media-enrichment:queue-media-enrichment_00',
+            'queue-media-enrichment:queue-media-enrichment_01',
+            'scheduler',
+            'media-supervisor',
+        ] as $program) {
             if (preg_match(
                 '/^'.preg_quote($program, '/').'\s+(?:RUNNING|STARTING|BACKOFF|STOPPING)\b/m',
                 $output,

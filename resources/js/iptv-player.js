@@ -282,11 +282,27 @@ function initialize(container) {
         video.muted = video.volume === 0;
         updateControls();
     };
-    const toggleFullscreen = () => {
-        if (document.fullscreenElement === container || document.webkitFullscreenElement === container) {
-            (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document);
-        } else {
-            (container.requestFullscreen ?? container.webkitRequestFullscreen)?.call(container);
+    const toggleFullscreen = async () => {
+        const active = document.fullscreenElement === container
+            || document.webkitFullscreenElement === container
+            || video.webkitDisplayingFullscreen === true;
+
+        try {
+            if (active) {
+                if (document.fullscreenElement || document.webkitFullscreenElement) {
+                    await (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document);
+                } else {
+                    video.webkitExitFullscreen?.();
+                }
+            } else if (container.requestFullscreen || container.webkitRequestFullscreen) {
+                await (container.requestFullscreen ?? container.webkitRequestFullscreen).call(container);
+            } else if (video.webkitEnterFullscreen) {
+                video.webkitEnterFullscreen();
+            } else {
+                setStatus('ready', 'Full screen is not supported by this browser.');
+            }
+        } catch {
+            setStatus('ready', 'Full screen could not be opened.');
         }
     };
     const setRailOpen = (open, focusRail = false) => {
@@ -359,8 +375,9 @@ function initialize(container) {
         const isBack = event.key === 'BrowserBack' || legacyCode === 10009;
         const isPlayPause = event.key === 'MediaPlayPause' || legacyCode === 10252;
 
-        if ((event.key ?? '').toLowerCase() === 'f') {
+        if ((event.key ?? '').toLowerCase() === 'f' || event.code === 'KeyF') {
             event.preventDefault();
+            event.stopPropagation();
             toggleFullscreen();
         } else if (event.key === 'Escape' || isBack) {
             const isFullscreen = document.fullscreenElement === container
@@ -557,7 +574,7 @@ function initialize(container) {
     fullscreenButton?.addEventListener('click', handleFullscreenClick);
     railToggle?.addEventListener('click', handleRailToggle);
     railClose?.addEventListener('click', handleRailClose);
-    document.addEventListener('keydown', handleKeydown);
+    document.addEventListener('keydown', handleKeydown, true);
     video.addEventListener('playing', handlePlaying);
     video.addEventListener('pause', handlePause);
     video.addEventListener('waiting', handleWaiting);
@@ -716,7 +733,7 @@ function initialize(container) {
         fullscreenButton?.removeEventListener('click', handleFullscreenClick);
         railToggle?.removeEventListener('click', handleRailToggle);
         railClose?.removeEventListener('click', handleRailClose);
-        document.removeEventListener('keydown', handleKeydown);
+        document.removeEventListener('keydown', handleKeydown, true);
         video.removeEventListener('playing', handlePlaying);
         video.removeEventListener('pause', handlePause);
         video.removeEventListener('waiting', handleWaiting);
