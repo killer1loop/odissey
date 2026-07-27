@@ -19,6 +19,7 @@ use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
+use Psr\Http\Message\StreamInterface;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -259,7 +260,9 @@ class TranscodeMediaToHlsTest extends TestCase
             ): void {
                 $inputIndex = array_search('-i', $arguments, true);
                 $this->sourceArgument = $arguments[$inputIndex + 1];
-                $this->inputBytes = stream_get_contents($input);
+                $this->inputBytes = $input instanceof StreamInterface
+                    ? $input->getContents()
+                    : stream_get_contents($input);
                 $manifest = $arguments[array_key_last($arguments)];
                 $patternIndex = array_search(
                     '-hls_segment_filename',

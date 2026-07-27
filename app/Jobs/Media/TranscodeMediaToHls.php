@@ -11,7 +11,6 @@ use App\Services\Media\Sources\MediaSourceRegistry;
 use App\Services\Media\TranscodeConcurrencyGate;
 use App\Services\Media\TranscodeStorage;
 use GuzzleHttp\Psr7\LimitStream;
-use GuzzleHttp\Psr7\StreamWrapper;
 use GuzzleHttp\Psr7\Utils;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -217,6 +216,11 @@ class TranscodeMediaToHls implements ShouldQueue
                 }
                 if (is_resource($materialized['input'] ?? null)) {
                     fclose($materialized['input']);
+                } elseif (
+                    is_object($materialized['input'] ?? null)
+                    && method_exists($materialized['input'], 'close')
+                ) {
+                    $materialized['input']->close();
                 }
             }
         } finally {
@@ -338,14 +342,11 @@ class TranscodeMediaToHls implements ShouldQueue
         $stream = $result->body instanceof StreamInterface
             ? $result->body
             : Utils::streamFor($result->body);
-        $input = StreamWrapper::getResource(
-            new LimitStream($stream, $maximumBytes),
-        );
 
         return [
             'path' => 'pipe:0',
             'temporary' => false,
-            'input' => $input,
+            'input' => new LimitStream($stream, $maximumBytes),
         ];
     }
 }

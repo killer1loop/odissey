@@ -3,7 +3,9 @@
 namespace App\Services\Media;
 
 use App\Services\Media\Exceptions\TranscodeQuotaExceeded;
+use Generator;
 use InvalidArgumentException;
+use Psr\Http\Message\StreamInterface;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Process;
 
@@ -70,7 +72,11 @@ class FfmpegRunner
 
         $process = $this->makeProcess($arguments, $timeoutSeconds);
         if ($input !== null) {
-            $process->setInput($input);
+            $process->setInput(
+                $input instanceof StreamInterface
+                    ? $this->streamChunks($input)
+                    : $input,
+            );
         }
 
         if ($shouldContinue === null) {
@@ -95,6 +101,28 @@ class FfmpegRunner
 
         if (! $process->isSuccessful()) {
             throw new ProcessFailedException($process);
+        }
+    }
+
+    /**
+     * Symfony Process consumes iterators only when its stdin pipe is writable.
+     * This keeps remote reads back-pressured by FFmpeg and avoids adapting a
+     * PSR stream through PHP's fragile custom stream-wrapper bridge.
+     *
+     * @return Generator<int, string>
+     */
+    private function streamChunks(StreamInterface $stream): Generator
+    {
+        while (! $stream->eof()) {
+            $chunk = $stream->read(64 * 1024);
+
+            if ($chunk === '') {
+                usleep(10_000);
+
+                continue;
+            }
+
+            yield $chunk;
         }
     }
 
