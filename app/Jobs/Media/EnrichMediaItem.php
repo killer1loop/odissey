@@ -3,6 +3,7 @@
 namespace App\Jobs\Media;
 
 use App\Models\MediaItem;
+use App\Services\IntegrationSettings;
 use App\Services\Media\ArtworkManager;
 use App\Services\Media\TmdbMetadataProvider;
 use App\Services\Media\TvmazeMetadataProvider;
@@ -68,7 +69,10 @@ class EnrichMediaItem implements ShouldBeUnique, ShouldQueue
             ])->save();
             $artwork->populate($item, null);
 
-            if (in_array($kind, ['movie', 'episode'], true)) {
+            if (
+                in_array($kind, ['movie', 'episode'], true)
+                && $this->hasCaptionProvider()
+            ) {
                 FetchMediaCaptions::dispatch($item->id);
             }
         } catch (Throwable $exception) {
@@ -77,5 +81,18 @@ class EnrichMediaItem implements ShouldBeUnique, ShouldQueue
                 'exception' => $exception::class,
             ]);
         }
+    }
+
+    private function hasCaptionProvider(): bool
+    {
+        $settings = app(IntegrationSettings::class);
+
+        return $settings->has(
+            'subdl_api_key',
+            config('services.subdl.api_key'),
+        ) || $settings->has(
+            'opensubtitles_api_key',
+            config('services.opensubtitles.api_key'),
+        );
     }
 }

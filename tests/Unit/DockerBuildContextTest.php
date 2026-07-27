@@ -146,6 +146,19 @@ class DockerBuildContextTest extends TestCase
             'iptv:catalog:refresh --recover-upgrade --no-interaction',
             $entrypoint,
         );
+        $this->assertStringContainsString(
+            'media:captions:prune-unconfigured --no-interaction',
+            $entrypoint,
+        );
+
+        $database = file_get_contents(
+            dirname(__DIR__, 2).'/config/database.php',
+        );
+        $this->assertIsString($database);
+        $this->assertStringContainsString(
+            "env('DB_TRANSACTION_MODE', 'IMMEDIATE')",
+            $database,
+        );
 
         $restore = file_get_contents(
             dirname(__DIR__, 2).'/app/Console/Commands/RestoreApplication.php',

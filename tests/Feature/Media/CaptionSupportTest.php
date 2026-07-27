@@ -2,21 +2,27 @@
 
 namespace Tests\Feature\Media;
 
+use App\Jobs\Media\EnrichMediaItem;
+use App\Jobs\Media\FetchMediaCaptions;
 use App\Models\MediaItem;
 use App\Models\MediaSubtitle;
 use App\Models\User;
 use App\Services\Iptv\ConfidentialHttpFactory;
 use App\Services\Iptv\HostAddressResolver;
+use App\Services\Media\ArtworkManager;
 use App\Services\Media\Captions\CaptionCandidate;
 use App\Services\Media\Captions\CaptionStorage;
 use App\Services\Media\Captions\OpenSubtitlesCaptionProvider;
 use App\Services\Media\Captions\SubdlCaptionProvider;
+use App\Services\Media\TmdbMetadataProvider;
+use App\Services\Media\TvmazeMetadataProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Events\RequestSending;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Mockery\MockInterface;
 use RuntimeException;
 use Tests\TestCase;
@@ -341,6 +347,76 @@ class CaptionSupportTest extends TestCase
         $this->assertStringNotContainsString('private-', $raw);
         $this->actingAs($admin)->get(route('media.admin.integrations.edit'))
             ->assertOk()->assertSee('configured')->assertDontSee('private-tmdb-token');
+    }
+
+    public function test_automatic_enrichment_skips_captions_without_a_provider(): void
+    {
+        Queue::fake();
+        config([
+            'services.subdl.api_key' => null,
+            'services.opensubtitles.api_key' => null,
+        ]);
+        $item = $this->item(['kind' => 'movie']);
+        $tmdb = $this->mock(
+            TmdbMetadataProvider::class,
+            fn (MockInterface $mock) => $mock
+                ->shouldReceive('match')
+                ->once()
+                ->andReturn([]),
+        );
+        $tvmaze = $this->mock(TvmazeMetadataProvider::class);
+        $tvmaze->shouldNotReceive('match');
+        $artwork = $this->mock(
+            ArtworkManager::class,
+            fn (MockInterface $mock) => $mock
+                ->shouldReceive('populate')
+                ->once(),
+        );
+
+        (new EnrichMediaItem($item->id))->handle(
+            $tmdb,
+            $tvmaze,
+            $artwork,
+        );
+
+        Queue::assertNotPushed(FetchMediaCaptions::class);
+    }
+
+    public function test_startup_prunes_only_unconfigured_caption_jobs(): void
+    {
+        config([
+            'services.subdl.api_key' => null,
+            'services.opensubtitles.api_key' => null,
+        ]);
+        $now = now()->timestamp;
+        DB::table('jobs')->insert([
+            [
+                'queue' => 'media-enrichment',
+                'payload' => '{"displayName":"App\\\\Jobs\\\\Media\\\\FetchMediaCaptions"}',
+                'attempts' => 0,
+                'reserved_at' => null,
+                'available_at' => $now,
+                'created_at' => $now,
+            ],
+            [
+                'queue' => 'media-enrichment',
+                'payload' => '{"displayName":"App\\\\Jobs\\\\Media\\\\EnrichMediaItem"}',
+                'attempts' => 0,
+                'reserved_at' => null,
+                'available_at' => $now,
+                'created_at' => $now,
+            ],
+        ]);
+
+        $this->artisan('media:captions:prune-unconfigured')
+            ->expectsOutput('Pruned 1 unconfigured caption job(s).')
+            ->assertSuccessful();
+
+        $this->assertDatabaseCount('jobs', 1);
+        $this->assertStringContainsString(
+            'EnrichMediaItem',
+            DB::table('jobs')->value('payload'),
+        );
     }
 
     private function item(array $metadata = [], ?User $user = null): MediaItem

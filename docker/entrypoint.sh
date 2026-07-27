@@ -145,6 +145,7 @@ fi
 if [ "$(id -u)" -eq 0 ]; then
     gosu www-data php artisan migrate --force --no-interaction
     gosu www-data php artisan media:sources:scan --recover-interrupted --no-interaction
+    gosu www-data php artisan media:captions:prune-unconfigured --no-interaction
     gosu www-data php artisan iptv:catalog:refresh --recover-upgrade --no-interaction
     gosu www-data php artisan optimize
 
@@ -153,6 +154,7 @@ fi
 
 php artisan migrate --force --no-interaction
 php artisan media:sources:scan --recover-interrupted --no-interaction
+php artisan media:captions:prune-unconfigured --no-interaction
 php artisan iptv:catalog:refresh --recover-upgrade --no-interaction
 php artisan optimize
 

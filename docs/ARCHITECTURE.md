@@ -69,6 +69,9 @@ sync, then four dedicated IPTV VOD workers fetch series details in parallel.
 The IPTV media source records discovered, processed, and failed series counts;
 an import token makes jobs from a superseded catalog refresh safe no-ops. The
 parallel-VOD upgrade queues one complete provider refresh at container startup.
+SQLite uses WAL plus immediate transactions so concurrent queue reservations
+wait for the single writer instead of failing during read-to-write promotion.
+Automatic caption jobs are emitted only when a caption provider is configured.
 
 ## Source contracts
 

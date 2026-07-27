@@ -59,6 +59,12 @@ managed IPTV media source retains durable discovered, processed, and failed
 counts. Normal container restarts do not trigger another complete provider
 refresh.
 
+SQLite runs with WAL, a busy timeout, and `IMMEDIATE` transaction mode. Keep
+`DB_TRANSACTION_MODE=IMMEDIATE` for the database-backed parallel worker pool.
+At startup, Odissey removes queued automatic caption lookups when neither SubDL
+nor OpenSubtitles is configured; manual caption fetching remains available once
+a provider is added.
+
 ## Environment
 
 The image supplies secure production defaults. Set at least:
