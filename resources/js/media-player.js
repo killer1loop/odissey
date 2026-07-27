@@ -348,7 +348,10 @@ function initializePlayer(player) {
     const handlePlayClick = () => {
         if (video.paused) {
             playbackRequested = true;
-            play();
+
+            if (!recoverGrowingHlsPlayback()) {
+                play();
+            }
         } else {
             playbackRequested = false;
             video.pause();
