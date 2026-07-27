@@ -5,13 +5,16 @@ namespace App\Http\Controllers\Media;
 use App\Http\Controllers\Controller;
 use App\Models\MediaItem;
 use App\Models\MediaSource;
+use App\Services\Media\MediaArtworkResolver;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\Request;
 
 class MediaIndexController extends Controller
 {
-    public function __invoke(Request $request): View
-    {
+    public function __invoke(
+        Request $request,
+        MediaArtworkResolver $artwork,
+    ): View {
         $filters = $request->validate([
             'favorites' => ['nullable', 'boolean'],
             'kind' => ['nullable', 'in:video,music'],
@@ -131,6 +134,10 @@ class MediaIndexController extends Controller
             ->orderBy('title')
             ->paginate($kind === 'video' ? 100 : 60)
             ->withQueryString();
+        $artworkItems = $artwork->resolve(
+            $items->getCollection(),
+            $request->user(),
+        );
 
         $sources = MediaSource::query()
             ->where('enabled', true)
@@ -152,6 +159,7 @@ class MediaIndexController extends Controller
 
         return view('media.index', compact(
             'items',
+            'artworkItems',
             'kind',
             'library',
             'series',

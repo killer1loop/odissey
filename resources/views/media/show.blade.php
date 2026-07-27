@@ -43,10 +43,10 @@
 @if($isVideo)
     @section('topbar')
         <div class="player-topbar-copy">
-            @if (($item->metadata['poster_cached'] ?? false) || ($item->metadata['poster_url'] ?? false))
+            @if (($itemArtwork->metadata['poster_cached'] ?? false) || ($itemArtwork->metadata['poster_url'] ?? false))
                 <img
                     class="player-media-poster"
-                    src="{{ route('media.artwork', [$item, 'poster']) }}"
+                    src="{{ route('media.artwork', [$itemArtwork, 'poster']) }}"
                     alt=""
                     width="36"
                     height="36"
@@ -175,16 +175,17 @@
                     <div class="player-channel-list" data-player-history-list>
                         @forelse($recentHistory as $historyEntry)
                             @php($historyItem = $historyEntry['item'])
+                            @php($historyArtwork = $historyEntry['artwork_item'])
                             <a
                                 class="player-channel-item media-history-item {{ $historyEntry['is_current'] ? 'is-active' : '' }}"
                                 href="{{ route('media.show', $historyItem) }}"
                                 data-player-history-item
                                 @if($historyEntry['is_current']) data-history-current aria-current="page" @endif
                             >
-                                @if (($historyItem->metadata['poster_cached'] ?? false) || ($historyItem->metadata['poster_url'] ?? false))
+                                @if (($historyArtwork->metadata['poster_cached'] ?? false) || ($historyArtwork->metadata['poster_url'] ?? false))
                                     <img
                                         class="player-rail-poster"
-                                        src="{{ route('media.artwork', [$historyItem, 'poster']) }}"
+                                        src="{{ route('media.artwork', [$historyArtwork, 'poster']) }}"
                                         alt=""
                                         loading="lazy"
                                     >

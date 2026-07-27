@@ -104,11 +104,12 @@
                     </div>
                     <div class="library-grid {{ $kind === 'music' ? 'music-grid' : '' }}">
                         @foreach ($items as $item)
+                            @php($artworkItem = $artworkItems->get((string) $item->getKey(), $item))
                             <article class="media-card">
                                 <a href="{{ route('media.show', $item) }}">
                                     <div class="media-poster">
-                                        @if (($item->metadata['poster_cached'] ?? false) || ($item->metadata['poster_url'] ?? false))
-                                            <img src="{{ route('media.artwork', [$item, 'poster']) }}" alt="" loading="lazy" decoding="async">
+                                        @if (($artworkItem->metadata['poster_cached'] ?? false) || ($artworkItem->metadata['poster_url'] ?? false))
+                                            <img src="{{ route('media.artwork', [$artworkItem, 'poster']) }}" alt="" loading="lazy" decoding="async">
                                         @else
                                             <span class="media-placeholder">
                                                 <svg aria-hidden="true" viewBox="0 0 64 64">

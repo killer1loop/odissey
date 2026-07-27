@@ -8,6 +8,7 @@ use App\Models\MediaItem;
 use App\Models\MediaSource;
 use App\Services\Iptv\IptvVodImportProgress;
 use App\Services\Iptv\XtreamClient;
+use App\Services\Media\TrustedArtworkUrl;
 use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -55,6 +56,7 @@ class SyncXtreamSeries implements ShouldBeUniqueUntilProcessing, ShouldQueue
     public function handle(
         XtreamClient $client,
         IptvVodImportProgress $progress,
+        TrustedArtworkUrl $artworkUrls,
     ): void {
         if ($this->importToken === null) {
             return;
@@ -136,6 +138,10 @@ class SyncXtreamSeries implements ShouldBeUniqueUntilProcessing, ShouldQueue
                     ?? data_get($entry, 'info.name')
                     ?? data_get($entry, 'info.title'),
             ) ?? 'Episode '.$number;
+            $episodeArtwork = $this->episodeArtwork(
+                $entry,
+                $artworkUrls,
+            );
             $metadata = array_filter([
                 'kind' => 'episode',
                 'xtream_type' => 'episode',
@@ -156,6 +162,8 @@ class SyncXtreamSeries implements ShouldBeUniqueUntilProcessing, ShouldQueue
                 'rating' => $this->rating(
                     data_get($entry, 'info.rating'),
                 ),
+                'poster_url' => $episodeArtwork,
+                'backdrop_url' => $episodeArtwork,
             ], fn (mixed $value): bool => $value !== null && $value !== []);
             $item = MediaItem::query()->updateOrCreate(
                 [
@@ -279,6 +287,30 @@ class SyncXtreamSeries implements ShouldBeUniqueUntilProcessing, ShouldQueue
         $value = trim((string) $value);
 
         return $value === '' || strlen($value) > 255 ? null : $value;
+    }
+
+    /**
+     * @param  array<string, mixed>  $entry
+     */
+    private function episodeArtwork(
+        array $entry,
+        TrustedArtworkUrl $artworkUrls,
+    ): ?string {
+        foreach ([
+            data_get($entry, 'info.movie_image'),
+            data_get($entry, 'info.cover_big'),
+            data_get($entry, 'info.image'),
+            $entry['movie_image'] ?? null,
+            $entry['cover_big'] ?? null,
+            $entry['image'] ?? null,
+        ] as $candidate) {
+            $url = $artworkUrls->first($candidate);
+            if ($url !== null) {
+                return $url;
+            }
+        }
+
+        return null;
     }
 
     private function positiveInteger(mixed $value): ?int

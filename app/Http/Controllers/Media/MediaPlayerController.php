@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\MediaItem;
 use App\Models\PlaybackHistory;
 use App\Models\TranscodeSession;
+use App\Services\Media\MediaArtworkResolver;
 use App\Services\Media\TranscodeStorage;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -17,6 +18,7 @@ class MediaPlayerController extends Controller
     public function __invoke(
         Request $request,
         TranscodeStorage $storage,
+        MediaArtworkResolver $artwork,
         string $media,
     ): View|RedirectResponse {
         $item = MediaItem::query()
@@ -70,14 +72,28 @@ class MediaPlayerController extends Controller
             ]);
         }
 
-        $recentHistory = $this->recentHistory($request, $item);
+        $itemArtwork = $artwork
+            ->resolve([$item], $request->user())
+            ->get((string) $item->getKey(), $item);
+        $recentHistory = $this->recentHistory(
+            $request,
+            $item,
+            $artwork,
+        );
 
-        return view('media.show', compact('item', 'progress', 'session', 'recentHistory'));
+        return view('media.show', compact(
+            'item',
+            'itemArtwork',
+            'progress',
+            'session',
+            'recentHistory',
+        ));
     }
 
     /**
      * @return Collection<int, array{
      *     item: MediaItem,
+     *     artwork_item: MediaItem,
      *     position_ms: int,
      *     duration_ms: int|null,
      *     progress_percent: int,
@@ -85,8 +101,11 @@ class MediaPlayerController extends Controller
      *     is_current: bool
      * }>
      */
-    private function recentHistory(Request $request, MediaItem $currentItem): Collection
-    {
+    private function recentHistory(
+        Request $request,
+        MediaItem $currentItem,
+        MediaArtworkResolver $artwork,
+    ): Collection {
         $mediaIds = PlaybackHistory::query()
             ->whereBelongsTo($request->user())
             ->latest('played_at')
@@ -104,9 +123,17 @@ class MediaPlayerController extends Controller
             ])
             ->get()
             ->keyBy('id');
+        $artworkItems = $artwork->resolve(
+            $items->values(),
+            $request->user(),
+        );
 
         return $mediaIds
-            ->map(function (string $mediaId) use ($items, $currentItem): ?array {
+            ->map(function (string $mediaId) use (
+                $items,
+                $artworkItems,
+                $currentItem,
+            ): ?array {
                 /** @var MediaItem|null $historyItem */
                 $historyItem = $items->get($mediaId);
 
@@ -124,6 +151,10 @@ class MediaPlayerController extends Controller
 
                 return [
                     'item' => $historyItem,
+                    'artwork_item' => $artworkItems->get(
+                        (string) $historyItem->getKey(),
+                        $historyItem,
+                    ),
                     'position_ms' => $positionMs,
                     'duration_ms' => $durationMs,
                     'progress_percent' => $progressPercent,

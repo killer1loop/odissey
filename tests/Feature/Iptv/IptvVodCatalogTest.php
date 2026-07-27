@@ -135,6 +135,14 @@ class IptvVodCatalogTest extends TestCase
         $this->assertSame('Pilot', $episode->title);
         $this->assertSame(1, $episode->metadata['season_number']);
         $this->assertSame(1, $episode->metadata['episode_number']);
+        $this->assertSame(
+            'https://image.tmdb.org/t/p/w300/episode-still.jpg',
+            $episode->metadata['poster_url'],
+        );
+        $this->assertSame(
+            'https://image.tmdb.org/t/p/w300/episode-still.jpg',
+            $episode->metadata['backdrop_url'],
+        );
         $this->assertTrue($episode->requires_transcode);
         $this->assertSame('episode', json_decode(
             $episode->source_locator,
@@ -149,6 +157,46 @@ class IptvVodCatalogTest extends TestCase
         $this->assertSame('ready', $source->refresh()->scan_status);
         $this->assertSame(1, $source->scan_processed);
         $this->assertSame('ready', $provider->refresh()->sync_status);
+    }
+
+    public function test_episode_pages_fallback_to_parent_series_artwork(): void
+    {
+        Queue::fake([EnrichMediaItem::class, SyncXtreamSeries::class]);
+        $admin = User::factory()->create([
+            'is_admin' => true,
+            'is_active' => true,
+        ]);
+        $provider = $this->makeProvider(['name' => 'Nera IPTV']);
+        $this->fakeCatalog(withEpisodeArtwork: false);
+        app(ProviderCatalogSynchronizer::class)->sync($provider);
+        $source = MediaSource::query()->sole();
+        $job = Queue::pushed(SyncXtreamSeries::class)->first();
+        app()->call([$job, 'handle']);
+
+        $show = MediaItem::query()
+            ->where('metadata->kind', 'series')
+            ->sole();
+        $episode = MediaItem::query()
+            ->where('metadata->kind', 'episode')
+            ->sole();
+        $seriesArtwork = route('media.artwork', [$show, 'poster']);
+        $episodeArtwork = route('media.artwork', [$episode, 'poster']);
+
+        $this->actingAs($admin)
+            ->get(route('media.index', [
+                'kind' => 'video',
+                'library' => 'tv',
+                'series' => 'Example Show',
+                'source' => $source->id,
+            ]))
+            ->assertOk()
+            ->assertSee($seriesArtwork, escape: false)
+            ->assertDontSee($episodeArtwork, escape: false);
+
+        $this->actingAs($admin)
+            ->get(route('media.show', $episode))
+            ->assertOk()
+            ->assertSee($seriesArtwork, escape: false);
     }
 
     public function test_series_details_preserve_season_zero_specials(): void
@@ -304,9 +352,14 @@ class IptvVodCatalogTest extends TestCase
             ->assertStreamedContent('2345');
     }
 
-    private function fakeCatalog(string $season = '1'): void
-    {
-        Http::fake(function (Request $request) use ($season) {
+    private function fakeCatalog(
+        string $season = '1',
+        bool $withEpisodeArtwork = true,
+    ): void {
+        Http::fake(function (Request $request) use (
+            $season,
+            $withEpisodeArtwork,
+        ) {
             parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
 
             return Http::response(match ($query['action'] ?? 'authenticate') {
@@ -350,6 +403,9 @@ class IptvVodCatalogTest extends TestCase
                             'info' => [
                                 'plot' => 'The first episode.',
                                 'rating' => '8.1',
+                                'movie_image' => $withEpisodeArtwork
+                                    ? 'https://image.tmdb.org/t/p/w300/episode-still.jpg'
+                                    : null,
                             ],
                         ]],
                     ],
