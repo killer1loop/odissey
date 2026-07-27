@@ -57,7 +57,16 @@
 
             @foreach ($channels as $channel)
                 @php
-                    $programs = $guideByChannel->get($channel->id, collect());
+                    $programs = $guideByChannel
+                        ->get($channel->id, collect())
+                        ->groupBy(fn ($program) => $program->starts_at->timestamp)
+                        ->map(
+                            fn ($slot) => $slot
+                                ->sortByDesc(fn ($program) => $program->ends_at->timestamp)
+                                ->first()
+                        )
+                        ->sortBy(fn ($program) => $program->starts_at->timestamp)
+                        ->values();
                 @endphp
                 <div class="epg-row" role="row">
                     <div class="epg-channel" role="rowheader">
@@ -93,16 +102,31 @@
                             <div class="epg-now-line" style="left: {{ $nowPosition }}%" aria-hidden="true"></div>
                         @endif
 
-                        @forelse ($programs as $program)
+                        @forelse ($programs as $programIndex => $program)
                             @php
                                 $visibleStart = max($guideStart->timestamp, $program->starts_at->timestamp);
                                 $visibleEnd = min($guideEnd->timestamp, $program->ends_at->timestamp);
+                                $nextProgram = $programs->get($programIndex + 1);
+
+                                if (
+                                    $nextProgram
+                                    && $nextProgram->starts_at->timestamp > $visibleStart
+                                ) {
+                                    $visibleEnd = min(
+                                        $visibleEnd,
+                                        $nextProgram->starts_at->timestamp,
+                                    );
+                                }
+
                                 $offsetMinutes = max(0, ($visibleStart - $guideStart->timestamp) / 60);
                                 $durationMinutes = max(1, ($visibleEnd - $visibleStart) / 60);
                                 $programStart = ($offsetMinutes / $windowMinutes) * 100;
                                 $programWidth = ($durationMinutes / $windowMinutes) * 100;
                                 $isLive = $program->starts_at <= $guideNow && $program->ends_at > $guideNow;
+                                $viewerStart = $program->starts_at->timezone($viewerTimezone)->format('H:i');
+                                $viewerEnd = $program->ends_at->timezone($viewerTimezone)->format('H:i');
                             @endphp
+                            @continue($visibleEnd <= $visibleStart)
                             <form
                                 class="epg-program-block {{ $isLive ? 'is-live' : '' }}"
                                 method="POST"
@@ -112,13 +136,16 @@
                                 @csrf
                                 <button
                                     type="submit"
-                                    title="{{ $program->description ?: $program->title }}"
+                                    data-epg-program
+                                    data-epg-title="{{ $program->title }}"
+                                    data-epg-channel="{{ $channel->name }}"
+                                    data-epg-time="{{ $viewerStart }} – {{ $viewerEnd }}"
+                                    data-epg-description="{{ $program->description }}"
                                     aria-label="Watch {{ $channel->name }} live: {{ $program->title }}"
                                 >
                                     <strong>{{ $program->title }}</strong>
                                     <span>
-                                        {{ $program->starts_at->timezone($viewerTimezone)->format('H:i') }}
-                                        – {{ $program->ends_at->timezone($viewerTimezone)->format('H:i') }}
+                                        {{ $viewerStart }} – {{ $viewerEnd }}
                                     </span>
                                     @if ($isLive)
                                         <small>Live</small>

@@ -1,4 +1,5 @@
 import htmx from 'htmx.org';
+import './epg-guide';
 import './iptv-player';
 import './media-player';
 import './tv-navigation';

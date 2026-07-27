@@ -107,6 +107,8 @@ class IptvPlaybackProxyTest extends TestCase
             ->assertSee('data-stream-health', escape: false)
             ->assertSee('Resolution')
             ->assertSee('Bitrate')
+            ->assertSee('data-stream-fps', escape: false)
+            ->assertSee('FPS')
             ->assertSee('player-page')
             ->assertDontSee('iptv.example.test')
             ->assertDontSee('private-live-user')

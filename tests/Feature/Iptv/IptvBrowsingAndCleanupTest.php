@@ -72,14 +72,25 @@ class IptvBrowsingAndCleanupTest extends TestCase
             'user_id' => $user->id,
             'channel_id' => $favorite->id,
         ]);
+        $programStartsAt = now()->subMinutes(15);
+        $programEndsAt = now()->addMinutes(45);
         EpgProgram::query()->create([
             'iptv_provider_id' => $favorite->iptv_provider_id,
             'channel_id' => $favorite->id,
             'fingerprint' => hash('sha256', 'favorite-news-live'),
             'title' => 'Midday News',
             'description' => 'The latest headlines.',
-            'starts_at' => now()->subMinutes(15),
-            'ends_at' => now()->addMinutes(45),
+            'starts_at' => $programStartsAt,
+            'ends_at' => $programEndsAt,
+        ]);
+        EpgProgram::query()->create([
+            'iptv_provider_id' => $favorite->iptv_provider_id,
+            'channel_id' => $favorite->id,
+            'fingerprint' => hash('sha256', 'duplicate-favorite-news-live'),
+            'title' => 'Duplicate schedule row',
+            'description' => 'This duplicate slot must not overlap the guide.',
+            'starts_at' => $programStartsAt,
+            'ends_at' => $programEndsAt->copy()->subMinutes(5),
         ]);
 
         $this->actingAs($user)
@@ -90,6 +101,9 @@ class IptvBrowsingAndCleanupTest extends TestCase
             ->assertDontSee('images.example.test')
             ->assertSee('Six-hour television guide')
             ->assertSee('Midday News')
+            ->assertSee('data-epg-program', escape: false)
+            ->assertSee('data-epg-description="The latest headlines."', escape: false)
+            ->assertDontSee('Duplicate schedule row')
             ->assertSee(route('iptv.playback.store', $favorite))
             ->assertSee('TV guide')
             ->assertSee('Channel grid');

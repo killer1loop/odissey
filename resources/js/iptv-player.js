@@ -51,10 +51,13 @@ function initialize(container) {
     let ambientUnavailable = false;
     let recoveryTimer = null;
     let watchdogTimer = null;
+    let fpsTimer = null;
     let recoveryAttempts = 0;
     let sessionRestarts = 0;
     let lastPlaybackTime = 0;
     let lastProgressAt = performance.now();
+    let lastDecodedFrames = null;
+    let lastFrameSampleAt = null;
     let restartingSession = false;
     const stallTimeoutMilliseconds = 10_000;
     const maxRecoveryAttempts = 3;
@@ -144,7 +147,12 @@ function initialize(container) {
     };
 
     const updateRecovery = (message) => {
-        text(container, '[data-stream-recovery]', message);
+        const recovery = container.querySelector('[data-stream-recovery]');
+
+        if (recovery) {
+            recovery.textContent = message;
+            recovery.title = message;
+        }
     };
 
     const reportDiagnostic = (errorCode, httpStatus = null) => {
@@ -191,6 +199,70 @@ function initialize(container) {
         text(container, '[data-stream-bitrate]', formatBitrate(Number(level?.bitrate)));
     };
 
+    const decodedFrameCount = () => {
+        const quality = video.getVideoPlaybackQuality?.();
+        const frames = Number(
+            quality?.totalVideoFrames
+            ?? video.webkitDecodedFrameCount,
+        );
+
+        return Number.isFinite(frames) && frames >= 0 ? frames : null;
+    };
+
+    const resetFps = () => {
+        lastDecodedFrames = decodedFrameCount();
+        lastFrameSampleAt = performance.now();
+        text(container, '[data-stream-fps]', '—');
+    };
+
+    const updateFps = () => {
+        if (video.paused || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+            resetFps();
+
+            return;
+        }
+
+        const now = performance.now();
+        const frames = decodedFrameCount();
+        const levelFps = Number(hls?.levels?.[hls.currentLevel]?.frameRate);
+
+        if (
+            frames === null
+            || lastDecodedFrames === null
+            || lastFrameSampleAt === null
+        ) {
+            lastDecodedFrames = frames;
+            lastFrameSampleAt = now;
+            text(
+                container,
+                '[data-stream-fps]',
+                Number.isFinite(levelFps) && levelFps > 0
+                    ? `${Math.round(levelFps)} fps`
+                    : 'Adaptive',
+            );
+
+            return;
+        }
+
+        const elapsedSeconds = (now - lastFrameSampleAt) / 1_000;
+        const decodedFrames = frames - lastDecodedFrames;
+        lastDecodedFrames = frames;
+        lastFrameSampleAt = now;
+
+        if (elapsedSeconds <= 0 || decodedFrames < 0) {
+            return;
+        }
+
+        const fps = decodedFrames / elapsedSeconds;
+        text(
+            container,
+            '[data-stream-fps]',
+            fps > 0
+                ? `${fps < 10 ? fps.toFixed(1) : Math.round(fps)} fps`
+                : '0 fps',
+        );
+    };
+
     const updateControls = () => {
         container.dataset.playing = video.paused ? 'false' : 'true';
         container.dataset.muted = video.muted || video.volume === 0 ? 'true' : 'false';
@@ -218,12 +290,14 @@ function initialize(container) {
         updateControls();
         updateResolution();
         updateBitrate();
+        resetFps();
         startAmbientLighting();
         setStatus('ready', 'Live stream started. Verifying playback…');
     };
     const handlePause = () => {
         stopAmbientLighting();
         updateControls();
+        resetFps();
         setStatus('paused', 'Live stream paused.');
     };
     const handleWaiting = () => {
@@ -239,7 +313,7 @@ function initialize(container) {
         lastPlaybackTime = video.currentTime;
         lastProgressAt = performance.now();
         recoveryAttempts = 0;
-        updateRecovery(sessionRestarts > 0 ? 'Session refreshed' : 'Automatic');
+        updateRecovery(sessionRestarts > 0 ? 'Restarted' : 'Automatic');
 
         if (
             !video.paused
@@ -469,6 +543,7 @@ function initialize(container) {
             recoveryAttempts = 0;
             lastPlaybackTime = 0;
             lastProgressAt = performance.now();
+            resetFps();
 
             if (hls) {
                 hls.stopLoad();
@@ -480,7 +555,7 @@ function initialize(container) {
                 play();
             }
 
-            updateRecovery('Session refreshed');
+            updateRecovery('Restarted');
         } catch {
             reportDiagnostic('session_restart_failed');
             updateRecovery('Refresh failed');
@@ -508,7 +583,7 @@ function initialize(container) {
         }
 
         const delay = Math.min(4_000, 500 * (2 ** (recoveryAttempts - 1)));
-        updateRecovery(`Attempt ${recoveryAttempts} of ${maxRecoveryAttempts}`);
+        updateRecovery(`Retry ${recoveryAttempts}/${maxRecoveryAttempts}`);
         setStatus('recovering', 'Recovering the live stream…');
 
         if (recoveryTimer !== null) {
@@ -592,6 +667,7 @@ function initialize(container) {
     setStatus('connecting', 'Connecting to live stream…');
     updateRecovery('Automatic');
     watchdogTimer = window.setInterval(checkPlaybackProgress, 2_000);
+    fpsTimer = window.setInterval(updateFps, 2_000);
 
     if (!Hls.isSupported() && video.canPlayType('application/vnd.apple.mpegurl')) {
         const handleCanPlay = () => {
@@ -751,6 +827,9 @@ function initialize(container) {
         }
         if (watchdogTimer !== null) {
             window.clearInterval(watchdogTimer);
+        }
+        if (fpsTimer !== null) {
+            window.clearInterval(fpsTimer);
         }
         stopAmbientLighting();
         hls?.destroy();

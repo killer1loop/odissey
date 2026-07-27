@@ -2656,7 +2656,7 @@ input[type="radio"] {
 .epg-program-track {
     position: relative;
     min-height: 76px;
-    overflow: hidden;
+    overflow: clip;
     background:
         repeating-linear-gradient(
             to right,
@@ -2687,7 +2687,7 @@ input[type="radio"] {
     z-index: 2;
     top: 0;
     bottom: 0;
-    min-width: 34px;
+    min-width: 0;
     padding: 4px 3px;
 }
 
@@ -2751,6 +2751,48 @@ input[type="radio"] {
     font-weight: 850;
     letter-spacing: 0.06em;
     text-transform: uppercase;
+}
+
+.epg-program-tooltip {
+    position: fixed;
+    z-index: 100;
+    width: min(320px, calc(100vw - 24px));
+    padding: 0.72rem 0.78rem;
+    border: 1px solid var(--line-strong);
+    border-radius: 4px;
+    background: rgba(25, 29, 35, 0.98);
+    box-shadow: 0 14px 42px rgba(0, 0, 0, 0.46);
+    color: var(--text);
+    pointer-events: none;
+}
+
+.epg-program-tooltip[hidden] {
+    display: none;
+}
+
+.epg-program-tooltip strong,
+.epg-program-tooltip span,
+.epg-program-tooltip p {
+    display: block;
+    margin: 0;
+}
+
+.epg-program-tooltip strong {
+    font-size: 0.78rem;
+    line-height: 1.35;
+}
+
+.epg-program-tooltip span {
+    margin-top: 0.28rem;
+    color: var(--soft);
+    font-size: 0.62rem;
+}
+
+.epg-program-tooltip p {
+    margin-top: 0.5rem;
+    color: var(--muted);
+    font-size: 0.68rem;
+    line-height: 1.45;
 }
 
 .epg-no-program {
@@ -3407,6 +3449,7 @@ input[type="radio"] {
 }
 
 .live-player-shell[data-player-state="healthy"] .live-video-message,
+.live-player-shell[data-player-state="recovering"] .live-video-message,
 .live-player-shell[data-player-state="paused"] .live-video-message {
     opacity: 0;
     pointer-events: none;
@@ -4139,17 +4182,26 @@ html[data-tv-navigation="true"] .epg-program-block:focus-within {
     }
 
     .stream-diagnostics {
+        display: grid;
+        width: 100%;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
         grid-column: 1 / -1;
         grid-row: 2;
         justify-content: flex-start;
-        gap: 1.1rem;
+        gap: 0.35rem;
         padding-top: 0.45rem;
         border-top: 1px solid var(--line);
     }
 
+    .stream-diagnostics > div {
+        min-width: 0;
+    }
+
     .stream-diagnostics dt,
     .stream-diagnostics dd {
+        overflow: hidden;
         text-align: left;
+        text-overflow: ellipsis;
     }
 
     .live-control-bar > .player-control:last-child {

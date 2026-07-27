@@ -194,6 +194,10 @@
                     <dd data-stream-bitrate>—</dd>
                 </div>
                 <div>
+                    <dt>FPS</dt>
+                    <dd data-stream-fps>—</dd>
+                </div>
+                <div>
                     <dt>Recovery</dt>
                     <dd data-stream-recovery>Automatic</dd>
                 </div>
