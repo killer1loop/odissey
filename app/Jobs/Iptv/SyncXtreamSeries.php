@@ -112,7 +112,7 @@ class SyncXtreamSeries implements ShouldBeUniqueUntilProcessing, ShouldQueue
         $itemIds = [];
         foreach ($episodes as $entry) {
             $id = $this->scalarId($entry['id'] ?? $entry['stream_id'] ?? null);
-            $season = $this->positiveInteger(
+            $season = $this->nonNegativeInteger(
                 $entry['_season']
                     ?? $entry['season']
                     ?? data_get($entry, 'info.season'),
@@ -286,6 +286,14 @@ class SyncXtreamSeries implements ShouldBeUniqueUntilProcessing, ShouldQueue
         return (is_int($value) || is_string($value))
             && ctype_digit((string) $value)
             && (int) $value > 0
+                ? (int) $value
+                : null;
+    }
+
+    private function nonNegativeInteger(mixed $value): ?int
+    {
+        return (is_int($value) || is_string($value))
+            && ctype_digit((string) $value)
                 ? (int) $value
                 : null;
     }

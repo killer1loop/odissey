@@ -137,6 +137,29 @@ class IptvVodCatalogTest extends TestCase
         $this->assertSame('ready', $provider->refresh()->sync_status);
     }
 
+    public function test_series_details_preserve_season_zero_specials(): void
+    {
+        Queue::fake([EnrichMediaItem::class, SyncXtreamSeries::class]);
+        User::factory()->create(['is_admin' => true, 'is_active' => true]);
+        $provider = $this->makeProvider(['name' => 'Nera IPTV']);
+        $this->fakeCatalog('0');
+        app(ProviderCatalogSynchronizer::class)->sync($provider);
+
+        $job = Queue::pushed(SyncXtreamSeries::class)->first();
+        $this->assertInstanceOf(SyncXtreamSeries::class, $job);
+        app()->call([$job, 'handle']);
+
+        $episode = MediaItem::query()
+            ->where('metadata->kind', 'episode')
+            ->sole();
+        $this->assertSame(0, $episode->metadata['season_number']);
+        $this->assertSame(1, $episode->metadata['episode_number']);
+        $this->assertStringContainsString(
+            '/Season 00/',
+            (string) $episode->relative_path,
+        );
+    }
+
     public function test_provider_series_metadata_without_episodes_is_an_empty_series(): void
     {
         $provider = $this->makeProvider(['name' => 'Nera IPTV']);
@@ -225,9 +248,9 @@ class IptvVodCatalogTest extends TestCase
             ->assertStreamedContent('2345');
     }
 
-    private function fakeCatalog(): void
+    private function fakeCatalog(string $season = '1'): void
     {
-        Http::fake(function (Request $request) {
+        Http::fake(function (Request $request) use ($season) {
             parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
 
             return Http::response(match ($query['action'] ?? 'authenticate') {
@@ -258,7 +281,7 @@ class IptvVodCatalogTest extends TestCase
                 'get_series_info' => [
                     'info' => ['name' => 'Example Show'],
                     'episodes' => [
-                        '1' => [[
+                        $season => [[
                             'id' => '902',
                             'episode_num' => 1,
                             'title' => 'Pilot',
