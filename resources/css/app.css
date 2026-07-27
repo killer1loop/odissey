@@ -3379,10 +3379,6 @@ input[type="radio"] {
     text-align: right;
 }
 
-.media-player-shell:has(.transcode-panel) {
-    grid-template-rows: minmax(0, 1fr);
-}
-
 .media-player-shell:has(.transcode-panel) .live-control-bar,
 .media-player-shell:has(.transcode-panel) .player-rail-trigger {
     display: none;
