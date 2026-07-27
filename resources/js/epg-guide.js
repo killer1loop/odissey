@@ -75,6 +75,19 @@ function showTooltip(program) {
     positionTooltip(program);
 }
 
+function handleScroll() {
+    if (
+        activeProgram
+        && activeProgram.contains(document.activeElement)
+    ) {
+        positionTooltip(activeProgram);
+
+        return;
+    }
+
+    hideTooltip();
+}
+
 document.addEventListener('pointerover', (event) => {
     const program = event.target.closest?.(programSelector);
 
@@ -109,6 +122,6 @@ document.addEventListener('focusout', (event) => {
     }
 });
 
-document.addEventListener('scroll', hideTooltip, true);
+document.addEventListener('scroll', handleScroll, true);
 window.addEventListener('resize', hideTooltip);
 window.addEventListener('pagehide', hideTooltip);
