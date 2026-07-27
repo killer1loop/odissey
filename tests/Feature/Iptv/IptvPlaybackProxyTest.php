@@ -99,6 +99,7 @@ class IptvPlaybackProxyTest extends TestCase
             ->assertSee('data-player-controls', escape: false)
             ->assertSee('data-player-channel-rail', escape: false)
             ->assertSee('data-player-rail-toggle', escape: false)
+            ->assertSee('aria-label="Open channel list"', escape: false)
             ->assertSee('data-player-ambient', escape: false)
             ->assertSee('width="48"', escape: false)
             ->assertSee('height="27"', escape: false)

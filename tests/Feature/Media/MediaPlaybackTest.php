@@ -76,6 +76,7 @@ class MediaPlaybackTest extends TestCase
             ->assertSee('data-player-fullscreen', escape: false)
             ->assertSee('data-player-ambient', escape: false)
             ->assertSee('>History<', escape: false)
+            ->assertSee('aria-label="Open viewing history"', escape: false)
             ->assertSee('F</kbd> full screen', escape: false);
 
         $this->assertDatabaseHas('playback_history', [

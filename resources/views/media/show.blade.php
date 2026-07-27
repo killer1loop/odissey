@@ -135,6 +135,8 @@
                         data-player-rail-toggle
                         aria-controls="media-history-rail"
                         aria-expanded="false"
+                        aria-label="Open viewing history"
+                        title="Viewing history"
                     >
                         <svg aria-hidden="true" viewBox="0 0 24 24">
                             <circle cx="12" cy="12" r="9"/>

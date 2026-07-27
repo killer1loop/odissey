@@ -61,6 +61,8 @@
                     data-player-rail-toggle
                     aria-controls="favorite-channel-rail"
                     aria-expanded="false"
+                    aria-label="Open channel list"
+                    title="Channels"
                 >
                     <svg aria-hidden="true" viewBox="0 0 24 24">
                         <path d="M4 6h16M4 12h16M4 18h16"/>
