@@ -89,7 +89,10 @@ paths:
           description: Device-scoped tokens and the authenticated user.
           headers:
             Cache-Control:
-              schema: { type: string, const: no-store }
+              description: Must contain the `no-store` directive. Other cache-control directives may also be present.
+              schema:
+                type: string
+                example: no-store, private
           content:
             application/json:
               schema:
@@ -377,9 +380,10 @@ paths:
           description: Original artwork or a cached bounded JPEG variant.
           headers:
             Cache-Control:
+              description: Private cache policy; directive order and additional compatible directives may vary.
               schema:
                 type: string
-                const: private, max-age=86400
+                example: private, max-age=86400
             ETag:
               schema: { type: string }
             Last-Modified:
@@ -1969,8 +1973,8 @@ components:
          accessExpiresAt, refreshExpiresAt, user, profiles, activeProfile]
       properties:
         sessionId: { type: string }
-        accessToken: { type: string, writeOnly: true }
-        refreshToken: { type: string, writeOnly: true }
+        accessToken: { type: string, readOnly: true }
+        refreshToken: { type: string, readOnly: true }
         tokenType: { type: string, const: Bearer }
         expiresIn: { type: integer, minimum: 0 }
         accessExpiresAt: { type: string, format: date-time }

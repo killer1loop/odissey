@@ -247,6 +247,11 @@ class NativeClientApiTest extends TestCase
                 'activeProfile',
             ]);
         $this->assertIsInt($login->json('expiresIn'));
+        $login->assertHeader('Content-Type', 'application/json');
+        $this->assertStringContainsString(
+            'no-store',
+            (string) $login->headers->get('Cache-Control'),
+        );
         $access = (string) $login->json('accessToken');
         $refresh = (string) $login->json('refreshToken');
         $session = NativeClientSession::query()->sole();
