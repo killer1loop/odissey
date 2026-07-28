@@ -190,7 +190,7 @@ class NativeTokenService
             'accessToken' => $accessToken,
             'refreshToken' => $refreshToken,
             'tokenType' => 'Bearer',
-            'expiresIn' => max(0, now()->diffInSeconds(
+            'expiresIn' => max(0, (int) now()->diffInSeconds(
                 $session->access_expires_at,
                 false,
             )),
