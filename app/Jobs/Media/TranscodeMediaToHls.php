@@ -125,6 +125,7 @@ class TranscodeMediaToHls implements ShouldQueue
                     $storage->segmentPattern($session),
                     $session->profile,
                     $session->audio_track,
+                    $session->delivery_mode,
                 );
                 $watchdog = function () use (
                     $session,

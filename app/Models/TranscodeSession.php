@@ -18,7 +18,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'finished_at',
     'expires_at',
     'profile',
+    'delivery_mode',
     'audio_track',
+    'subtitle_track',
+    'media_subtitle_id',
 ])]
 class TranscodeSession extends Model
 {
@@ -55,6 +58,8 @@ class TranscodeSession extends Model
             'heartbeat_at' => 'immutable_datetime',
             'finished_at' => 'immutable_datetime',
             'expires_at' => 'immutable_datetime',
+            'audio_track' => 'integer',
+            'subtitle_track' => 'integer',
         ];
     }
 }

@@ -64,6 +64,8 @@ return [
     'e2e_path' => env('ODISSEY_E2E_PATH') ?: '/var/cache/odissey/e2e',
     'artwork_path' => env('ODISSEY_ARTWORK_PATH') ?: rtrim(env('ODISSEY_DATA_PATH') ?: storage_path('app/odissey'), '/').'/artwork',
     'artwork_max_bytes' => (int) env('ODISSEY_ARTWORK_MAX_BYTES', 10 * 1024 * 1024),
+    'artwork_max_processes' => (int) env('ODISSEY_ARTWORK_MAX_PROCESSES', 2),
+    'artwork_generation_lease_seconds' => (int) env('ODISSEY_ARTWORK_GENERATION_LEASE_SECONDS', 45),
     'caption_path' => env('ODISSEY_CAPTION_PATH') ?: rtrim(env('ODISSEY_DATA_PATH') ?: storage_path('app/odissey'), '/').'/captions',
     'caption_max_bytes' => (int) env('ODISSEY_CAPTION_MAX_BYTES', 8 * 1024 * 1024),
     'caption_max_tracks_per_item' => (int) env('ODISSEY_CAPTION_MAX_TRACKS_PER_ITEM', 20),

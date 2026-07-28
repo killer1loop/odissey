@@ -1,0 +1,2556 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: Odissey Native Client API
+  version: 1.0.0
+  license:
+    name: MIT
+    identifier: MIT
+  description: |
+    Canonical API contract for native Odissey clients. JSON fields use
+    camelCase, identifiers are opaque strings, times are UTC ISO 8601, and
+    durations and playback positions are integer milliseconds.
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+tags:
+  - name: Discovery
+    description: Public server identity, compatibility, and feature discovery.
+  - name: Authentication
+    description: First launch, login, rotating device sessions, and profiles.
+  - name: Catalog
+    description: User-scoped libraries, media details, search, state, and captions.
+  - name: Music
+    description: Music browsing and persistent user-owned playlists.
+  - name: Live TV
+    description: Channel groups, guide data, favorites, and live playback setup.
+  - name: Playback
+    description: Native media resolution, short-lived grants, and session control.
+  - name: Administration
+    description: Administrator-only users, sources, providers, jobs, and integrations.
+paths:
+  /server:
+    get:
+      tags: [Discovery]
+      summary: Get server
+      operationId: getServer
+      security: []
+      responses:
+        '200':
+          description: Server identity and API compatibility.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Server'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+  /setup/admin:
+    post:
+      tags: [Authentication]
+      summary: Create initial admin
+      operationId: createInitialAdmin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetupRequest'
+      responses:
+        '201':
+          description: Initial administrator and native session created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Validation'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: Login
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Device-scoped tokens and the authenticated user.
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/Validation'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: Refresh token
+      operationId: refreshToken
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string, maxLength: 200 }
+      responses:
+        '200':
+          description: Rotated access and refresh token pair plus active profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Logout
+      operationId: logout
+      responses:
+        '200':
+          description: Current device session revoked.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [revoked]
+                properties:
+                  revoked: { type: boolean, const: true }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /auth/sessions:
+    get:
+      tags: [Authentication]
+      summary: List device sessions
+      operationId: listDeviceSessions
+      responses:
+        '200':
+          description: Active device sessions for the current user.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    maxItems: 50
+                    items:
+                      $ref: '#/components/schemas/DeviceSession'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /auth/sessions/{sessionId}:
+    delete:
+      tags: [Authentication]
+      summary: Revoke device session
+      operationId: revokeDeviceSession
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Selected device session revoked.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  revoked: { type: boolean }
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /me:
+    get:
+      tags: [Authentication]
+      summary: Get current user
+      operationId: getCurrentUser
+      responses:
+        '200':
+          description: Current user/profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserEnvelope'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /me/preferences:
+    put:
+      tags: [Authentication]
+      summary: Update preferences
+      operationId: updatePreferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Preferences'
+      responses:
+        '200':
+          description: Updated current user/profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserEnvelope'
+        '422':
+          $ref: '#/components/responses/Validation'
+  /profiles:
+    get:
+      tags: [Authentication]
+      summary: List profiles
+      operationId: listProfiles
+      responses:
+        '200':
+          description: Profiles available to the native session.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/User' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /profiles/{profileId}/activate:
+    post:
+      tags: [Authentication]
+      summary: Activate profile
+      operationId: activateProfile
+      parameters:
+        - $ref: '#/components/parameters/ProfileId'
+      responses:
+        '200':
+          description: Activated profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserEnvelope'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /home:
+    get:
+      tags: [Catalog]
+      summary: Get home
+      operationId: getHome
+      responses:
+        '200':
+          description: Home shelves including continue watching and favorites.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sections]
+                properties:
+                  sections:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MediaSection'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /libraries:
+    get:
+      tags: [Catalog]
+      summary: List libraries
+      operationId: listLibraries
+      responses:
+        '200':
+          description: Virtual libraries and configured media sources.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, sources]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Library'
+                  sources:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MediaSourceSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /libraries/{libraryId}/items:
+    get:
+      tags: [Catalog]
+      summary: List library items
+      operationId: listLibraryItems
+      parameters:
+        - $ref: '#/components/parameters/LibraryId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: sourceId
+          in: query
+          schema: { type: string, maxLength: 26 }
+        - name: favorite
+          in: query
+          schema: { type: boolean }
+        - name: sort
+          in: query
+          description: Server-global deterministic ordering for cursor paging.
+          schema:
+            type: string
+            default: title
+            enum: [recently_added, title, release_date]
+      responses:
+        '200':
+          $ref: '#/components/responses/MediaPage'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /media/{mediaId}:
+    get:
+      tags: [Catalog]
+      summary: Get media
+      operationId: getMedia
+      parameters:
+        - $ref: '#/components/parameters/MediaId'
+      responses:
+        '200':
+          description: Media details.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { $ref: '#/components/schemas/MediaItem' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /media/{mediaId}/artwork/{kind}:
+    get:
+      tags: [Catalog]
+      summary: Get media artwork
+      operationId: getMediaArtwork
+      parameters:
+        - $ref: '#/components/parameters/MediaId'
+        - name: kind
+          in: path
+          required: true
+          schema: { type: string, enum: [poster, backdrop] }
+        - name: width
+          in: query
+          description: |
+            Optional aspect-fit width. Artwork is never upscaled and the
+            resulting long edge is rounded down to one of the cache buckets
+            32, 64, 96, 128, 160, 240, 320, 480, 720, 1080, 1920, or 3840.
+          schema:
+            type: integer
+            minimum: 32
+            maximum: 3840
+        - name: height
+          in: query
+          description: |
+            Optional aspect-fit height. When width is also supplied, the
+            requested box may contain at most 8294400 pixels.
+          schema:
+            type: integer
+            minimum: 32
+            maximum: 3840
+      responses:
+        '200':
+          description: Original artwork or a cached bounded JPEG variant.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: private, max-age=86400
+            ETag:
+              schema: { type: string }
+            Last-Modified:
+              schema: { type: string }
+          content:
+            image/jpeg:
+              schema: { type: string, contentEncoding: binary }
+        '304':
+          description: Cached artwork is still current.
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Validation'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /media/{mediaId}/tracks:
+    get:
+      tags: [Catalog]
+      summary: Get media tracks
+      operationId: getMediaTracks
+      parameters:
+        - $ref: '#/components/parameters/MediaId'
+      responses:
+        '200':
+          description: Probed audio and embedded subtitle tracks.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  audio:
+                    type: array
+                    items: { $ref: '#/components/schemas/Track' }
+                  subtitles:
+                    type: array
+                    items: { $ref: '#/components/schemas/Track' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /media/{mediaId}/captions:
+    get:
+      tags: [Catalog]
+      summary: Get media captions
+      operationId: getMediaCaptions
+      parameters:
+        - $ref: '#/components/parameters/MediaId'
+      responses:
+        '200':
+          description: Downloaded caption tracks.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/SubtitleTrack' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /media/{mediaId}/captions/{subtitleId}.vtt:
+    get:
+      tags: [Catalog]
+      summary: Get media caption file
+      operationId: getMediaCaptionFile
+      parameters:
+        - $ref: '#/components/parameters/MediaId'
+        - name: subtitleId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: User-authorized WebVTT caption file.
+          content:
+            text/vtt:
+              schema: { type: string }
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /series/{seriesId}/seasons:
+    get:
+      tags: [Catalog]
+      summary: List seasons
+      operationId: listSeasons
+      parameters:
+        - name: seriesId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Seasons for an imported series.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Season'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /seasons/{seasonId}/episodes:
+    get:
+      tags: [Catalog]
+      summary: List episodes
+      operationId: listEpisodes
+      parameters:
+        - name: seasonId
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          $ref: '#/components/responses/MediaPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /search:
+    get:
+      tags: [Catalog]
+      summary: Search
+      operationId: search
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 200 }
+        - name: kind
+          in: query
+          schema: { type: string, enum: [movies, tv, music] }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          $ref: '#/components/responses/MediaPage'
+        '422':
+          $ref: '#/components/responses/Validation'
+  /favorites:
+    get:
+      tags: [Catalog]
+      summary: List media favorites
+      operationId: listMediaFavorites
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          $ref: '#/components/responses/MediaPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /favorites/{kind}/{id}:
+    put:
+      tags: [Catalog]
+      summary: Add favorite
+      operationId: addFavorite
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema: { type: string, const: media }
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Favorite state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FavoriteState'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Catalog]
+      summary: Remove favorite
+      operationId: removeFavorite
+      parameters:
+        - name: kind
+          in: path
+          required: true
+          schema: { type: string, const: media }
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Favorite state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FavoriteState'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /history:
+    get:
+      tags: [Catalog]
+      summary: Get history
+      operationId: getHistory
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          $ref: '#/components/responses/MediaPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /media/{mediaId}/progress:
+    put:
+      tags: [Catalog]
+      summary: Update progress
+      operationId: updateProgress
+      parameters:
+        - $ref: '#/components/parameters/MediaId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProgressUpdate'
+      responses:
+        '200':
+          description: Accepted monotonic progress state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProgressResult'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Validation'
+  /media/{mediaId}/watched:
+    post:
+      tags: [Catalog]
+      summary: Mark watched
+      operationId: markWatched
+      parameters:
+        - $ref: '#/components/parameters/MediaId'
+      responses:
+        '200':
+          description: Completed progress state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProgressResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /music/artists:
+    get:
+      tags: [Music]
+      summary: List artists
+      operationId: listArtists
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Cursor-paginated imported artists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MusicArtistPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /music/albums:
+    get:
+      tags: [Music]
+      summary: List albums
+      operationId: listAlbums
+      parameters:
+        - name: artist
+          in: query
+          schema: { type: string, maxLength: 255 }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Cursor-paginated imported albums.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MusicAlbumPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /music/tracks:
+    get:
+      tags: [Music]
+      summary: List music tracks
+      operationId: listMusicTracks
+      parameters:
+        - name: artist
+          in: query
+          description: Exact artist name returned by the artist/album summary.
+          schema: { type: string, maxLength: 255 }
+        - name: album
+          in: query
+          description: Exact album name returned by the album summary.
+          schema: { type: string, maxLength: 255 }
+        - name: sourceId
+          in: query
+          schema: { type: string, maxLength: 26 }
+        - name: favorite
+          in: query
+          schema: { type: boolean }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          $ref: '#/components/responses/MediaPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /music/playlists:
+    get:
+      tags: [Music]
+      summary: List music playlists
+      operationId: listMusicPlaylists
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Owner-scoped cursor-paginated playlists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MusicPlaylistPage'
+        '422':
+          $ref: '#/components/responses/Validation'
+    post:
+      tags: [Music]
+      summary: Create music playlist
+      operationId: createMusicPlaylist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MusicPlaylistWrite'
+      responses:
+        '201':
+          description: Playlist created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MusicPlaylistResponse'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Validation'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /music/playlists/{playlistId}:
+    get:
+      tags: [Music]
+      summary: Get music playlist
+      operationId: getMusicPlaylist
+      parameters:
+        - $ref: '#/components/parameters/PlaylistId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Playlist and deterministically ordered tracks.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MusicPlaylistResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Music]
+      summary: Update music playlist
+      operationId: updateMusicPlaylist
+      parameters:
+        - $ref: '#/components/parameters/PlaylistId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MusicPlaylistWrite'
+      responses:
+        '200':
+          description: Playlist and its ordered tracks replaced atomically.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MusicPlaylistResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Validation'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+    delete:
+      tags: [Music]
+      summary: Delete music playlist
+      operationId: deleteMusicPlaylist
+      parameters:
+        - $ref: '#/components/parameters/PlaylistId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [confirmation]
+              properties:
+                confirmation:
+                  type: string
+                  const: delete-playlist
+      responses:
+        '200':
+          description: Playlist deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [deleted]
+                properties:
+                  deleted: { type: boolean, const: true }
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Validation'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /live/groups:
+    get:
+      tags: [Live TV]
+      summary: List channel groups
+      operationId: listChannelGroups
+      responses:
+        '200':
+          description: Active channel groups.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataCollection'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /live/channels:
+    get:
+      tags: [Live TV]
+      summary: List channels
+      operationId: listChannels
+      parameters:
+        - name: groupId
+          in: query
+          schema: { type: integer, minimum: 1 }
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 100 }
+        - name: favorites
+          in: query
+          schema: { type: boolean }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          $ref: '#/components/responses/ChannelPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /live/channels/{channelId}:
+    get:
+      tags: [Live TV]
+      summary: Get channel
+      operationId: getChannel
+      parameters:
+        - $ref: '#/components/parameters/ChannelId'
+      responses:
+        '200':
+          description: Channel plus upcoming schedule.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Channel' }
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /live/channels/{channelId}/icon:
+    get:
+      tags: [Live TV]
+      summary: Get channel icon
+      operationId: getChannelIcon
+      parameters:
+        - $ref: '#/components/parameters/ChannelId'
+      responses:
+        '200':
+          description: Validated external channel icon.
+          content:
+            image/jpeg: { schema: { type: string, contentEncoding: binary } }
+            image/png: { schema: { type: string, contentEncoding: binary } }
+            image/webp: { schema: { type: string, contentEncoding: binary } }
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /live/guide:
+    get:
+      tags: [Live TV]
+      summary: Get guide
+      operationId: getGuide
+      parameters:
+        - name: startsAt
+          in: query
+          schema: { type: string, format: date-time }
+        - name: endsAt
+          in: query
+          schema: { type: string, format: date-time }
+        - name: groupId
+          in: query
+          schema: { type: integer, minimum: 1 }
+        - name: favorites
+          in: query
+          schema: { type: boolean }
+        - name: timezone
+          in: query
+          schema: { type: string }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Normalized guide timeline and paginated channels.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Guide'
+        '422':
+          $ref: '#/components/responses/Validation'
+  /live/channels/{channelId}/schedule:
+    get:
+      tags: [Live TV]
+      summary: Get channel schedule
+      operationId: getChannelSchedule
+      parameters:
+        - $ref: '#/components/parameters/ChannelId'
+        - name: startsAt
+          in: query
+          schema: { type: string, format: date-time }
+        - name: endsAt
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Channel schedule.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/EpgProgram' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /live/favorites:
+    get:
+      tags: [Live TV]
+      summary: List live favorites
+      operationId: listLiveFavorites
+      responses:
+        '200':
+          description: Favorite channels.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Channel' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /live/favorites/{channelId}:
+    put:
+      tags: [Live TV]
+      summary: Add live favorite
+      operationId: addLiveFavorite
+      parameters:
+        - $ref: '#/components/parameters/ChannelId'
+      responses:
+        '200':
+          description: Favorite state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FavoriteState' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    delete:
+      tags: [Live TV]
+      summary: Remove live favorite
+      operationId: removeLiveFavorite
+      parameters:
+        - $ref: '#/components/parameters/ChannelId'
+      responses:
+        '200':
+          description: Favorite state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FavoriteState' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /live/epg/refresh:
+    post:
+      tags: [Live TV, Administration]
+      summary: Refresh EPG
+      operationId: refreshEpg
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                providerId: { type: integer, minimum: 1 }
+      responses:
+        '202':
+          description: Guide refresh jobs queued.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [queued, auditId]
+                properties:
+                  queued: { type: integer, minimum: 0 }
+                  auditId: { $ref: '#/components/schemas/AuditId' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /playback/resolve:
+    post:
+      tags: [Playback]
+      summary: Resolve media playback
+      operationId: resolveMediaPlayback
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaybackResolveRequest'
+      responses:
+        '200':
+          description: |
+            Native playback decision and a bearer-grant URL valid for a
+            rolling window of at most ten minutes. Re-resolving the same media
+            resource from the same native client session revokes its previous
+            active grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaybackResolution'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Validation'
+  /live/playback/resolve:
+    post:
+      tags: [Playback, Live TV]
+      summary: Resolve live playback
+      operationId: resolveLivePlayback
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [channelId, device]
+              properties:
+                channelId: { type: integer, minimum: 1 }
+                device:
+                  type: object
+                  additionalProperties: false
+                  required: [platform, osVersion]
+                  properties:
+                    platform: { type: string, const: tvOS }
+                    osVersion: { type: string, maxLength: 32 }
+      responses:
+        '200':
+          description: |
+            Authenticated provider HLS gateway grant valid for a rolling
+            window of at most ten minutes. Re-resolving the same channel from
+            the same native client session revokes its previous active grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaybackResolution'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /playback/sessions/{sessionId}/heartbeat:
+    post:
+      tags: [Playback]
+      summary: Heartbeat playback
+      operationId: heartbeatPlayback
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: |
+            Playback grant heartbeat accepted. Expiry advances by no more than
+            ten minutes and never beyond the client session refresh expiry.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted: { type: boolean }
+                  expiresAt: { type: string, format: date-time }
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /playback/sessions/{sessionId}/stop:
+    post:
+      tags: [Playback]
+      summary: Stop playback
+      operationId: stopPlayback
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Playback grant stopped.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  stopped: { type: boolean }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /playback/media/{mediaId}/transcodes/{transcodeId}/status:
+    get:
+      tags: [Playback]
+      summary: Get transcode status
+      operationId: getTranscodeStatus
+      parameters:
+        - $ref: '#/components/parameters/MediaId'
+        - name: transcodeId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Conversion/repackaging state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranscodeStatus'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /playback/assets/{grantId}/{grantToken}/media/{mediaId}/file:
+    get:
+      tags: [Playback]
+      summary: Stream direct media
+      operationId: streamDirectMedia
+      description: |
+        Range-capable media response. The opaque URL returned by playback
+        resolution is the credential; do not add the bearer token to it.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/GrantId'
+        - $ref: '#/components/parameters/GrantToken'
+        - $ref: '#/components/parameters/MediaId'
+      responses:
+        '200':
+          description: Complete media representation.
+          content:
+            application/octet-stream:
+              schema: { type: string, contentEncoding: binary }
+        '206':
+          description: Requested byte range.
+          content:
+            application/octet-stream:
+              schema: { type: string, contentEncoding: binary }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /playback/assets/{grantId}/{grantToken}/media/{mediaId}/subtitles/{trackId}.vtt:
+    get:
+      tags: [Playback]
+      summary: Stream embedded subtitle
+      operationId: streamEmbeddedSubtitle
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/GrantId'
+        - $ref: '#/components/parameters/GrantToken'
+        - $ref: '#/components/parameters/MediaId'
+        - name: trackId
+          in: path
+          required: true
+          schema: { type: integer, minimum: 0, maximum: 31 }
+      responses:
+        '200':
+          description: Extracted WebVTT subtitle.
+          content:
+            text/vtt:
+              schema: { type: string }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /playback/assets/{grantId}/{grantToken}/media/{mediaId}/captions/{subtitleId}.vtt:
+    get:
+      tags: [Playback]
+      summary: Stream external caption
+      operationId: streamExternalCaption
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/GrantId'
+        - $ref: '#/components/parameters/GrantToken'
+        - $ref: '#/components/parameters/MediaId'
+        - name: subtitleId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Downloaded WebVTT caption.
+          content:
+            text/vtt:
+              schema: { type: string }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /playback/assets/{grantId}/{grantToken}/media/{mediaId}/transcodes/{transcodeId}/master.m3u8:
+    get:
+      tags: [Playback]
+      summary: Stream native HLS master
+      operationId: streamNativeHlsMaster
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/GrantId'
+        - $ref: '#/components/parameters/GrantToken'
+        - $ref: '#/components/parameters/MediaId'
+        - $ref: '#/components/parameters/TranscodeId'
+      responses:
+        '200':
+          description: HLS master with selected WebVTT rendition.
+          content:
+            application/vnd.apple.mpegurl:
+              schema: { type: string }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /playback/assets/{grantId}/{grantToken}/media/{mediaId}/transcodes/{transcodeId}/index.m3u8:
+    get:
+      tags: [Playback]
+      summary: Stream native HLS media playlist
+      operationId: streamNativeHlsMediaPlaylist
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/GrantId'
+        - $ref: '#/components/parameters/GrantToken'
+        - $ref: '#/components/parameters/MediaId'
+        - $ref: '#/components/parameters/TranscodeId'
+      responses:
+        '200':
+          description: Grant-scoped HLS media playlist.
+          content:
+            application/vnd.apple.mpegurl:
+              schema: { type: string }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /playback/assets/{grantId}/{grantToken}/media/{mediaId}/transcodes/{transcodeId}/{segment}:
+    get:
+      tags: [Playback]
+      summary: Stream native HLS segment
+      operationId: streamNativeHlsSegment
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/GrantId'
+        - $ref: '#/components/parameters/GrantToken'
+        - $ref: '#/components/parameters/MediaId'
+        - $ref: '#/components/parameters/TranscodeId'
+        - name: segment
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^(segment-[0-9]{5}\\.(ts|m4s)|init\\.mp4)$'
+      responses:
+        '200':
+          description: MPEG-TS or fragmented MP4 HLS resource.
+          content:
+            application/octet-stream:
+              schema: { type: string, contentEncoding: binary }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /playback/assets/{grantId}/{grantToken}/live/{playbackSessionId}/master.m3u8:
+    get:
+      tags: [Playback, Live TV]
+      summary: Stream live HLS manifest
+      operationId: streamLiveHlsManifest
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/GrantId'
+        - $ref: '#/components/parameters/GrantToken'
+        - name: playbackSessionId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Rewritten live HLS manifest without provider secrets.
+          content:
+            application/vnd.apple.mpegurl:
+              schema: { type: string }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /playback/assets/{grantId}/{grantToken}/live/{playbackSessionId}/resources/{resourceId}:
+    get:
+      tags: [Playback, Live TV]
+      summary: Stream live HLS resource
+      operationId: streamLiveHlsResource
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/GrantId'
+        - $ref: '#/components/parameters/GrantToken'
+        - name: playbackSessionId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: resourceId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Proxied live HLS resource.
+          content:
+            application/octet-stream:
+              schema: { type: string, contentEncoding: binary }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /admin/users:
+    get:
+      tags: [Administration]
+      summary: "Admin: List users"
+      operationId: adminListUsers
+      responses:
+        '200':
+          description: Read-only user inventory.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataCollection' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Administration]
+      summary: "Admin: Create user"
+      operationId: adminCreateUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminUserCreate' }
+      responses:
+        '201':
+          description: User created.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataObject' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Validation'
+  /admin/users/{userId}:
+    patch:
+      tags: [Administration]
+      summary: "Admin: Update user"
+      operationId: adminUpdateUser
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdminUserUpdate' }
+      responses:
+        '200':
+          description: User updated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataObject' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/Validation'
+  /admin/users/{userId}/disable:
+    post:
+      tags: [Administration]
+      summary: "Admin: Disable user"
+      operationId: adminDisableUser
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [confirmation]
+              properties:
+                confirmation: { type: string, const: disable-user }
+      responses:
+        '200':
+          description: User disabled and all sessions revoked.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataObject' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Validation'
+  /admin/iptv-providers:
+    get:
+      tags: [Administration]
+      summary: "Admin: List IPTV providers"
+      operationId: adminListIptvProviders
+      responses:
+        '200':
+          description: Read-only provider inventory; secrets are presence-only.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataCollection' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Administration]
+      summary: "Admin: Create IPTV provider"
+      operationId: adminCreateIptvProvider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IptvProviderWrite' }
+      responses:
+        '201':
+          description: Provider created and catalog sync queued.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataObject' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Validation'
+  /admin/iptv-providers/{providerId}:
+    put:
+      tags: [Administration]
+      summary: "Admin: Update IPTV provider"
+      operationId: adminUpdateIptvProvider
+      parameters:
+        - $ref: '#/components/parameters/ProviderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IptvProviderWrite' }
+      responses:
+        '200':
+          description: Provider updated; credentials remain write-only.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataObject' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Validation'
+    delete:
+      tags: [Administration]
+      summary: "Admin: Delete IPTV provider"
+      operationId: adminDeleteIptvProvider
+      parameters:
+        - $ref: '#/components/parameters/ProviderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [confirmation]
+              properties:
+                confirmation: { type: string, const: delete-provider }
+      responses:
+        '200':
+          description: Provider deleted.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeletedResult' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Validation'
+  /admin/iptv-providers/{providerId}/test:
+    post:
+      tags: [Administration]
+      summary: "Admin: Test IPTV provider"
+      operationId: adminTestIptvProvider
+      parameters:
+        - $ref: '#/components/parameters/ProviderId'
+      responses:
+        '200':
+          description: Sanitized provider connectivity result.
+          content:
+            application/json:
+              schema: { type: object }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Validation'
+  /admin/iptv-providers/{providerId}/sync:
+    post:
+      tags: [Administration]
+      summary: "Admin: Sync IPTV provider"
+      operationId: adminSyncIptvProvider
+      parameters:
+        - $ref: '#/components/parameters/ProviderId'
+      responses:
+        '202':
+          $ref: '#/components/responses/Queued'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/iptv-providers/{providerId}/epg:
+    post:
+      tags: [Administration]
+      summary: "Admin: Sync IPTV guide"
+      operationId: adminSyncIptvGuide
+      parameters:
+        - $ref: '#/components/parameters/ProviderId'
+      responses:
+        '202':
+          $ref: '#/components/responses/Queued'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/media-sources:
+    get:
+      tags: [Administration]
+      summary: "Admin: List media sources"
+      operationId: adminListMediaSources
+      responses:
+        '200':
+          description: Read-only source inventory; configuration is presence-only.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataCollection' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Administration]
+      summary: "Admin: Create media source"
+      operationId: adminCreateMediaSource
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MediaSourceWrite' }
+      responses:
+        '201':
+          description: Read-only source created and scan queued.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataObject' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Validation'
+  /admin/media-sources/{sourceId}:
+    put:
+      tags: [Administration]
+      summary: "Admin: Update media source"
+      operationId: adminUpdateMediaSource
+      parameters:
+        - $ref: '#/components/parameters/SourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MediaSourceWrite' }
+      responses:
+        '200':
+          description: Source updated; credentials remain write-only.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DataObject' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Validation'
+    delete:
+      tags: [Administration]
+      summary: "Admin: Delete media source"
+      operationId: adminDeleteMediaSource
+      parameters:
+        - $ref: '#/components/parameters/SourceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [confirmation]
+              properties:
+                confirmation:
+                  type: string
+                  const: delete-media-source
+      responses:
+        '200':
+          description: Source and its catalog records deleted.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeletedResult' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Validation'
+  /admin/media-sources/{sourceId}/test:
+    post:
+      tags: [Administration]
+      summary: "Admin: Test media source"
+      operationId: adminTestMediaSource
+      parameters:
+        - $ref: '#/components/parameters/SourceId'
+      responses:
+        '200':
+          description: Sanitized read-only source connectivity result.
+          content:
+            application/json:
+              schema: { type: object }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Validation'
+  /admin/media-sources/{sourceId}/scan:
+    post:
+      tags: [Administration]
+      summary: "Admin: Scan media source"
+      operationId: adminScanMediaSource
+      parameters:
+        - $ref: '#/components/parameters/SourceId'
+      responses:
+        '202':
+          $ref: '#/components/responses/Queued'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/integrations:
+    get:
+      tags: [Administration]
+      summary: "Admin: Get integrations"
+      operationId: adminGetIntegrations
+      responses:
+        '200':
+          description: Configuration presence; secrets are omitted.
+          content:
+            application/json:
+              schema: { type: object }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    put:
+      tags: [Administration]
+      summary: "Admin: Update integrations"
+      operationId: adminUpdateIntegrations
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IntegrationWrite' }
+      responses:
+        '200':
+          description: Integrations updated without echoing secrets.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditResult' }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Validation'
+  /admin/media/{mediaId}/metadata/refresh:
+    post:
+      tags: [Administration]
+      summary: "Admin: Refresh media metadata"
+      operationId: adminRefreshMediaMetadata
+      parameters:
+        - $ref: '#/components/parameters/MediaId'
+      responses:
+        '202':
+          $ref: '#/components/responses/Queued'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/media/{mediaId}/captions/refresh:
+    post:
+      tags: [Administration]
+      summary: "Admin: Refresh media captions"
+      operationId: adminRefreshMediaCaptions
+      parameters:
+        - $ref: '#/components/parameters/MediaId'
+      responses:
+        '202':
+          $ref: '#/components/responses/Queued'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/jobs:
+    get:
+      tags: [Administration]
+      summary: "Admin: Get jobs"
+      operationId: adminGetJobs
+      responses:
+        '200':
+          description: Queue counts without serialized job payloads.
+          content:
+            application/json:
+              schema: { type: object }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /admin/system:
+    get:
+      tags: [Administration]
+      summary: "Admin: Get system"
+      operationId: adminGetSystem
+      responses:
+        '200':
+          description: Non-sensitive system and catalog counts.
+          content:
+            application/json:
+              schema: { type: object }
+        '403':
+          $ref: '#/components/responses/Forbidden'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Odissey native access token
+  parameters:
+    MediaId:
+      name: mediaId
+      in: path
+      required: true
+      schema: { type: string }
+    PlaylistId:
+      name: playlistId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$'
+    ChannelId:
+      name: channelId
+      in: path
+      required: true
+      schema: { type: string }
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema: { type: string }
+    ProfileId:
+      name: profileId
+      in: path
+      required: true
+      schema: { type: string }
+    LibraryId:
+      name: libraryId
+      in: path
+      required: true
+      schema: { type: string, enum: [movies, tv, music] }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string, maxLength: 512 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { type: string }
+    ProviderId:
+      name: providerId
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    SourceId:
+      name: sourceId
+      in: path
+      required: true
+      schema: { type: string }
+    GrantId:
+      name: grantId
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[0-9A-HJKMNP-TV-Z]{26}$'
+    GrantToken:
+      name: grantToken
+      in: path
+      required: true
+      description: |
+        Short-lived bearer credential. Never persist or include this path
+        value in access logs, traces, analytics, or diagnostics.
+      schema:
+        type: string
+        minLength: 64
+        maxLength: 64
+        writeOnly: true
+    TranscodeId:
+      name: transcodeId
+      in: path
+      required: true
+      schema: { type: string }
+  responses:
+    MediaPage:
+      description: Cursor-paginated media.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/MediaCollection'
+              - type: object
+                required: [page]
+                properties:
+                  page: { $ref: '#/components/schemas/CursorPage' }
+    ChannelPage:
+      description: Cursor-paginated channels.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data, page]
+            properties:
+              data:
+                type: array
+                items: { $ref: '#/components/schemas/Channel' }
+              page: { $ref: '#/components/schemas/CursorPage' }
+    Unauthorized:
+      description: Missing, invalid, expired, or replayed credentials.
+      headers:
+        WWW-Authenticate:
+          schema: { type: string }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: The current user lacks permission.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Resource not found or not visible to this user.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Conflict:
+      description: Playback or state conflict.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Validation:
+      description: Invalid request.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/Problem'
+              - type: object
+                properties:
+                  errors:
+                    type: object
+                    additionalProperties:
+                      type: array
+                      items: { type: string }
+    RateLimited:
+      description: Request rate limit exceeded.
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Queued:
+      description: Background operation queued.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [queued, auditId]
+            properties:
+              queued: { type: boolean }
+              auditId: { $ref: '#/components/schemas/AuditId' }
+    ProblemResponse:
+      description: Request failed with a structured problem response.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+  schemas:
+    Problem:
+      type: object
+      required: [type, title, status, detail, code, requestId]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer, minimum: 400, maximum: 599 }
+        detail: { type: string }
+        code: { type: string }
+        requestId:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: '^[A-Za-z0-9._:-]+$'
+    Server:
+      type: object
+      required:
+        [product, serverId, serverVersion, setupRequired, api, features, serverTime]
+      properties:
+        product: { type: string, const: Odissey }
+        serverId: { type: string }
+        serverVersion: { type: string }
+        setupRequired: { type: boolean }
+        api:
+          type: object
+          required: [minimumVersion, maximumVersion, baseUrl]
+          properties:
+            minimumVersion: { type: string }
+            maximumVersion: { type: string }
+            baseUrl: { type: string, format: uri }
+        features:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+        serverTime: { type: string, format: date-time }
+    DeviceRegistration:
+      type: object
+      additionalProperties: false
+      required: [installationId, deviceName, platform, appVersion]
+      properties:
+        installationId:
+          type: string
+          minLength: 16
+          maxLength: 128
+          pattern: '^[A-Za-z0-9._:-]+$'
+        deviceName: { type: string, maxLength: 100 }
+        platform: { type: string, const: tvOS }
+        appVersion: { type: string, maxLength: 32 }
+        osVersion: { type: [string, 'null'], maxLength: 32 }
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password, device]
+      properties:
+        email: { type: string, format: email, maxLength: 255 }
+        password: { type: string, maxLength: 255 }
+        device: { $ref: '#/components/schemas/DeviceRegistration' }
+    SetupRequest:
+      type: object
+      additionalProperties: false
+      required: [name, email, password, passwordConfirmation, device]
+      properties:
+        setupToken:
+          type: [string, 'null']
+          maxLength: 255
+          description: User-entered one-time deployment setup token.
+        name: { type: string, maxLength: 255 }
+        email: { type: string, format: email, maxLength: 255 }
+        password: { type: string, minLength: 12, maxLength: 255 }
+        passwordConfirmation:
+          type: string
+          minLength: 12
+          maxLength: 255
+        device: { $ref: '#/components/schemas/DeviceRegistration' }
+    TokenResponse:
+      type: object
+      required:
+        [sessionId, accessToken, refreshToken, tokenType, expiresIn,
+         accessExpiresAt, refreshExpiresAt, user, profiles, activeProfile]
+      properties:
+        sessionId: { type: string }
+        accessToken: { type: string, writeOnly: true }
+        refreshToken: { type: string, writeOnly: true }
+        tokenType: { type: string, const: Bearer }
+        expiresIn: { type: integer, minimum: 0 }
+        accessExpiresAt: { type: string, format: date-time }
+        refreshExpiresAt: { type: string, format: date-time }
+        user: { $ref: '#/components/schemas/User' }
+        profiles:
+          type: array
+          items: { $ref: '#/components/schemas/User' }
+        activeProfile:
+          type: string
+          description: ID of the active object in the profiles array.
+    DeviceSession:
+      type: object
+      required: [id, deviceName, platform, appVersion, createdAt, current]
+      properties:
+        id: { type: string }
+        deviceName: { type: string }
+        platform: { type: string }
+        appVersion: { type: string }
+        osVersion: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+        lastUsedAt: { type: [string, 'null'], format: date-time }
+        current: { type: boolean }
+    User:
+      type: object
+      required: [id, name, email, timezone, isAdmin]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        email: { type: string, format: email }
+        timezone: { type: string }
+        isAdmin: { type: boolean }
+        active:
+          type: boolean
+          description: Present for profile-list and authentication payloads.
+        preferences: { $ref: '#/components/schemas/Preferences' }
+    UserEnvelope:
+      type: object
+      required: [data]
+      properties:
+        data: { $ref: '#/components/schemas/User' }
+    Preferences:
+      type: object
+      additionalProperties: false
+      required: [timezone, autoplay, preferredQuality]
+      properties:
+        timezone: { type: string }
+        autoplay: { type: boolean }
+        preferredQuality:
+          type: string
+          enum: [auto, original, 1080p, 720p]
+    Library:
+      type: object
+      required: [id, name, kind, itemCount]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        kind: { type: string, enum: [movies, tv, music] }
+        itemCount: { type: integer, minimum: 0 }
+    MediaSourceSummary:
+      type: object
+      required: [id, name, type]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        type: { type: string, enum: [local, s3, webdav, iptv] }
+    MediaItem:
+      type: object
+      required:
+        [id, title, kind, mediaKind, favorite, technical, artwork, updatedAt]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        kind: { type: string, enum: [movie, series, episode, track] }
+        mediaKind: { type: string, enum: [video, music] }
+        durationMs: { type: [integer, 'null'], minimum: 0 }
+        favorite: { type: boolean }
+        progress:
+          $ref: '#/components/schemas/Progress'
+        summary:
+          type: object
+          properties:
+            overview: { type: string }
+            year: { type: integer }
+            rating: { type: number }
+            genres: { type: array, items: { type: string } }
+            seriesTitle: { type: string }
+            seasonNumber: { type: integer }
+            episodeNumber: { type: integer }
+            artist: { type: string }
+            album: { type: string }
+            trackNumber: { type: integer }
+        technical:
+          type: object
+          properties:
+            container: { type: [string, 'null'] }
+            mimeType: { type: [string, 'null'] }
+            videoCodec: { type: [string, 'null'] }
+            audioCodec: { type: [string, 'null'] }
+            requiresTranscode: { type: boolean }
+            sizeBytes: { type: [integer, 'null'], minimum: 0 }
+        source: { $ref: '#/components/schemas/MediaSourceSummary' }
+        artwork:
+          type: object
+          properties:
+            poster: { type: string, format: uri }
+            backdrop: { type: string, format: uri }
+        updatedAt: { type: [string, 'null'], format: date-time }
+    MediaCollection:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/MediaItem' }
+    MediaSection:
+      type: object
+      required: [id, title, items]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/MediaItem' }
+    CursorPage:
+      type: object
+      required: [perPage]
+      properties:
+        perPage: { type: integer, minimum: 1, maximum: 100 }
+        nextCursor: { type: [string, 'null'] }
+        previousCursor: { type: [string, 'null'] }
+    Progress:
+      type: [object, 'null']
+      required: [positionMs, completed, sequence]
+      properties:
+        positionMs: { type: integer, minimum: 0 }
+        durationMs: { type: [integer, 'null'], minimum: 1 }
+        completed: { type: boolean }
+        sequence: { type: integer, minimum: 0 }
+        updatedAt: { type: [string, 'null'], format: date-time }
+    ProgressUpdate:
+      type: object
+      additionalProperties: false
+      required: [sequence, positionMs]
+      properties:
+        sequence: { type: integer, minimum: 1, maximum: 2147483647 }
+        positionMs: { type: integer, minimum: 0, maximum: 604800000 }
+        durationMs:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 604800000
+        completed: { type: boolean }
+    ProgressResult:
+      type: object
+      required: [accepted, sequence, positionMs, completed]
+      properties:
+        accepted: { type: boolean }
+        sequence: { type: integer }
+        positionMs: { type: integer }
+        completed: { type: boolean }
+    FavoriteState:
+      type: object
+      required: [favorite]
+      properties:
+        favorite: { type: boolean }
+    Track:
+      type: object
+      required: [id, codec, language, label]
+      properties:
+        id: { type: string }
+        codec: { type: string }
+        language: { type: string }
+        label: { type: string }
+        channels: { type: [integer, 'null'] }
+    SubtitleTrack:
+      allOf:
+        - $ref: '#/components/schemas/Track'
+        - type: object
+          required: [format, url]
+          properties:
+            format: { type: string, enum: [webvtt, imsc1] }
+            url: { type: string, format: uri }
+            hearingImpaired: { type: boolean }
+    Season:
+      type: object
+      required: [id, seriesId, number, episodeCount]
+      properties:
+        id: { type: string }
+        seriesId: { type: string }
+        number: { type: integer, minimum: 0 }
+        episodeCount: { type: integer, minimum: 0 }
+    Channel:
+      type: object
+      required: [id, name, favorite, iconUrl]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        channelNumber: { type: [string, 'null'] }
+        group:
+          type: object
+          properties:
+            id: { type: string }
+            name: { type: string }
+        favorite: { type: boolean }
+        iconUrl: { type: string, format: uri }
+        programs:
+          type: array
+          items: { $ref: '#/components/schemas/EpgProgram' }
+    EpgProgram:
+      type: object
+      required: [id, channelId, title, startsAt, endsAt]
+      properties:
+        id: { type: string }
+        channelId: { type: string }
+        title: { type: string }
+        description: { type: [string, 'null'] }
+        category: { type: [string, 'null'] }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+    Guide:
+      type: object
+      required: [window, channels, page]
+      properties:
+        window:
+          type: object
+          required: [startsAt, endsAt, timezone]
+          properties:
+            startsAt: { type: string, format: date-time }
+            endsAt: { type: string, format: date-time }
+            timezone: { type: string }
+        channels:
+          type: array
+          items: { $ref: '#/components/schemas/Channel' }
+        page: { $ref: '#/components/schemas/CursorPage' }
+    PlaybackDevice:
+      type: object
+      additionalProperties: false
+      required:
+        [platform, osVersion, modelFamily, maximumWidth, maximumHeight,
+         maximumFrameRate, dynamicRanges, videoCodecs, audioCodecs,
+         subtitleFormats]
+      properties:
+        platform: { type: string, const: tvOS }
+        osVersion: { type: string, maxLength: 32 }
+        modelFamily: { type: string, const: AppleTV4K }
+        maximumWidth: { type: integer, minimum: 640, maximum: 7680 }
+        maximumHeight: { type: integer, minimum: 360, maximum: 4320 }
+        maximumFrameRate: { type: integer, minimum: 24, maximum: 120 }
+        dynamicRanges:
+          type: array
+          maxItems: 8
+          items:
+            type: string
+            enum: [sdr, hdr10, hdr10Plus, hlg, dolbyVision]
+        videoCodecs:
+          type: array
+          maxItems: 8
+          items: { type: string, enum: [h264, hevc, av1] }
+        audioCodecs:
+          type: array
+          maxItems: 16
+          items:
+            type: string
+            enum: [aac, ac3, eac3, alac, flac, mp3, opus]
+        subtitleFormats:
+          type: array
+          maxItems: 8
+          items: { type: string, enum: [webvtt, imsc1] }
+    PlaybackResolveRequest:
+      type: object
+      additionalProperties: false
+      required: [mediaId, device]
+      properties:
+        mediaId: { type: string }
+        intent: { type: string, enum: [play, resume], default: play }
+        positionMs: { type: integer, minimum: 0, maximum: 604800000 }
+        audioTrackId:
+          type: [string, 'null']
+          pattern: '^(embedded:)?([0-9]|[12][0-9]|3[01])$'
+          description: |
+            Requests a server-selected audio rendition. Selection forces HLS
+            remuxing or audio-only transcoding; it is never ignored on direct
+            playback.
+        subtitleTrackId:
+          type: [string, 'null']
+          pattern: '^(embedded:([0-9]|[12][0-9]|3[01])|caption:[0-9A-HJKMNP-TV-Z]{26})$'
+          description: |
+            Default subtitle rendition. The returned HLS master also exposes
+            the other available WebVTT renditions for native media selection.
+        device: { $ref: '#/components/schemas/PlaybackDevice' }
+        preferences:
+          type: object
+          additionalProperties: false
+          properties:
+            maximumBitrate:
+              type: [integer, 'null']
+              minimum: 64000
+              maximum: 200000000
+            preferOriginalQuality: { type: boolean }
+            allowTranscode: { type: boolean }
+    PlaybackResolution:
+      type: object
+      required:
+        [sessionId, mode, decisionReason, status, url, expiresAt, container,
+         heartbeatIntervalSeconds]
+      properties:
+        sessionId: { type: string }
+        mode:
+          type: string
+          enum: [direct, remux, audioTranscode, fullTranscode]
+        decisionReason: { type: string }
+        status: { type: string, enum: [pending, processing, ready, failed] }
+        url:
+          type: string
+          format: uri
+          description: |
+            Short-lived bearer URL. Never persist or include this path in
+            access logs, traces, analytics, or diagnostics.
+        statusUrl: { type: [string, 'null'], format: uri }
+        expiresAt:
+          type: string
+          format: date-time
+          description: Current rolling playback-grant expiry.
+        container: { type: string }
+        channelId: { type: string }
+        video: { type: object }
+        audio: { type: object }
+        availableAudioTracks:
+          type: array
+          items: { $ref: '#/components/schemas/Track' }
+        availableSubtitleTracks:
+          type: array
+          items: { $ref: '#/components/schemas/SubtitleTrack' }
+        selectedAudioTrackId: { type: [string, 'null'] }
+        selectedSubtitleTrackId: { type: [string, 'null'] }
+        heartbeatIntervalSeconds: { type: integer, minimum: 5 }
+    TranscodeStatus:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [pending, processing, ready, failed] }
+        errorCode: { type: [string, 'null'] }
+        startedAt: { type: [string, 'null'], format: date-time }
+        finishedAt: { type: [string, 'null'], format: date-time }
+        expiresAt: { type: [string, 'null'], format: date-time }
+    DataCollection:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { type: object }
+    DataObject:
+      type: object
+      required: [data, auditId]
+      properties:
+        data: { type: object }
+        auditId: { $ref: '#/components/schemas/AuditId' }
+    AuditResult:
+      type: object
+      required: [auditId]
+      properties:
+        auditId: { $ref: '#/components/schemas/AuditId' }
+    AuditId:
+      type: string
+      pattern: '^[0-9A-HJKMNP-TV-Z]{26}$'
+    MusicArtist:
+      type: object
+      required: [id, name, trackCount, artworkUrl]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        trackCount: { type: integer, minimum: 0 }
+        artworkUrl: { type: string, format: uri }
+    MusicAlbum:
+      type: object
+      required: [id, name, artist, trackCount, artworkUrl]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        artist: { type: string }
+        trackCount: { type: integer, minimum: 0 }
+        artworkUrl: { type: string, format: uri }
+        year: { type: [integer, 'null'] }
+        favorite: { type: boolean }
+    MusicArtistPage:
+      type: object
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          maxItems: 100
+          items: { $ref: '#/components/schemas/MusicArtist' }
+        page: { $ref: '#/components/schemas/CursorPage' }
+    MusicAlbumPage:
+      type: object
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          maxItems: 100
+          items: { $ref: '#/components/schemas/MusicAlbum' }
+        page: { $ref: '#/components/schemas/CursorPage' }
+    MusicPlaylistSummary:
+      type: object
+      additionalProperties: false
+      required: [id, name, trackCount, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          pattern: '^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$'
+        name: { type: string, minLength: 1, maxLength: 100 }
+        trackCount: { type: integer, minimum: 0, maximum: 1000 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    MusicPlaylistItem:
+      type: object
+      additionalProperties: false
+      required: [position, track]
+      properties:
+        position: { type: integer, minimum: 0, maximum: 4999 }
+        track: { $ref: '#/components/schemas/MediaItem' }
+    MusicPlaylist:
+      type: object
+      additionalProperties: false
+      required:
+        [id, name, trackCount, createdAt, updatedAt, items, itemsPage]
+      properties:
+        id:
+          type: string
+          pattern: '^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$'
+        name: { type: string, minLength: 1, maxLength: 100 }
+        trackCount: { type: integer, minimum: 0, maximum: 1000 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        items:
+          type: array
+          maxItems: 100
+          items: { $ref: '#/components/schemas/MusicPlaylistItem' }
+        itemsPage: { $ref: '#/components/schemas/CursorPage' }
+    MusicPlaylistPage:
+      type: object
+      additionalProperties: false
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          maxItems: 100
+          items: { $ref: '#/components/schemas/MusicPlaylistSummary' }
+        page: { $ref: '#/components/schemas/CursorPage' }
+    MusicPlaylistResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { $ref: '#/components/schemas/MusicPlaylist' }
+    MusicPlaylistWrite:
+      type: object
+      additionalProperties: false
+      required: [name, trackIds]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        trackIds:
+          type: array
+          maxItems: 1000
+          uniqueItems: true
+          items:
+            type: string
+            pattern: '^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$'
+    DeletedResult:
+      type: object
+      required: [deleted, auditId]
+      properties:
+        deleted: { type: boolean, const: true }
+        auditId: { $ref: '#/components/schemas/AuditId' }
+    AdminUserCreate:
+      type: object
+      additionalProperties: false
+      required: [name, email, password, passwordConfirmation]
+      properties:
+        name: { type: string, maxLength: 255 }
+        email: { type: string, format: email, maxLength: 255 }
+        password: { type: string, minLength: 12, maxLength: 255 }
+        passwordConfirmation:
+          type: string
+          minLength: 12
+          maxLength: 255
+        isAdmin: { type: boolean }
+    AdminUserUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, maxLength: 255 }
+        email: { type: string, format: email, maxLength: 255 }
+        isAdmin: { type: boolean }
+    IptvProviderWrite:
+      type: object
+      additionalProperties: false
+      required: [name, providerType]
+      properties:
+        name: { type: string, maxLength: 255 }
+        providerType: { type: string, enum: [xtream, m3u] }
+        baseUrl:
+          type: [string, 'null']
+          format: uri
+          maxLength: 2048
+        playlistUrl:
+          type: [string, 'null']
+          format: uri
+          maxLength: 4096
+        xmltvUrl:
+          type: [string, 'null']
+          format: uri
+          maxLength: 4096
+        maxConnections:
+          type: [integer, 'null']
+          minimum: 1
+          maximum: 100
+        username:
+          type: [string, 'null']
+          maxLength: 1024
+          writeOnly: true
+        password:
+          type: [string, 'null']
+          maxLength: 1024
+          writeOnly: true
+        allowInsecureHttp: { type: boolean }
+        enabled: { type: boolean }
+    MediaSourceWrite:
+      type: object
+      additionalProperties: false
+      required: [name, type]
+      properties:
+        name: { type: string, maxLength: 100 }
+        type: { type: string, enum: [local, s3, webdav] }
+        path: { type: [string, 'null'], maxLength: 2048, writeOnly: true }
+        url:
+          type: [string, 'null']
+          format: uri
+          maxLength: 2048
+          writeOnly: true
+        endpoint:
+          type: [string, 'null']
+          format: uri
+          maxLength: 2048
+          writeOnly: true
+        bucket: { type: [string, 'null'], maxLength: 255, writeOnly: true }
+        prefix: { type: [string, 'null'], maxLength: 1024, writeOnly: true }
+        region: { type: [string, 'null'], maxLength: 64, writeOnly: true }
+        accessKey: { type: [string, 'null'], maxLength: 512, writeOnly: true }
+        secretKey: { type: [string, 'null'], maxLength: 512, writeOnly: true }
+        username: { type: [string, 'null'], maxLength: 512, writeOnly: true }
+        password: { type: [string, 'null'], maxLength: 512, writeOnly: true }
+        allowPrivateNetwork: { type: boolean }
+        enabled: { type: boolean }
+    IntegrationWrite:
+      type: object
+      additionalProperties: false
+      required: [captionLanguages]
+      properties:
+        tmdbApiToken:
+          type: [string, 'null']
+          maxLength: 4096
+          writeOnly: true
+        subdlApiKey:
+          type: [string, 'null']
+          maxLength: 4096
+          writeOnly: true
+        openSubtitlesApiKey:
+          type: [string, 'null']
+          maxLength: 4096
+          writeOnly: true
+        captionLanguages:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: { type: string, pattern: '^[a-zA-Z]{2,3}$' }
+        clear:
+          type: array
+          maxItems: 3
+          items:
+            type: string
+            enum: [tmdbApiToken, subdlApiKey, openSubtitlesApiKey]

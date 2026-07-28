@@ -64,6 +64,8 @@ same-origin delivery. SVG logos are excluded.
 - Input protocols, filters, codecs, threads, resolution, bitrate, lifetime, and
   concurrent sessions are restricted.
 - FFmpeg processes run unprivileged and belong to a supervised process group.
+- Artwork variants use exact-key generation locks and a shared global FFmpeg
+  admission limit; a busy cache miss serves the original image.
 - Buffered JSON, M3U, XMLTV, S3, and WebDAV catalog documents have immutable
   hard ceilings sized for the container's PHP memory limit. Environment values
   may lower these limits but cannot raise them past the safe ceiling.
@@ -87,6 +89,19 @@ grant broader access.
 State-changing requests require CSRF protection. Sessions are regenerated after
 authentication and use secure, HTTP-only, same-site cookies in production.
 Authorization is enforced in policies, not only hidden in the interface.
+
+Native playback URLs carry a random bearer grant in their path because
+AVFoundation must be able to fetch HLS resources without the JSON API access
+token. The grant has a rolling window of at most ten minutes. Re-resolving the
+same media item or channel from the same native client session revokes the
+previous grant before returning a replacement; grants for another resource or
+device session are unaffected. Heartbeats can move expiry at most ten minutes
+forward and never beyond the native client session's refresh-token expiry.
+
+Request paths under `/api/v1/playback/assets/` are credentials and must not be
+written to access logs, traces, analytics, exception context, or support
+captures. The bundled Caddy configuration deliberately leaves HTTP access
+logging disabled. An upstream proxy does not inherit that protection.
 
 ## Transport
 

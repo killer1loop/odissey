@@ -4,6 +4,8 @@
 	frankenphp
 }
 
+# HTTP access logging is intentionally disabled. Native playback grants are
+# short-lived bearer credentials carried in /api/v1/playback/assets/* paths.
 {$SERVER_NAME} {
 	root * /app/public
 	encode zstd br gzip

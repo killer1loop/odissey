@@ -40,7 +40,7 @@ class PasswordResetController extends Controller
         $status = Password::reset($data, function (User $user, string $password) use ($sessions): void {
             abort_unless($user->isActive(), 403);
             $user->forceFill(['password' => Hash::make($password), 'remember_token' => Str::random(60)])->save();
-            $sessions->revokeDatabaseSessions($user);
+            $sessions->revokeAllSessions($user);
             event(new PasswordReset($user));
         });
 

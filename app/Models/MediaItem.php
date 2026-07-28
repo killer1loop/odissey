@@ -79,6 +79,11 @@ class MediaItem extends Model
         return $this->hasMany(MediaFavorite::class);
     }
 
+    public function playlistItems(): HasMany
+    {
+        return $this->hasMany(MusicPlaylistItem::class);
+    }
+
     public function subtitles(): HasMany
     {
         return $this->hasMany(MediaSubtitle::class);

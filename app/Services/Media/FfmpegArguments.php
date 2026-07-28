@@ -7,8 +7,21 @@ class FfmpegArguments
     /**
      * @return list<string>
      */
-    public function hls(string $sourcePath, string $manifestPath, string $segmentPattern, string $profile = 'auto', ?int $audioTrack = null): array
-    {
+    public function hls(
+        string $sourcePath,
+        string $manifestPath,
+        string $segmentPattern,
+        string $profile = 'auto',
+        ?int $audioTrack = null,
+        string $deliveryMode = 'fullTranscode',
+    ): array {
+        if (! in_array(
+            $deliveryMode,
+            ['remux', 'audioTranscode', 'fullTranscode'],
+            true,
+        )) {
+            $deliveryMode = 'fullTranscode';
+        }
         $protocolWhitelist = preg_match(
             '#\Ahttp://127\.0\.0\.1:8000/_internal/media/transcodes/[0-9A-HJKMNP-TV-Z]{26}/source\?#i',
             $sourcePath,
@@ -36,40 +49,67 @@ class FfmpegArguments
             '0:v:0?',
             '-map',
             '0:a:'.($audioTrack ?? 0).'?',
-            '-c:v',
-            'libx264',
-            '-threads',
-            (string) $this->threads(),
-            '-filter_threads',
-            (string) $this->threads(),
-            '-preset',
-            'veryfast',
-            '-profile:v',
-            'main',
-            '-pix_fmt',
-            'yuv420p',
         ];
-        if (in_array($profile, ['1080p', '720p'], true)) {
-            $arguments = array_merge($arguments, ['-vf', $profile === '720p' ? 'scale=-2:720' : 'scale=-2:1080']);
+        if ($deliveryMode === 'fullTranscode') {
+            $arguments = array_merge($arguments, [
+                '-c:v',
+                'libx264',
+                '-threads',
+                (string) $this->threads(),
+                '-filter_threads',
+                (string) $this->threads(),
+                '-preset',
+                'veryfast',
+                '-profile:v',
+                'main',
+                '-pix_fmt',
+                'yuv420p',
+            ]);
+            if (in_array($profile, ['1080p', '720p'], true)) {
+                $arguments = array_merge($arguments, [
+                    '-vf',
+                    $profile === '720p'
+                        ? 'scale=-2:720'
+                        : 'scale=-2:1080',
+                ]);
+            }
+            $arguments = array_merge($arguments, [
+                '-g',
+                '100',
+                '-keyint_min',
+                '100',
+                '-sc_threshold',
+                '0',
+                '-c:a',
+                'aac',
+                '-maxrate:v',
+                $this->maximumVideoBitrate().'k',
+                '-bufsize:v',
+                ($this->maximumVideoBitrate() * 2).'k',
+                '-b:a',
+                '128k',
+                '-ac',
+                '2',
+            ]);
+        } elseif ($deliveryMode === 'audioTranscode') {
+            $arguments = array_merge($arguments, [
+                '-c:v',
+                'copy',
+                '-c:a',
+                'aac',
+                '-b:a',
+                '384k',
+            ]);
+        } else {
+            $arguments = array_merge($arguments, [
+                '-c:v',
+                'copy',
+                '-c:a',
+                'copy',
+            ]);
         }
 
-        return array_merge($arguments, [
-            '-g',
-            '100',
-            '-keyint_min',
-            '100',
-            '-sc_threshold',
-            '0',
-            '-c:a',
-            'aac',
-            '-maxrate:v',
-            $this->maximumVideoBitrate().'k',
-            '-bufsize:v',
-            ($this->maximumVideoBitrate() * 2).'k',
-            '-b:a',
-            '128k',
-            '-ac',
-            '2',
+        $hlsArguments = [
             '-f',
             'hls',
             '-hls_time',
@@ -78,6 +118,17 @@ class FfmpegArguments
             'event',
             '-hls_flags',
             'independent_segments',
+        ];
+        if ($deliveryMode !== 'fullTranscode') {
+            $hlsArguments = array_merge($hlsArguments, [
+                '-hls_segment_type',
+                'fmp4',
+                '-hls_fmp4_init_filename',
+                'init.mp4',
+            ]);
+        }
+
+        return array_merge($arguments, $hlsArguments, [
             '-hls_segment_filename',
             $segmentPattern,
             $manifestPath,

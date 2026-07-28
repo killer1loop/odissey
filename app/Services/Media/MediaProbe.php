@@ -52,7 +52,7 @@ class MediaProbe
             ),
             '-probesize', '10485760',
             '-analyzeduration', '10000000',
-            '-show_entries', 'format=duration,format_name:stream=index,codec_type,codec_name,width,height,channels:stream_tags=language,title:format_tags=artist,album,title,track,date',
+            '-show_entries', 'format=duration,format_name,bit_rate:stream=index,codec_type,codec_name,profile,level,width,height,channels,r_frame_rate,avg_frame_rate,bit_rate,pix_fmt,bits_per_raw_sample,bits_per_sample,color_transfer,color_primaries:stream_tags=language,title:format_tags=artist,album,title,track,date',
             '-of', 'json',
             '-protocol_whitelist', 'file,pipe',
             $localPath,
@@ -103,6 +103,14 @@ class MediaProbe
         $tags = array_change_key_case($data['format']['tags'] ?? [], CASE_LOWER);
         $videoCodec = $video['codec_name'] ?? null;
         $audioCodec = $audio['codec_name'] ?? null;
+        $bitDepth = $this->bitDepth($video);
+        $frameRate = $this->frameRate(
+            $video['avg_frame_rate'] ?? $video['r_frame_rate'] ?? null,
+        );
+        $dynamicRange = $this->dynamicRange(
+            $video['color_transfer'] ?? null,
+            $bitDepth,
+        );
 
         return array_merge($fallback, [
             'container' => explode(',', $data['format']['format_name'] ?? $extension)[0],
@@ -110,8 +118,75 @@ class MediaProbe
             'audio_codec' => $audioCodec,
             'duration_ms' => isset($data['format']['duration']) ? (int) round((float) $data['format']['duration'] * 1000) : null,
             'requires_transcode' => $kind === 'video' && ! ($videoCodec === 'h264' && in_array($audioCodec, ['aac', 'mp3'], true) && in_array($extension, ['mp4', 'm4v'], true)),
-            'technical' => ['width' => $video['width'] ?? null, 'height' => $video['height'] ?? null, 'channels' => $audio['channels'] ?? null, 'audio_tracks' => $audioTracks, 'subtitle_tracks' => $subtitleTracks],
+            'technical' => [
+                'width' => $video['width'] ?? null,
+                'height' => $video['height'] ?? null,
+                'frame_rate' => $frameRate,
+                'bit_rate' => $video['bit_rate']
+                    ?? $data['format']['bit_rate']
+                    ?? null,
+                'video_profile' => $video['profile'] ?? null,
+                'video_level' => $video['level'] ?? null,
+                'bit_depth' => $bitDepth,
+                'pixel_format' => $video['pix_fmt'] ?? null,
+                'dynamic_range' => $dynamicRange,
+                'color_primaries' => $video['color_primaries'] ?? null,
+                'channels' => $audio['channels'] ?? null,
+                'audio_channels' => $audio['channels'] ?? null,
+                'audio_tracks' => $audioTracks,
+                'subtitle_tracks' => $subtitleTracks,
+            ],
             'tags' => $tags,
         ]);
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $video
+     */
+    private function bitDepth(?array $video): ?int
+    {
+        foreach ([
+            $video['bits_per_raw_sample'] ?? null,
+            $video['bits_per_sample'] ?? null,
+        ] as $value) {
+            if (is_numeric($value) && (int) $value > 0) {
+                return (int) $value;
+            }
+        }
+        $pixelFormat = (string) ($video['pix_fmt'] ?? '');
+        if (preg_match('/(?:p|gbrp)(\\d{2})(?:le|be)?$/', $pixelFormat, $match)) {
+            return (int) $match[1];
+        }
+        if ($pixelFormat !== '') {
+            return 8;
+        }
+
+        return null;
+    }
+
+    private function frameRate(mixed $value): ?float
+    {
+        if (is_numeric($value)) {
+            return (float) $value > 0 ? round((float) $value, 3) : null;
+        }
+        if (
+            ! is_string($value)
+            || preg_match('/^(\\d+)\\/(\\d+)$/', $value, $match) !== 1
+            || (int) $match[2] === 0
+        ) {
+            return null;
+        }
+
+        return round((int) $match[1] / (int) $match[2], 3);
+    }
+
+    private function dynamicRange(mixed $transfer, ?int $bitDepth): ?string
+    {
+        return match (strtolower((string) $transfer)) {
+            'smpte2084' => 'hdr10',
+            'arib-std-b67' => 'hlg',
+            'bt709', 'iec61966-2-1' => 'sdr',
+            default => $bitDepth !== null && $bitDepth <= 8 ? 'sdr' : null,
+        };
     }
 }

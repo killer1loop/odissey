@@ -8,7 +8,8 @@ The current build includes secure multi-user setup, read-only local,
 S3-compatible and WebDAV libraries, movies, TV series, music, direct and
 bounded FFmpeg HLS playback, optional TMDB and free TVmaze enrichment,
 Xtream-compatible and generic M3U/XMLTV IPTV, favorites, history, guide data,
-and credential-safe streaming proxies.
+credential-safe streaming proxies, and a versioned native-client API for the
+in-development Odissey tvOS client.
 
 > [!CAUTION]
 > Odissey does not supply media or IPTV service. Only connect sources and
@@ -52,6 +53,13 @@ and credential-safe streaming proxies.
 - externally matched IPTV-org channel logos with stable-ID, country-aware
   name matching and initials for unmatched channels; provider-supplied artwork
   is ignored;
+- an OpenAPI-documented `/api/v1` surface for native clients, including
+  discovery, device-scoped rotating sessions, catalog and Live TV access,
+  profile state, playback resolution, administration, and user-owned music
+  playlists;
+- native playback delivery through resource-scoped bearer grants that rotate
+  on re-resolution and expire within ten minutes, without exposing source
+  credentials to the client;
 - a Plex-inspired dark Blade interface enhanced with HTMX and hls.js;
 - one Docker image containing FrankenPHP, SQLite, FFmpeg, the bounded worker
   pool, and the scheduler.
@@ -134,6 +142,7 @@ and persistent-volume requirements.
 - [Contributing](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
 - [Metadata providers](docs/METADATA.md)
+- [Native API OpenAPI contract](docs/openapi/native-v1.yaml)
 
 ## Credentials
 

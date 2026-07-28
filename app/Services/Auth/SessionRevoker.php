@@ -21,4 +21,25 @@ class SessionRevoker
             ->where('user_id', $user->getAuthIdentifier())
             ->delete();
     }
+
+    public function revokeNativeSessions(User $user): int
+    {
+        $sessions = $user->nativeClientSessions()
+            ->whereNull('revoked_at')
+            ->get();
+        $sessions->each->revoke();
+
+        return $sessions->count();
+    }
+
+    /**
+     * @return array{web: int, native: int}
+     */
+    public function revokeAllSessions(User $user): array
+    {
+        return [
+            'web' => $this->revokeDatabaseSessions($user),
+            'native' => $this->revokeNativeSessions($user),
+        ];
+    }
 }

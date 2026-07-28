@@ -109,7 +109,7 @@ class CleanupIptvE2eData extends Command
         });
 
         if ($user !== null) {
-            $sessions->revokeDatabaseSessions($user);
+            $sessions->revokeAllSessions($user);
         }
 
         $this->info(sprintf(

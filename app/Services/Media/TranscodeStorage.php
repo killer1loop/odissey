@@ -36,12 +36,23 @@ class TranscodeStorage
 
     public function segmentPattern(TranscodeSession $session): string
     {
-        return $this->sessionDirectory($session).DIRECTORY_SEPARATOR.'segment-%05d.ts';
+        $extension = $session->delivery_mode === 'fullTranscode'
+            ? 'ts'
+            : 'm4s';
+
+        return $this->sessionDirectory($session)
+            .DIRECTORY_SEPARATOR
+            .'segment-%05d.'.$extension;
     }
 
     public function segmentPath(TranscodeSession $session, string $segment): string
     {
-        if (preg_match('/\Asegment-\d{5}\.ts\z/', $segment) !== 1) {
+        if (
+            preg_match(
+                '/\A(?:segment-\d{5}\.(?:ts|m4s)|init\.mp4)\z/',
+                $segment,
+            ) !== 1
+        ) {
             throw new RuntimeException('Invalid HLS segment name.');
         }
 
@@ -64,7 +75,7 @@ class TranscodeStorage
 
         if (
             preg_match(
-                '/^segment-\d{5}\.ts$/m',
+                '/^segment-\d{5}\.(?:ts|m4s)$/m',
                 $manifest,
                 $match,
             ) !== 1
@@ -72,11 +83,21 @@ class TranscodeStorage
             return false;
         }
 
-        return File::isFile(
+        $segmentExists = File::isFile(
             $this->sessionDirectory($session)
                 .DIRECTORY_SEPARATOR
                 .$match[0],
         );
+        if (! $segmentExists) {
+            return false;
+        }
+
+        return ! str_ends_with($match[0], '.m4s')
+            || File::isFile(
+                $this->sessionDirectory($session)
+                    .DIRECTORY_SEPARATOR
+                    .'init.mp4',
+            );
     }
 
     public function delete(TranscodeSession $session): void

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreUserRequest;
 use App\Models\User;
+use App\Services\Auth\SessionRevoker;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Symfony\Component\HttpFoundation\Response;
@@ -37,8 +38,10 @@ class UserController extends Controller
             ->with('status', "User {$user->name} created.");
     }
 
-    public function disable(User $user): RedirectResponse
-    {
+    public function disable(
+        User $user,
+        SessionRevoker $sessions,
+    ): RedirectResponse {
         abort_if($user->is_admin, Response::HTTP_FORBIDDEN);
 
         if ($user->is_active) {
@@ -46,6 +49,7 @@ class UserController extends Controller
             $user->disabled_at = now();
             $user->remember_token = null;
             $user->save();
+            $sessions->revokeAllSessions($user);
         }
 
         return redirect()

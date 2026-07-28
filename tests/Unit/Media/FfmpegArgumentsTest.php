@@ -85,4 +85,39 @@ class FfmpegArgumentsTest extends TestCase
         $this->assertContains('-max_pixels', $arguments);
         $this->assertContains('-threads', $arguments);
     }
+
+    public function test_remux_copies_video_and_audio_into_fragmented_mp4_hls(): void
+    {
+        $arguments = (new FfmpegArguments)->hls(
+            '/media/compatible.mkv',
+            '/cache/index.m3u8',
+            '/cache/segment-%05d.m4s',
+            deliveryMode: 'remux',
+        );
+
+        $videoIndex = array_search('-c:v', $arguments, true);
+        $audioIndex = array_search('-c:a', $arguments, true);
+        $this->assertSame('copy', $arguments[$videoIndex + 1]);
+        $this->assertSame('copy', $arguments[$audioIndex + 1]);
+        $this->assertContains('fmp4', $arguments);
+        $this->assertContains('init.mp4', $arguments);
+        $this->assertNotContains('libx264', $arguments);
+    }
+
+    public function test_audio_transcode_copies_video_and_converts_only_audio(): void
+    {
+        $arguments = (new FfmpegArguments)->hls(
+            '/media/dts.mkv',
+            '/cache/index.m3u8',
+            '/cache/segment-%05d.m4s',
+            deliveryMode: 'audioTranscode',
+        );
+
+        $videoIndex = array_search('-c:v', $arguments, true);
+        $audioIndex = array_search('-c:a', $arguments, true);
+        $this->assertSame('copy', $arguments[$videoIndex + 1]);
+        $this->assertSame('aac', $arguments[$audioIndex + 1]);
+        $this->assertNotContains('libx264', $arguments);
+        $this->assertNotContains('-vf', $arguments);
+    }
 }

@@ -30,7 +30,11 @@ class DirectMediaController extends Controller
             ->with('source')
             ->findOrFail($media);
 
-        abort_if($item->requires_transcode, 409);
+        abort_if(
+            $item->requires_transcode
+            && ! $request->attributes->get('nativeDirectAllowed', false),
+            409,
+        );
 
         if ($item->source !== null) {
             if ($request->isMethod('HEAD')) {

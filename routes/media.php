@@ -44,7 +44,9 @@ Route::middleware(['auth', EnsureUserIsActive::class])
                 Route::get('/integrations', [IntegrationController::class, 'edit'])->name('integrations.edit');
                 Route::put('/integrations', [IntegrationController::class, 'update'])->name('integrations.update');
             });
-        Route::get('/{media}/artwork/{kind}', MediaArtworkController::class)->name('artwork');
+        Route::get('/{media}/artwork/{kind}', MediaArtworkController::class)
+            ->middleware('throttle:180,1,media-artwork:')
+            ->name('artwork');
         Route::post('/{media}/favorite', [MediaFavoriteController::class, 'store'])->name('favorites.store');
         Route::delete('/{media}/favorite', [MediaFavoriteController::class, 'destroy'])->name('favorites.destroy');
         Route::get('/{media}', MediaPlayerController::class)->name('show');
@@ -66,7 +68,10 @@ Route::middleware(['auth', EnsureUserIsActive::class])
         Route::get('/{media}/transcodes/{session}/index.m3u8', HlsManifestController::class)
             ->name('transcodes.manifest');
         Route::get('/{media}/transcodes/{session}/{segment}', HlsSegmentController::class)
-            ->where('segment', 'segment-\d{5}\.ts')
+            ->where(
+                'segment',
+                '(?:segment-\d{5}\.(?:ts|m4s)|init\.mp4)',
+            )
             ->name('transcodes.segment');
 
     });

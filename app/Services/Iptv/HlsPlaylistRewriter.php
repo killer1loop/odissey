@@ -238,6 +238,24 @@ class HlsPlaylistRewriter
         IptvPlaybackResource $parent,
         IptvPlaybackResource $resource,
     ): string {
+        $grant = request()->attributes->get('nativePlaybackGrantId');
+        $grantToken = request()->attributes->get('nativePlaybackGrantToken');
+        if (
+            $grant !== null
+            && is_string($grantToken)
+            && $grantToken !== ''
+            && request()->routeIs('api.v1.playback.live.*')
+        ) {
+            return route('api.v1.playback.live.resource', [
+                'grant' => is_object($grant) && method_exists($grant, 'getKey')
+                    ? $grant->getKey()
+                    : $grant,
+                'grantToken' => $grantToken,
+                'session' => $parent->iptv_playback_session_id,
+                'resource' => $resource->id,
+            ], absolute: false);
+        }
+
         return route('iptv.playback.resource', [
             'session' => $parent->iptv_playback_session_id,
             'resource' => $resource->id,

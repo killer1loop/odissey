@@ -19,6 +19,7 @@ an authenticated stream session, and removed after expiry.
 ```mermaid
 flowchart LR
     B["Browser<br>Blade + HTMX + media JS"] --> W["FrankenPHP + Laravel"]
+    N["Native client<br>tvOS + AVFoundation"] --> W
     W --> D[("SQLite metadata")]
     W --> Q["Finite role-separated worker pool"]
     W --> S["Scheduler"]
@@ -73,6 +74,38 @@ parallel-VOD upgrade queues one complete provider refresh at container startup.
 SQLite uses WAL plus immediate transactions so concurrent queue reservations
 wait for the single writer instead of failing during read-to-write promotion.
 Automatic caption jobs are emitted only when a caption provider is configured.
+
+## Native client boundary
+
+The versioned `/api/v1` JSON API is an additional presentation layer over the
+same user-scoped catalog, Live TV, playback, and administration services used
+by the web application. Its OpenAPI contract is
+[`docs/openapi/native-v1.yaml`](openapi/native-v1.yaml). The server-discovery
+endpoint is public; setup, login, and token refresh have narrowly scoped public
+routes, and all other user operations require a native bearer session.
+
+Each app installation creates an independently revocable
+`native_client_session`. Access and refresh tokens are random opaque values;
+only their hashes are persisted, and token hashes are excluded from model
+serialization. Access tokens are short lived. A successful refresh consumes and
+records the prior refresh-token hash, rotates both tokens, and treats replay of
+a consumed token as compromise of that device session. Session and audit
+retention are bounded by configuration and the scheduled native-client pruning
+command.
+
+AVFoundation cannot attach the JSON API authorization header to every nested
+HLS request. Playback resolution therefore returns a resource-scoped grant in
+the playback path. The server stores only the grant hash, binds it to the user,
+native session, resource, and delivery mode, and limits it to at most ten
+minutes or the remaining refresh-session lifetime. Re-resolving the same
+resource for the same client session revokes the earlier grant; the native
+client resolves again before expiry. These URLs are credentials: HTTP access
+logs must redact or exclude `/api/v1/playback/assets/*`.
+
+Native music playlists are persistent, ordered, and owned by one user. Writes
+are request-throttled, serialized per owner across processes, capped at 1,000
+tracks, and performed in short SQLite transactions. An update that supplies the
+existing ordered track IDs does not delete and recreate item rows.
 
 ## Source contracts
 
@@ -185,6 +218,11 @@ WebKit video fullscreen as a fallback.
 | `playback_progress` | Unique user/playable resume state in integer milliseconds plus monotonic sequence. |
 | `stream_sessions` | Opaque ID, owner, source/playable, mode, lease, heartbeat, expiry, and sanitized error. |
 | `sync_runs` | Observable status and counts for provider/library background work. |
+| `native_client_sessions` | One independently revocable device installation with hashed rotating access and refresh credentials. |
+| `native_refresh_token_uses` | Bounded hashes of consumed refresh tokens used to detect replay within a device session. |
+| `native_playback_grants` | Short-lived, hashed, resource-scoped credentials for AVFoundation media requests. |
+| `admin_audit_events` | Bounded native administrative activity without secrets or credential payloads. |
+| `music_playlists` / `music_playlist_items` | User-owned playlists and their unique ordered media-item membership. |
 
 Live channels have playback history and watched duration but no resume position.
 Resume applies to on-demand video, music, and any later catch-up/VOD support.
@@ -206,6 +244,13 @@ deployment:
 Backups use SQLite's online backup API or `VACUUM INTO`. Copying only a live
 database file can omit WAL state. The application key must be backed up with the
 database or encrypted source settings cannot be recovered.
+
+Native-client support is introduced by additive migrations. The upgrade creates
+new session, grant, refresh-use, audit, and playlist tables and adds native
+delivery/track-selection columns to transcode sessions; it does not replace or
+rewrite existing users, catalogs, history, or playback progress. As with every
+release, back up SQLite and the application key before starting an image that
+runs pending migrations.
 
 ## Interface architecture
 

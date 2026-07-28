@@ -37,10 +37,14 @@ class HlsSegmentController extends Controller
         }
 
         abort_unless(File::isFile($path), 404);
+        $contentType = match (pathinfo($segment, PATHINFO_EXTENSION)) {
+            'm4s', 'mp4' => 'video/mp4',
+            default => 'video/mp2t',
+        };
 
         return response()->file($path, [
             'Cache-Control' => 'private, max-age=300',
-            'Content-Type' => 'video/mp2t',
+            'Content-Type' => $contentType,
             'X-Content-Type-Options' => 'nosniff',
         ]);
     }

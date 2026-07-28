@@ -112,6 +112,19 @@ For an additional private ingress name, use a comma-separated list:
 ODISSEY_TRUSTED_HOSTS=media.internal.example
 ```
 
+### HTTP access-log policy
+
+The image's bundled Caddy configuration intentionally does not enable HTTP
+access logging. Keep it disabled: native playback URLs contain short-lived
+bearer grants in `/api/v1/playback/assets/*`.
+
+Traefik, Dokploy, and any log collector in front of the container must redact
+the request path or exclude `/api/v1/playback/assets/*` requests before logs,
+traces, metrics labels, or error reports are persisted. If the installed
+Traefik/logging stack cannot apply a path-specific exclusion, drop its request
+path field or disable access logging for the Odissey router. A grant's ten-minute
+rolling expiry limits exposure but does not make a captured URL safe to retain.
+
 Useful limits:
 
 ```text
@@ -132,6 +145,8 @@ ODISSEY_REMOTE_STREAM_SOURCE_CONCURRENCY=12
 ODISSEY_REMOTE_STREAM_GLOBAL_CONCURRENCY=32
 ODISSEY_MEDIA_ASSET_MAX_BYTES=10737418240
 ODISSEY_MEDIA_ASSET_MIN_FREE_BYTES=268435456
+ODISSEY_ARTWORK_MAX_PROCESSES=2
+ODISSEY_ARTWORK_GENERATION_LEASE_SECONDS=45
 ODISSEY_FFMPEG_THREADS=2
 ODISSEY_FFMPEG_MAX_ALLOC_BYTES=268435456
 ODISSEY_FFMPEG_MAX_PIXELS=33177600
