@@ -1,0 +1,19 @@
+---
+interface Props {
+  compact?: boolean;
+}
+
+const { compact = false } = Astro.props;
+---
+
+<span class:list={["brand", { "brand--compact": compact }]}>
+  <img
+    class="brand__mark"
+    src="/odissey-mark.webp"
+    alt=""
+    width="1000"
+    height="600"
+    decoding="async"
+  />
+  <span>Odissey</span>
+</span>

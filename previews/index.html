@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#07090d">
+<title>Odissey — Homepage Concepts</title>
+<link rel="icon" href="assets/favicon.svg">
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   ODISSEY · HOMEPAGE CONCEPTS — launcher
+   Three directions for the next odissey.app front page.
+   Zero JavaScript.
+   ═══════════════════════════════════════════════════════════════ */
+
+@property --angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
+
+:root {
+  --canvas:  #07090d;
+  --panel:   rgb(255 255 255 / .035);
+  --line:    rgb(255 255 255 / .09);
+  --text:    #f7f8fa;
+  --muted:   #a0a9b8;
+  --soft:    #697383;
+  --accent:  #f2a441;
+  --accent-2:#ffc66f;
+  --cyan:    #64ddff;
+  --violet:  #ac91ff;
+  --mono:    ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --ease:    cubic-bezier(.22,1,.36,1);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--canvas); color: var(--text);
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  min-height: 100svh; overflow-x: clip;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection { background: rgb(242 164 65 / .7); }
+
+@view-transition { navigation: auto; }
+
+/* ambient */
+.bg { position: fixed; inset: 0; z-index: -1; overflow: clip; filter: blur(100px); }
+.bg i { position: absolute; border-radius: 50%; mix-blend-mode: screen; }
+.bg .a { width: 50vmax; height: 50vmax; top: -25vmax; left: -12vmax; background: radial-gradient(circle, rgb(100 221 255 / .16), transparent 65%); animation: d1 30s ease-in-out infinite alternate; }
+.bg .b { width: 44vmax; height: 44vmax; bottom: -22vmax; right: -10vmax; background: radial-gradient(circle, rgb(242 164 65 / .15), transparent 65%); animation: d2 38s ease-in-out infinite alternate; }
+@keyframes d1 { to { transform: translate(9vmax, 6vmax) scale(1.15); } }
+@keyframes d2 { to { transform: translate(-8vmax, -7vmax) scale(.9); } }
+
+.shell { max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+
+/* header */
+header { padding: 90px 0 60px; text-align: center; }
+.mark {
+  width: 54px; aspect-ratio: 1; border-radius: 50%; margin: 0 auto 26px; position: relative;
+  background: conic-gradient(from 210deg, var(--cyan), #2f96ad 24%, #16333d 48%, #7a5320 62%, var(--accent) 78%, var(--accent-2) 92%, var(--cyan));
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 13px), #000 calc(100% - 12px));
+          mask: radial-gradient(farthest-side, transparent calc(100% - 13px), #000 calc(100% - 12px));
+}
+.mark i { position: absolute; inset: 0; animation: spin 6s linear infinite; }
+.mark i::before { content: ""; position: absolute; top: 1px; left: 50%; translate: -50% -50%; width: 7px; height: 7px; border-radius: 50%; background: #ffe2b0; box-shadow: 0 0 12px 3px var(--accent); }
+@keyframes spin { to { rotate: 1turn; } }
+
+.kicker { font-family: var(--mono); font-size: .72rem; letter-spacing: .22em; text-transform: uppercase; color: var(--soft); margin-bottom: 18px; }
+.kicker b { color: var(--accent); font-weight: 500; }
+h1 { font-size: clamp(2.6rem, 6vw, 4.6rem); font-weight: 800; letter-spacing: -.05em; line-height: 1.02; text-wrap: balance; }
+h1 em { font-style: normal; background: linear-gradient(100deg, var(--cyan), #d8f6ff 45%, var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.sub { margin: 22px auto 0; max-width: 560px; color: var(--muted); font-size: 1.02rem; line-height: 1.75; text-wrap: balance; }
+.sub b { color: var(--text); font-weight: 650; }
+
+.badges { display: flex; justify-content: center; gap: 10px; margin-top: 30px; flex-wrap: wrap; }
+.badges span {
+  font-family: var(--mono); font-size: .68rem; letter-spacing: .08em; color: var(--soft);
+  padding: 7px 14px; border: 1px solid var(--line); border-radius: 100px; background: var(--panel);
+}
+.badges span b { color: var(--cyan); font-weight: 500; }
+
+/* cards */
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; padding-bottom: 40px; }
+
+.card {
+  position: relative; display: grid; grid-template-rows: 220px auto; text-decoration: none; color: var(--text);
+  border: 1px solid var(--line); border-radius: 22px; overflow: hidden; background: var(--panel);
+  transition: transform .5s var(--ease), border-color .4s, box-shadow .5s;
+}
+.card:hover { transform: translateY(-8px); border-color: rgb(255 255 255 / .22); box-shadow: 0 40px 80px -30px rgb(0 0 0 / .8); }
+.card::before { /* beam border on hover */
+  content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1.5px; opacity: 0;
+  background: conic-gradient(from var(--angle), transparent .6turn, var(--cyan) .76turn, var(--accent-2) .86turn, transparent .96turn);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  animation: beam 5s linear infinite; transition: opacity .4s; pointer-events: none; z-index: 2;
+}
+.card:hover::before { opacity: 1; }
+@keyframes beam { to { --angle: 1turn; } }
+
+/* dim siblings via :has() */
+.grid:has(.card:hover) .card:not(:hover) { opacity: .45; scale: .985; }
+
+/* ── emblems (live CSS vignettes) ── */
+.emblem { position: relative; overflow: hidden; border-bottom: 1px solid var(--line); }
+
+/* 01 aurora emblem: morphing blobs + glass */
+.e-aurora { background: #05070c; }
+.e-aurora i { position: absolute; border-radius: 50%; filter: blur(26px); mix-blend-mode: screen; }
+.e-aurora .x { width: 180px; height: 180px; top: -60px; left: -30px; background: rgb(100 221 255 / .5); animation: ea1 9s ease-in-out infinite alternate; }
+.e-aurora .y { width: 160px; height: 160px; bottom: -70px; right: -20px; background: rgb(242 164 65 / .55); animation: ea2 11s ease-in-out infinite alternate; }
+.e-aurora .z { width: 120px; height: 120px; bottom: -30px; left: 38%; background: rgb(172 145 255 / .4); animation: ea1 13s ease-in-out infinite alternate-reverse; }
+@keyframes ea1 { to { transform: translate(46px, 26px) scale(1.25); } }
+@keyframes ea2 { to { transform: translate(-36px, -30px) scale(.85); } }
+.e-aurora .pane {
+  position: absolute; inset: 52px 38px; border-radius: 14px;
+  background: rgb(255 255 255 / .06); border: 1px solid rgb(255 255 255 / .14);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  display: grid; place-items: center;
+}
+.e-aurora .pane::before { content: ""; width: 60%; height: 8px; border-radius: 8px; background: linear-gradient(90deg, var(--cyan), var(--accent-2)); background-size: 200% 100%; animation: shim 3s linear infinite; }
+@keyframes shim { to { background-position: -200% 0; } }
+
+/* 02 editorial emblem: giant type + hairlines */
+.e-editorial { background: #0b0b09; display: grid; place-items: center; }
+.e-editorial::before { content: ""; position: absolute; inset: 0; background:
+  linear-gradient(90deg, rgb(245 241 232 / .07) 1px, transparent 1px) 0 0 / 25% 100%,
+  linear-gradient(rgb(245 241 232 / .05) 1px, transparent 1px) 0 0 / 100% 25%; }
+.e-editorial .aa {
+  font-size: 7.2rem; font-weight: 880; letter-spacing: -.06em; line-height: 1;
+  color: transparent; -webkit-text-stroke: 1.5px #f5f1e8; user-select: none;
+  transition: color .5s var(--ease);
+}
+.card:hover .e-editorial .aa { color: var(--accent); -webkit-text-stroke-color: var(--accent); }
+.e-editorial .tick {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 24px; background: var(--accent);
+  display: flex; align-items: center; overflow: hidden;
+}
+.e-editorial .tick b {
+  font-family: var(--mono); font-weight: 700; font-size: .58rem; letter-spacing: .18em; color: #0b0b09;
+  white-space: nowrap; animation: etick 8s linear infinite;
+}
+@keyframes etick { to { transform: translateX(-50%); } }
+
+/* 03 terminal emblem: scanlines + cursor */
+.e-terminal { background: #070502; padding: 30px; font-family: var(--mono); font-size: .72rem; color: #ffb84d; text-shadow: 0 0 8px rgb(255 184 77 / .4); }
+.e-terminal::before { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgb(0 0 0 / .3) 0 1px, transparent 1px 3px); }
+.e-terminal .tl { display: block; opacity: 0; animation: tl .01s steps(1) both; }
+.e-terminal .tl:nth-child(2) { animation-delay: .4s; color: #8a6a2f; }
+.e-terminal .tl:nth-child(3) { animation-delay: .8s; color: #8a6a2f; }
+.e-terminal .tl:nth-child(4) { animation-delay: 1.2s; color: #65d9aa; }
+@keyframes tl { to { opacity: 1; } }
+.e-terminal .cur { display: inline-block; width: .62em; height: 1.05em; background: #ffb84d; translate: 0 3px; animation: cur 1s steps(2) infinite; box-shadow: 0 0 10px rgb(255 184 77 / .6); }
+@keyframes cur { 50% { opacity: 0; } }
+
+/* ── card body ── */
+.body { padding: 26px 26px 30px; display: grid; gap: 12px; }
+.body .num { font-family: var(--mono); font-size: .68rem; color: var(--soft); letter-spacing: .16em; display: flex; justify-content: space-between; }
+.body .num b { color: var(--accent); font-weight: 500; }
+.body h2 { font-size: 1.55rem; font-weight: 760; letter-spacing: -.03em; }
+.body p { font-size: .88rem; color: var(--muted); line-height: 1.7; }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.tags span { font-family: var(--mono); font-size: .62rem; color: var(--soft); padding: 5px 10px; border: 1px solid var(--line); border-radius: 100px; transition: color .3s, border-color .3s; }
+.card:hover .tags span { color: var(--muted); }
+.open {
+  margin-top: 10px; display: inline-flex; align-items: center; gap: 8px;
+  font-size: .86rem; font-weight: 700; color: var(--accent-2);
+}
+.open i { font-style: normal; transition: translate .35s var(--ease); }
+.card:hover .open i { translate: 6px 0; }
+
+/* footer */
+footer { border-top: 1px solid var(--line); padding: 34px 0 60px; margin-top: 30px; }
+footer .shell { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; font-family: var(--mono); font-size: .7rem; color: var(--soft); letter-spacing: .04em; }
+footer b { color: var(--muted); font-weight: 500; }
+
+@media (max-width: 960px) { .grid { grid-template-columns: 1fr; } .card { grid-template-rows: 190px auto; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+</style>
+</head>
+<body>
+
+<div class="bg" aria-hidden="true"><i class="a"></i><i class="b"></i></div>
+
+<header class="shell">
+  <div class="mark" aria-hidden="true"><i></i></div>
+  <p class="kicker">Odissey <b>·</b> odissey.app <b>·</b> design exploration</p>
+  <h1>Three directions for<br><em>the next homepage.</em></h1>
+  <p class="sub">Same brand, same story — <b>every source, every screen, one Odissey</b> — told three very different ways. All pure CSS. All animated. <b>Zero JavaScript.</b></p>
+  <div class="badges">
+    <span><b>0</b> lines of JS</span>
+    <span>scroll-driven animations</span>
+    <span>@property gradients</span>
+    <span>:has() interactions</span>
+    <span>reduced-motion safe</span>
+  </div>
+</header>
+
+<main class="shell grid">
+
+  <a class="card" href="aurora.html">
+    <div class="emblem e-aurora"><i class="x"></i><i class="y"></i><i class="z"></i><div class="pane"></div></div>
+    <div class="body">
+      <span class="num"><b>CONCEPT—01</b><span>ETHEREAL</span></span>
+      <h2>Aurora</h2>
+      <p>Living gradient atmosphere, frosted glass, rotating beam borders and sticky stacking cards that hand the stage to each feature.</p>
+      <div class="tags"><span>backdrop-filter</span><span>@property beams</span><span>sticky stack</span><span>view() reveals</span><span>marquee</span></div>
+      <span class="open">Open preview <i>→</i></span>
+    </div>
+  </a>
+
+  <a class="card" href="editorial.html">
+    <div class="emblem e-editorial"><span class="aa">Aa</span><div class="tick"><b>DIRECT PLAY ✕ 1080P ✕ CAPTIONS ✕ EPG ✕ $0 FOREVER ✕ DIRECT PLAY ✕ 1080P ✕ CAPTIONS ✕ EPG ✕ $0 FOREVER ✕ </b></div></div>
+    <div class="body">
+      <span class="num"><b>CONCEPT—02</b><span>SWISS</span></span>
+      <h2>Editorial</h2>
+      <p>Blueprint grid, massive grotesque type, outlined headlines and an interactive feature index. One accent color, zero decoration.</p>
+      <div class="tags"><span>text-stroke</span><span>:has() index</span><span>scroll drift</span><span>clip-path wipes</span><span>ticker</span></div>
+      <span class="open">Open preview <i>→</i></span>
+    </div>
+  </a>
+
+  <a class="card" href="terminal.html">
+    <div class="emblem e-terminal">
+      <span class="tl">$ odissey start</span>
+      <span class="tl">▸ sources [4] ... mounted</span>
+      <span class="tl">▸ ffmpeg ....... ready</span>
+      <span class="tl">✔ direct play <span class="cur"></span></span>
+    </div>
+    <div class="body">
+      <span class="num"><b>CONCEPT—03</b><span>RETRO-FUTURE</span></span>
+      <h2>Terminal</h2>
+      <p>Phosphor CRT fantasy: boot sequence, typed commands, ASCII program guide and htop-style playback meters. Nerdy, confident, memorable.</p>
+      <div class="tags"><span>steps() typing</span><span>scanlines</span><span>ascii epg</span><span>boot overlay</span><span>htop bars</span></div>
+      <span class="open">Open preview <i>→</i></span>
+    </div>
+  </a>
+
+</main>
+
+<footer>
+  <div class="shell">
+    <span><b>local previews only</b> — nothing here touches the production site</span>
+    <span>best in latest chrome / safari / edge · honors prefers-reduced-motion</span>
+  </div>
+</footer>
+
+</body>
+</html>

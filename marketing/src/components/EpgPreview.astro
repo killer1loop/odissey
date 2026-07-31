@@ -1,0 +1,111 @@
+---
+const channels = [
+  {
+    mark: "NW",
+    name: "News Wire",
+    genre: "News",
+    tone: "amber",
+    now: "The Daily Brief",
+    next: "World Focus",
+  },
+  {
+    mark: "SC",
+    name: "Screen One",
+    genre: "Entertainment",
+    tone: "cyan",
+    now: "Coastal Roads",
+    next: "Northstar",
+  },
+  {
+    mark: "SP",
+    name: "Sportline",
+    genre: "Sports",
+    tone: "green",
+    now: "Open Field · Live",
+    next: "The Review",
+  },
+  {
+    mark: "FM",
+    name: "Frequency",
+    genre: "Music",
+    tone: "violet",
+    now: "Studio Sessions",
+    next: "Night Shift",
+  },
+  {
+    mark: "DW",
+    name: "Deep World",
+    genre: "Documentary",
+    tone: "blue",
+    now: "Ocean Signals",
+    next: "Into the Dark",
+  },
+];
+---
+
+<div
+  class="guide-frame"
+  data-guide-frame
+  data-tilt
+  aria-label="Fictional but product-accurate Odissey electronic programme guide"
+>
+  <div class="guide-toolbar">
+    <div>
+      <span class="guide-kicker">Live TV</span>
+      <strong>Tonight’s guide</strong>
+    </div>
+    <div class="guide-view-switch" aria-hidden="true">
+      <span>Channels</span>
+      <span class="is-active">Guide</span>
+    </div>
+    <div class="guide-toolbar-meta">
+      <span class="runtime-dot"></span>
+      Updated 2 min ago
+    </div>
+  </div>
+
+  <div class="guide-scroll">
+    <div class="guide-grid">
+      <div class="guide-time-row">
+        <div class="guide-corner">
+          <span>Favorites</span>
+          <small>5 channels</small>
+        </div>
+        <div class="guide-times">
+          <span>20:00</span>
+          <span>20:30</span>
+          <span>21:00</span>
+          <span>21:30</span>
+        </div>
+      </div>
+
+      <div class="guide-body">
+        <span class="guide-now-line" aria-hidden="true"><i>Now</i></span>
+        {
+          channels.map((channel) => (
+            <div class="guide-row">
+              <div class="guide-channel">
+                <span class:list={["guide-channel__mark", `is-${channel.tone}`]}>{channel.mark}</span>
+                <div>
+                  <strong>{channel.name}</strong>
+                  <small>{channel.genre} · HD</small>
+                </div>
+                <span class="guide-favorite">★</span>
+              </div>
+              <div class="guide-programs">
+                <div class="guide-program is-live">
+                  <strong>{channel.now}</strong>
+                  <span>Now playing</span>
+                </div>
+                <div class="guide-program">
+                  <strong>{channel.next}</strong>
+                  <span>Up next</span>
+                </div>
+              </div>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </div>
+</div>
