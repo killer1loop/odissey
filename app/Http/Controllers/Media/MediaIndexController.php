@@ -134,9 +134,20 @@ class MediaIndexController extends Controller
             ->orderBy('title')
             ->paginate($kind === 'video' ? 100 : 60)
             ->withQueryString();
+        $artworkCandidates = $items->getCollection()
+            ->concat($seriesGroups->pluck('show'))
+            ->filter(fn (mixed $item): bool => $item instanceof MediaItem)
+            ->unique(fn (MediaItem $item): string => (string) $item->getKey())
+            ->values();
         $artworkItems = $artwork->resolve(
-            $items->getCollection(),
+            $artworkCandidates,
             $request->user(),
+        );
+        $artworkAvailability = $artworkItems->map(
+            fn (MediaItem $item): bool => $artwork->isAvailable(
+                $item,
+                'poster',
+            ),
         );
 
         $sources = MediaSource::query()
@@ -160,6 +171,7 @@ class MediaIndexController extends Controller
         return view('media.index', compact(
             'items',
             'artworkItems',
+            'artworkAvailability',
             'kind',
             'library',
             'series',

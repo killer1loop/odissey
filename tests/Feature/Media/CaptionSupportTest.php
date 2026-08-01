@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\Iptv\ConfidentialHttpFactory;
 use App\Services\Iptv\HostAddressResolver;
 use App\Services\Media\ArtworkManager;
+use App\Services\Media\ArtworkMetadataMerger;
 use App\Services\Media\Captions\CaptionCandidate;
 use App\Services\Media\Captions\CaptionStorage;
 use App\Services\Media\Captions\OpenSubtitlesCaptionProvider;
@@ -377,6 +378,7 @@ class CaptionSupportTest extends TestCase
             $tmdb,
             $tvmaze,
             $artwork,
+            app(ArtworkMetadataMerger::class),
         );
 
         Queue::assertNotPushed(FetchMediaCaptions::class);

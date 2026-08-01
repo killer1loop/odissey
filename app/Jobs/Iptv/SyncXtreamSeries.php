@@ -9,6 +9,7 @@ use App\Models\MediaSource;
 use App\Services\Iptv\Exceptions\SanitizedIptvException;
 use App\Services\Iptv\IptvVodImportProgress;
 use App\Services\Iptv\XtreamClient;
+use App\Services\Media\ArtworkMetadataMerger;
 use App\Services\Media\TrustedArtworkUrl;
 use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -58,6 +59,7 @@ class SyncXtreamSeries implements ShouldBeUniqueUntilProcessing, ShouldQueue
         XtreamClient $client,
         IptvVodImportProgress $progress,
         TrustedArtworkUrl $artworkUrls,
+        ArtworkMetadataMerger $artworkMetadata,
     ): void {
         if ($this->importToken === null) {
             return;
@@ -180,11 +182,16 @@ class SyncXtreamSeries implements ShouldBeUniqueUntilProcessing, ShouldQueue
                 'poster_url' => $episodeArtwork,
                 'backdrop_url' => $episodeArtwork,
             ], fn (mixed $value): bool => $value !== null && $value !== []);
-            $item = MediaItem::query()->updateOrCreate(
+            $item = MediaItem::query()->firstOrNew(
                 [
                     'media_source_id' => $source->id,
                     'stable_id' => hash('sha256', 'xtream:episode:'.$id),
                 ],
+            );
+            $metadata = $item->exists
+                ? $artworkMetadata->merge($item->metadata ?? [], $metadata)
+                : $metadata;
+            $item->fill(
                 [
                     'user_id' => $ownerId,
                     'scan_token' => $scanToken,
@@ -215,7 +222,7 @@ class SyncXtreamSeries implements ShouldBeUniqueUntilProcessing, ShouldQueue
                     'missing_at' => null,
                     'metadata' => $metadata,
                 ],
-            );
+            )->save();
             $itemIds[] = $item->id;
         }
 

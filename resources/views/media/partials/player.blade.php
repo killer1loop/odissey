@@ -14,7 +14,7 @@
     aria-label="Audio player for {{ $item->title }}"
 >
     <div class="music-player-visual" aria-hidden="true">
-        @if (($itemArtwork->metadata['poster_cached'] ?? false) || ($itemArtwork->metadata['poster_url'] ?? false))
+        @if ($itemArtworkAvailable)
             <img src="{{ route('media.artwork', [$itemArtwork, 'poster']) }}" alt="">
         @else
             <span>{{ mb_strtoupper(mb_substr($item->title, 0, 1)) }}</span>

@@ -75,6 +75,10 @@ class MediaPlayerController extends Controller
         $itemArtwork = $artwork
             ->resolve([$item], $request->user())
             ->get((string) $item->getKey(), $item);
+        $itemArtworkAvailable = $artwork->isAvailable(
+            $itemArtwork,
+            'poster',
+        );
         $recentHistory = $this->recentHistory(
             $request,
             $item,
@@ -84,6 +88,7 @@ class MediaPlayerController extends Controller
         return view('media.show', compact(
             'item',
             'itemArtwork',
+            'itemArtworkAvailable',
             'progress',
             'session',
             'recentHistory',
@@ -94,6 +99,7 @@ class MediaPlayerController extends Controller
      * @return Collection<int, array{
      *     item: MediaItem,
      *     artwork_item: MediaItem,
+     *     artwork_available: bool,
      *     position_ms: int,
      *     duration_ms: int|null,
      *     progress_percent: int,
@@ -127,11 +133,18 @@ class MediaPlayerController extends Controller
             $items->values(),
             $request->user(),
         );
+        $artworkAvailability = $artworkItems->map(
+            fn (MediaItem $item): bool => $artwork->isAvailable(
+                $item,
+                'poster',
+            ),
+        );
 
         return $mediaIds
             ->map(function (string $mediaId) use (
                 $items,
                 $artworkItems,
+                $artworkAvailability,
                 $currentItem,
             ): ?array {
                 /** @var MediaItem|null $historyItem */
@@ -154,6 +167,10 @@ class MediaPlayerController extends Controller
                     'artwork_item' => $artworkItems->get(
                         (string) $historyItem->getKey(),
                         $historyItem,
+                    ),
+                    'artwork_available' => (bool) $artworkAvailability->get(
+                        (string) $historyItem->getKey(),
+                        false,
                     ),
                     'position_ms' => $positionMs,
                     'duration_ms' => $durationMs,

@@ -3,14 +3,18 @@
 namespace Tests\Feature\Media;
 
 use App\Http\Resources\Api\V1\MediaItemResource;
+use App\Jobs\Media\EnrichMediaItem;
 use App\Models\MediaItem;
 use App\Models\MediaSource;
 use App\Models\User;
 use App\Services\Media\ArtworkConcurrencyGate;
 use App\Services\Media\ArtworkManager;
+use App\Services\Media\ArtworkMetadataMerger;
 use App\Services\Media\BoundedMediaDownloader;
 use App\Services\Media\MediaAssetStorage;
 use App\Services\Media\MediaProcessFactory;
+use App\Services\Media\TmdbMetadataProvider;
+use App\Services\Media\TvmazeMetadataProvider;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -116,6 +120,221 @@ class MediaArtworkFallbackTest extends TestCase
         } finally {
             File::deleteDirectory($root);
             File::deleteDirectory($root.'-captions');
+        }
+    }
+
+    public function test_enrichment_invalidates_only_changed_artwork_urls(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $item = MediaItem::query()->create([
+            'user_id' => $user->id,
+            'title' => 'Refreshable artwork',
+            'media_kind' => 'video',
+            'source_type' => 'iptv',
+            'source_locator' => 'movie:refreshable-artwork',
+            'metadata' => [
+                'kind' => 'movie',
+                'poster_url' => 'https://image.tmdb.org/t/p/w500/old-poster.jpg',
+                'poster_cached' => true,
+                'backdrop_url' => 'https://image.tmdb.org/t/p/w1280/backdrop.jpg',
+                'backdrop_cached' => true,
+            ],
+        ]);
+        $tmdb = Mockery::mock(TmdbMetadataProvider::class);
+        $tmdb->shouldReceive('match')->once()->andReturn([
+            'poster_url' => 'https://image.tmdb.org/t/p/w500/new-poster.jpg',
+        ]);
+        $tvmaze = Mockery::mock(TvmazeMetadataProvider::class);
+        $tvmaze->shouldNotReceive('match');
+        $populatedMetadata = null;
+        $artwork = Mockery::mock(ArtworkManager::class);
+        $artwork->shouldReceive('populate')
+            ->once()
+            ->andReturnUsing(function (MediaItem $candidate) use (
+                &$populatedMetadata,
+            ): void {
+                $populatedMetadata = $candidate->metadata;
+            });
+
+        (new EnrichMediaItem($item->id))->handle(
+            $tmdb,
+            $tvmaze,
+            $artwork,
+            app(ArtworkMetadataMerger::class),
+        );
+
+        $metadata = $item->refresh()->metadata;
+        $this->assertSame(
+            'https://image.tmdb.org/t/p/w500/new-poster.jpg',
+            $metadata['poster_url'],
+        );
+        $this->assertFalse($metadata['poster_cached']);
+        $this->assertSame(
+            'https://image.tmdb.org/t/p/w1280/backdrop.jpg',
+            $metadata['backdrop_url'],
+        );
+        $this->assertTrue($metadata['backdrop_cached']);
+        $this->assertSame($metadata, $populatedMetadata);
+    }
+
+    public function test_existing_artwork_is_served_when_cache_flags_are_missing(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $item = MediaItem::query()->create([
+            'user_id' => $user->id,
+            'title' => 'Artwork with lost flags',
+            'media_kind' => 'video',
+            'source_type' => 'local',
+            'source_locator' => '/media/lost-flags.mp4',
+            'metadata' => [
+                'kind' => 'movie',
+                'backdrop_cached' => null,
+            ],
+        ]);
+        $root = storage_path('framework/testing-artwork-'.Str::ulid());
+        $directory = $root.'/'.$item->id;
+        File::ensureDirectoryExists($directory, 0700);
+        $poster = $directory.'/poster.jpg';
+        $backdrop = $directory.'/backdrop.jpg';
+        File::put($poster, $this->jpegWithDimensions(1000, 1500));
+        File::put($backdrop, $this->jpegWithDimensions(1600, 900));
+        config(['odissey.artwork_path' => $root]);
+
+        try {
+            $artwork = app(ArtworkManager::class);
+
+            $this->assertSame($poster, $artwork->path($item, 'poster'));
+            $this->assertSame($backdrop, $artwork->path($item, 'backdrop'));
+            $this->actingAs($user)
+                ->get(route('media.artwork', [$item, 'poster']))
+                ->assertOk()
+                ->assertHeader('Content-Type', 'image/jpeg');
+        } finally {
+            File::deleteDirectory($root);
+        }
+    }
+
+    public function test_existing_artwork_repairs_its_flag_without_a_remote_download(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $item = MediaItem::query()->create([
+            'user_id' => $user->id,
+            'title' => 'Recoverable cached artwork',
+            'media_kind' => 'video',
+            'source_type' => 'iptv',
+            'source_locator' => 'movie:recoverable',
+            'metadata' => [
+                'kind' => 'movie',
+                'poster_url' => 'https://image.tmdb.org/t/p/w500/poster.jpg',
+            ],
+        ]);
+        $root = storage_path('framework/testing-artwork-'.Str::ulid());
+        File::ensureDirectoryExists($root.'/'.$item->id, 0700);
+        File::put(
+            $root.'/'.$item->id.'/poster.jpg',
+            $this->jpegWithDimensions(1000, 1500),
+        );
+        config(['odissey.artwork_path' => $root]);
+        $downloader = Mockery::mock(BoundedMediaDownloader::class);
+        $downloader->shouldNotReceive('download');
+        $artwork = new ArtworkManager(
+            $downloader,
+            app(MediaAssetStorage::class),
+            app(MediaProcessFactory::class),
+            app(ArtworkConcurrencyGate::class),
+        );
+
+        try {
+            $artwork->populate($item, null);
+
+            $this->assertTrue($item->refresh()->metadata['poster_cached']);
+            $this->assertFileExists($root.'/'.$item->id.'/poster.jpg');
+        } finally {
+            File::deleteDirectory($root);
+        }
+    }
+
+    public function test_explicit_false_cache_flag_refuses_a_stale_artwork_file(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $item = MediaItem::query()->create([
+            'user_id' => $user->id,
+            'title' => 'Invalidated artwork',
+            'media_kind' => 'video',
+            'source_type' => 'local',
+            'source_locator' => '/media/invalidated-artwork.mp4',
+            'metadata' => [
+                'kind' => 'movie',
+                'poster_cached' => false,
+            ],
+        ]);
+        $root = storage_path('framework/testing-artwork-'.Str::ulid());
+        $directory = $root.'/'.$item->id;
+        File::ensureDirectoryExists($directory, 0700);
+        File::put(
+            $directory.'/poster.jpg',
+            $this->jpegWithDimensions(1000, 1500),
+        );
+        config(['odissey.artwork_path' => $root]);
+
+        try {
+            $this->assertNull(
+                app(ArtworkManager::class)->path($item, 'poster'),
+            );
+        } finally {
+            File::deleteDirectory($root);
+        }
+    }
+
+    public function test_missing_or_symlinked_artwork_is_not_served_without_cache_flags(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $item = MediaItem::query()->create([
+            'user_id' => $user->id,
+            'title' => 'Unsafe artwork',
+            'media_kind' => 'video',
+            'source_type' => 'local',
+            'source_locator' => '/media/unsafe-artwork.mp4',
+            'metadata' => ['kind' => 'movie'],
+        ]);
+        $root = storage_path('framework/testing-artwork-'.Str::ulid());
+        $directory = $root.'/'.$item->id;
+        $outsideDirectory = storage_path(
+            'framework/testing-artwork-outside-'.Str::ulid(),
+        );
+        File::ensureDirectoryExists($directory, 0700);
+        File::ensureDirectoryExists($outsideDirectory, 0700);
+        $outside = $outsideDirectory.'/poster.jpg';
+        File::put($outside, $this->jpegWithDimensions(1000, 1500));
+        config(['odissey.artwork_path' => $root]);
+        $artwork = app(ArtworkManager::class);
+
+        try {
+            $this->assertNull($artwork->path($item, 'poster'));
+            $this->assertNull($artwork->path($item, '../poster'));
+
+            if (! @symlink($outside, $directory.'/poster.jpg')) {
+                $this->markTestSkipped(
+                    'Filesystem symlinks are unavailable.',
+                );
+            }
+
+            $this->assertNull($artwork->path($item, 'poster'));
+
+            @unlink($directory.'/poster.jpg');
+            File::deleteDirectory($directory);
+            if (! @symlink($outsideDirectory, $directory)) {
+                $this->markTestSkipped(
+                    'Filesystem directory symlinks are unavailable.',
+                );
+            }
+
+            $this->assertNull($artwork->path($item, 'poster'));
+        } finally {
+            @unlink($directory.'/poster.jpg');
+            @unlink($directory);
+            File::deleteDirectory($root);
+            File::deleteDirectory($outsideDirectory);
         }
     }
 
@@ -602,7 +821,7 @@ class MediaArtworkFallbackTest extends TestCase
 
             $this->assertNotNull($route);
             $this->assertContains(
-                'throttle:180,1,media-artwork:',
+                'throttle:600,1,media-artwork:',
                 $route->gatherMiddleware(),
             );
         }

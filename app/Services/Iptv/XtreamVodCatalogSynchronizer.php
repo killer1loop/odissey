@@ -9,6 +9,7 @@ use App\Models\MediaItem;
 use App\Models\MediaSource;
 use App\Models\User;
 use App\Services\Iptv\Exceptions\SanitizedIptvException;
+use App\Services\Media\ArtworkMetadataMerger;
 use App\Services\Media\TrustedArtworkUrl;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -18,6 +19,7 @@ class XtreamVodCatalogSynchronizer
 {
     public function __construct(
         private readonly TrustedArtworkUrl $artworkUrls,
+        private readonly ArtworkMetadataMerger $artworkMetadata,
     ) {}
 
     /**
@@ -152,6 +154,7 @@ class XtreamVodCatalogSynchronizer
             $source->forceFill($sourceAttributes)->save();
 
             foreach (array_chunk([...$movieRows, ...$seriesRows], 250) as $rows) {
+                $rows = $this->preserveArtworkMetadata($source, $rows);
                 DB::table('media_items')->upsert(
                     $rows,
                     ['media_source_id', 'stable_id'],
@@ -207,6 +210,45 @@ class XtreamVodCatalogSynchronizer
             'movies' => count($movieRows),
             'series' => count($seriesRows),
         ];
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function preserveArtworkMetadata(
+        MediaSource $source,
+        array $rows,
+    ): array {
+        $existing = MediaItem::query()
+            ->whereBelongsTo($source, 'source')
+            ->whereIn('stable_id', array_column($rows, 'stable_id'))
+            ->get(['stable_id', 'metadata'])
+            ->keyBy('stable_id');
+
+        foreach ($rows as &$row) {
+            $item = $existing->get($row['stable_id']);
+            if (! $item instanceof MediaItem) {
+                continue;
+            }
+
+            $metadata = json_decode(
+                $row['metadata'],
+                true,
+                512,
+                JSON_THROW_ON_ERROR,
+            );
+            $row['metadata'] = json_encode(
+                $this->artworkMetadata->merge(
+                    $item->metadata ?? [],
+                    $metadata,
+                ),
+                JSON_THROW_ON_ERROR,
+            );
+        }
+        unset($row);
+
+        return $rows;
     }
 
     /**

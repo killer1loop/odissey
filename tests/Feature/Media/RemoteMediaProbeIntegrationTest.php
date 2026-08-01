@@ -309,6 +309,119 @@ class RemoteMediaProbeIntegrationTest extends TestCase
         );
     }
 
+    #[DataProvider('remoteArtworkRefreshScenarios')]
+    public function test_remote_refresh_preserves_existing_artwork_and_invalidates_only_replaced_artwork(
+        string $sourceType,
+        bool $remoteProbeSucceeds,
+    ): void {
+        Queue::fake();
+        $admin = User::factory()->create([
+            'is_admin' => true,
+            'is_active' => true,
+        ]);
+        $scanToken = '01J00000000000000000000000';
+        $source = MediaSource::query()->create([
+            'name' => 'Remote movies',
+            'type' => $sourceType,
+            'configuration' => ['synthetic' => true],
+            'enabled' => true,
+            'scan_status' => 'scanning',
+            'active_scan_token' => $scanToken,
+            'scan_discovery_complete' => true,
+            'scan_discovered' => 1,
+        ]);
+        $locator = 'Movies/Compatible.mp4';
+        $item = MediaItem::query()->create([
+            'user_id' => $admin->id,
+            'media_source_id' => $source->id,
+            'stable_id' => hash('sha256', $locator),
+            'scan_token' => 'old-scan',
+            'title' => 'Compatible',
+            'media_kind' => 'video',
+            'source_type' => $sourceType,
+            'source_locator' => $locator,
+            'relative_path' => $locator,
+            'mime_type' => 'video/mp4',
+            'container' => 'mp4',
+            'video_codec' => 'hevc',
+            'audio_codec' => 'eac3',
+            'duration_ms' => 180000,
+            'requires_transcode' => true,
+            'size_bytes' => 123456,
+            'source_modified_at' => date('Y-m-d H:i:s', 1710000000),
+            'metadata' => [
+                'kind' => 'movie',
+                'source_etag' => 'old-etag',
+                'poster_url' => 'https://image.tmdb.org/old-poster.jpg',
+                'poster_cached' => true,
+                'backdrop_url' => 'https://image.tmdb.org/backdrop.jpg',
+                'backdrop_cached' => true,
+            ],
+        ]);
+        $technical = $this->technicalResult();
+        $remoteProbe = Mockery::mock(RemoteMediaProbe::class);
+        $remoteProbe->shouldNotReceive('shouldAttempt');
+        $remoteProbe->shouldReceive('inspect')
+            ->once()
+            ->withArgs(fn (
+                MediaSource $candidate,
+                string $candidateLocator,
+                string $path,
+            ): bool => $candidate->is($source)
+                && $candidateLocator === $locator
+                && $path === $locator)
+            ->andReturn($remoteProbeSucceeds ? $technical : null);
+        $fallbackProbe = Mockery::mock(MediaProbe::class);
+        if ($remoteProbeSucceeds) {
+            $fallbackProbe->shouldNotReceive('inspect');
+        } else {
+            $fallbackProbe->shouldReceive('inspect')
+                ->once()
+                ->with(null, $locator)
+                ->andReturn($technical);
+        }
+        $materializer = Mockery::mock(SourceMaterializer::class);
+        $materializer->shouldNotReceive('materializeObject');
+        $artwork = Mockery::mock(ArtworkManager::class);
+        $artwork->shouldReceive('populate')->once();
+        $tmdb = Mockery::mock(TmdbMetadataProvider::class);
+        $tmdb->shouldReceive('match')->once()->andReturn([
+            'poster_url' => 'https://image.tmdb.org/new-poster.jpg',
+        ]);
+        $tvmaze = Mockery::mock(TvmazeMetadataProvider::class);
+        $tvmaze->shouldNotReceive('match');
+        $job = new ProcessMediaSourceObject(
+            $source->id,
+            $scanToken,
+            $locator,
+            $locator,
+            123456,
+            'new-etag',
+            1710003600,
+        );
+
+        app()->call([$job, 'handle'], [
+            'probe' => $fallbackProbe,
+            'metadata' => $tmdb,
+            'artwork' => $artwork,
+            'materializer' => $materializer,
+            'tvmaze' => $tvmaze,
+            'remoteProbe' => $remoteProbe,
+        ]);
+
+        $item->refresh();
+        $this->assertSame(
+            'https://image.tmdb.org/new-poster.jpg',
+            $item->metadata['poster_url'],
+        );
+        $this->assertFalse($item->metadata['poster_cached']);
+        $this->assertSame(
+            'https://image.tmdb.org/backdrop.jpg',
+            $item->metadata['backdrop_url'],
+        );
+        $this->assertTrue($item->metadata['backdrop_cached']);
+    }
+
     public function test_failed_backfill_probe_preserves_existing_technical_data(): void
     {
         Queue::fake();
@@ -408,6 +521,15 @@ class RemoteMediaProbeIntegrationTest extends TestCase
     {
         yield 'S3' => [MediaSource::TYPE_S3];
         yield 'WebDAV' => [MediaSource::TYPE_WEBDAV];
+    }
+
+    /** @return iterable<string, array{string, bool}> */
+    public static function remoteArtworkRefreshScenarios(): iterable
+    {
+        yield 'S3 successful probe' => [MediaSource::TYPE_S3, true];
+        yield 'S3 fallback probe' => [MediaSource::TYPE_S3, false];
+        yield 'WebDAV successful probe' => [MediaSource::TYPE_WEBDAV, true];
+        yield 'WebDAV fallback probe' => [MediaSource::TYPE_WEBDAV, false];
     }
 
     /** @return array<string, mixed> */

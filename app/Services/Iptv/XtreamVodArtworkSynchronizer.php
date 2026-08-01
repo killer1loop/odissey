@@ -5,6 +5,7 @@ namespace App\Services\Iptv;
 use App\Models\Iptv\IptvProvider;
 use App\Models\MediaItem;
 use App\Models\MediaSource;
+use App\Services\Media\ArtworkMetadataMerger;
 use App\Services\Media\TrustedArtworkUrl;
 
 class XtreamVodArtworkSynchronizer
@@ -12,6 +13,7 @@ class XtreamVodArtworkSynchronizer
     public function __construct(
         private readonly XtreamClient $client,
         private readonly TrustedArtworkUrl $artworkUrls,
+        private readonly ArtworkMetadataMerger $artworkMetadata,
     ) {}
 
     /**
@@ -123,28 +125,13 @@ class XtreamVodArtworkSynchronizer
 
         foreach ($items as $item) {
             $metadata = $item->metadata ?? [];
-            $changed = false;
+            $merged = $this->artworkMetadata->merge(
+                $metadata,
+                [...$metadata, ...$artworkByStableId[$item->stable_id]],
+            );
 
-            foreach ($artworkByStableId[$item->stable_id] as $key => $url) {
-                $cachedKey = str_replace('_url', '_cached', $key);
-                $current = $metadata[$key] ?? null;
-                if (($metadata[$cachedKey] ?? false) === true) {
-                    if ($current === null) {
-                        $metadata[$key] = $url;
-                        $changed = true;
-                    }
-
-                    continue;
-                }
-                if ($current !== $url) {
-                    $metadata[$key] = $url;
-                    unset($metadata[$cachedKey]);
-                    $changed = true;
-                }
-            }
-
-            if ($changed) {
-                $item->forceFill(['metadata' => $metadata])->saveQuietly();
+            if ($merged !== $metadata) {
+                $item->forceFill(['metadata' => $merged])->saveQuietly();
                 $updated++;
             }
         }

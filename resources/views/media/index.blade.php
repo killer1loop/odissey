@@ -64,6 +64,7 @@
                             @php
                                 $name = $group['name'];
                                 $show = $group['show'];
+                                $artworkItem = $artworkItems->get((string) $show->getKey(), $show);
                                 $episodeCount = $group['episode_count'];
                             @endphp
                             <a class="media-card" href="{{ route('media.index', array_filter([
@@ -73,8 +74,9 @@
                                 'source' => request('source'),
                             ])) }}">
                                 <div class="media-poster">
-                                    @if (($show->metadata['poster_cached'] ?? false) || ($show->metadata['poster_url'] ?? false))
-                                        <img src="{{ route('media.artwork', [$show, 'poster']) }}" alt="" loading="lazy" decoding="async">
+                                    @if ($artworkAvailability->get((string) $show->getKey(), false))
+                                        <img src="{{ route('media.artwork', [$artworkItem, 'poster']) }}" alt="" loading="lazy" decoding="async" data-media-artwork>
+                                        <span class="media-placeholder" data-media-artwork-fallback hidden>{{ mb_strtoupper(mb_substr($name, 0, 2)) }}</span>
                                     @else
                                         <span class="media-placeholder">{{ mb_strtoupper(mb_substr($name, 0, 2)) }}</span>
                                     @endif
@@ -108,8 +110,20 @@
                             <article class="media-card">
                                 <a href="{{ route('media.show', $item) }}">
                                     <div class="media-poster">
-                                        @if (($artworkItem->metadata['poster_cached'] ?? false) || ($artworkItem->metadata['poster_url'] ?? false))
-                                            <img src="{{ route('media.artwork', [$artworkItem, 'poster']) }}" alt="" loading="lazy" decoding="async">
+                                        @if ($artworkAvailability->get((string) $item->getKey(), false))
+                                            <img src="{{ route('media.artwork', [$artworkItem, 'poster']) }}" alt="" loading="lazy" decoding="async" data-media-artwork>
+                                            <span class="media-placeholder" data-media-artwork-fallback hidden>
+                                                <svg aria-hidden="true" viewBox="0 0 64 64">
+                                                    @if ($kind === 'music')
+                                                        <path d="M25 48V15l25-5v32"/>
+                                                        <circle cx="17" cy="48" r="8"/>
+                                                        <circle cx="42" cy="42" r="8"/>
+                                                    @else
+                                                        <rect x="8" y="14" width="48" height="36" rx="2"/>
+                                                        <path d="m26 24 15 8-15 8z"/>
+                                                    @endif
+                                                </svg>
+                                            </span>
                                         @else
                                             <span class="media-placeholder">
                                                 <svg aria-hidden="true" viewBox="0 0 64 64">

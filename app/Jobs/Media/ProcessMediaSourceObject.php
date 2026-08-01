@@ -7,6 +7,7 @@ use App\Models\MediaSource;
 use App\Models\User;
 use App\Services\IntegrationSettings;
 use App\Services\Media\ArtworkManager;
+use App\Services\Media\ArtworkMetadataMerger;
 use App\Services\Media\MediaNameParser;
 use App\Services\Media\MediaProbe;
 use App\Services\Media\MediaScanProgress;
@@ -47,6 +48,7 @@ class ProcessMediaSourceObject implements ShouldBeEncrypted, ShouldQueue
         MediaNameParser $parser,
         TmdbMetadataProvider $metadata,
         ArtworkManager $artwork,
+        ArtworkMetadataMerger $artworkMetadata,
         SourceMaterializer $materializer,
         TvmazeMetadataProvider $tvmaze,
         MediaScanProgress $progress,
@@ -191,6 +193,8 @@ class ProcessMediaSourceObject implements ShouldBeEncrypted, ShouldQueue
                     $enriched,
                     $remoteProbeVersion,
                     $remoteProbeAttempt,
+                    $existing,
+                    $artworkMetadata,
                 ): MediaItem {
                     return MediaItem::query()->updateOrCreate(
                         [
@@ -216,20 +220,23 @@ class ProcessMediaSourceObject implements ShouldBeEncrypted, ShouldQueue
                             'size_bytes' => $this->size,
                             'source_modified_at' => $sourceModifiedAt,
                             'missing_at' => null,
-                            'metadata' => array_filter(array_merge(
-                                $parsed,
-                                $enriched,
-                                [
-                                    'artist' => $tags['artist'] ?? null,
-                                    'album' => $tags['album'] ?? null,
-                                    'track' => $tags['track'] ?? null,
-                                    'technical' => $technical['technical'] ?? null,
-                                    'technical_probe_version' => $remoteProbeVersion,
-                                    'source_etag' => $this->etag,
-                                ],
-                                $remoteProbeAttempt ?? [],
-                            ), fn (mixed $value): bool => $value !== null
-                                && $value !== ''),
+                            'metadata' => $artworkMetadata->merge(
+                                $existing?->metadata ?? [],
+                                array_filter(array_merge(
+                                    $parsed,
+                                    $enriched,
+                                    [
+                                        'artist' => $tags['artist'] ?? null,
+                                        'album' => $tags['album'] ?? null,
+                                        'track' => $tags['track'] ?? null,
+                                        'technical' => $technical['technical'] ?? null,
+                                        'technical_probe_version' => $remoteProbeVersion,
+                                        'source_etag' => $this->etag,
+                                    ],
+                                    $remoteProbeAttempt ?? [],
+                                ), fn (mixed $value): bool => $value !== null
+                                    && $value !== ''),
+                            ),
                         ],
                     );
                 });

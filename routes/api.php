@@ -75,7 +75,7 @@ Route::prefix('v1')
                     '/media/{media}/artwork/{kind}',
                     MediaArtworkController::class,
                 )->whereIn('kind', ['poster', 'backdrop'])
-                    ->middleware('throttle:180,1,media-artwork:')
+                    ->middleware('throttle:600,1,media-artwork:')
                     ->name('media.artwork');
                 Route::get(
                     '/media/{media}/tracks',

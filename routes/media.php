@@ -45,7 +45,7 @@ Route::middleware(['auth', EnsureUserIsActive::class])
                 Route::put('/integrations', [IntegrationController::class, 'update'])->name('integrations.update');
             });
         Route::get('/{media}/artwork/{kind}', MediaArtworkController::class)
-            ->middleware('throttle:180,1,media-artwork:')
+            ->middleware('throttle:600,1,media-artwork:')
             ->name('artwork');
         Route::post('/{media}/favorite', [MediaFavoriteController::class, 'store'])->name('favorites.store');
         Route::delete('/{media}/favorite', [MediaFavoriteController::class, 'destroy'])->name('favorites.destroy');

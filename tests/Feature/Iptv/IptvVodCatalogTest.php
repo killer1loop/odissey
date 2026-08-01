@@ -119,6 +119,89 @@ class IptvVodCatalogTest extends TestCase
             ->assertSee('Live TV');
     }
 
+    public function test_vod_catalog_resync_preserves_cached_artwork_until_its_url_changes(): void
+    {
+        Queue::fake([EnrichMediaItem::class, SyncXtreamSeries::class]);
+        User::factory()->create(['is_admin' => true, 'is_active' => true]);
+        $provider = $this->makeProvider(['name' => 'Nera IPTV']);
+        $this->fakeCatalog();
+        app(ProviderCatalogSynchronizer::class)->sync($provider);
+
+        $movie = MediaItem::query()
+            ->where('metadata->kind', 'movie')
+            ->sole();
+        $movieMetadata = $movie->metadata;
+        $movieMetadata['poster_cached'] = true;
+        $movieMetadata['backdrop_url'] =
+            'https://image.tmdb.org/t/p/w1280/movie-backdrop.jpg';
+        $movieMetadata['backdrop_cached'] = true;
+        $movie->update(['metadata' => $movieMetadata]);
+
+        $show = MediaItem::query()
+            ->where('metadata->kind', 'series')
+            ->sole();
+        $showMetadata = $show->metadata;
+        $showMetadata['poster_cached'] = true;
+        $showMetadata['backdrop_cached'] = true;
+        $show->update(['metadata' => $showMetadata]);
+
+        $vodCategories = [[
+            'category_id' => '10',
+            'category_name' => 'Drama',
+        ]];
+        $movies = [[
+            'stream_id' => '501',
+            'name' => 'Example Movie',
+            'category_id' => '10',
+            'container_extension' => 'mp4',
+            'stream_icon' => 'https://image.tmdb.org/t/p/w500/movie-replacement.jpg',
+        ]];
+        $seriesCategories = [[
+            'category_id' => '20',
+            'category_name' => 'TV Drama',
+        ]];
+        $series = [[
+            'series_id' => '901',
+            'name' => 'Example Show',
+            'category_id' => '20',
+            'backdrop_path' => [
+                'https://image.tmdb.org/t/p/w1280/show-backdrop.jpg',
+            ],
+        ]];
+
+        app(XtreamVodCatalogSynchronizer::class)->sync(
+            $provider->fresh(),
+            $vodCategories,
+            $movies,
+            $seriesCategories,
+            $series,
+        );
+
+        $movie->refresh();
+        $this->assertSame(
+            'https://image.tmdb.org/t/p/w500/movie-replacement.jpg',
+            $movie->metadata['poster_url'],
+        );
+        $this->assertFalse($movie->metadata['poster_cached']);
+        $this->assertSame(
+            'https://image.tmdb.org/t/p/w1280/movie-backdrop.jpg',
+            $movie->metadata['backdrop_url'],
+        );
+        $this->assertTrue($movie->metadata['backdrop_cached']);
+
+        $show->refresh();
+        $this->assertSame(
+            'https://image.tmdb.org/t/p/w500/show.jpg',
+            $show->metadata['poster_url'],
+        );
+        $this->assertTrue($show->metadata['poster_cached']);
+        $this->assertSame(
+            'https://image.tmdb.org/t/p/w1280/show-backdrop.jpg',
+            $show->metadata['backdrop_url'],
+        );
+        $this->assertTrue($show->metadata['backdrop_cached']);
+    }
+
     /**
      * @param  array<int, array<string, mixed>>  $movies
      * @param  array<int, array<string, mixed>>  $series
@@ -380,6 +463,82 @@ class IptvVodCatalogTest extends TestCase
         $this->assertSame('ready', $provider->refresh()->sync_status);
     }
 
+    public function test_episode_resync_preserves_omitted_cached_artwork_and_invalidates_changed_urls(): void
+    {
+        Queue::fake([EnrichMediaItem::class, SyncXtreamSeries::class]);
+        User::factory()->create(['is_admin' => true, 'is_active' => true]);
+        $provider = $this->makeProvider(['name' => 'Nera IPTV']);
+        $this->fakeCatalog();
+        app(ProviderCatalogSynchronizer::class)->sync($provider);
+        $initialJob = Queue::pushed(SyncXtreamSeries::class)->last();
+        $this->assertInstanceOf(SyncXtreamSeries::class, $initialJob);
+        app()->call([$initialJob, 'handle']);
+
+        $episode = MediaItem::query()
+            ->where('metadata->kind', 'episode')
+            ->sole();
+        $episodeMetadata = $episode->metadata;
+        $episodeMetadata['poster_cached'] = true;
+        $episodeMetadata['backdrop_cached'] = true;
+        $episode->update(['metadata' => $episodeMetadata]);
+
+        $this->allowPublicIptvDns();
+        Http::preventStrayRequests();
+        $this->fakeCatalog(withEpisodeArtwork: false);
+        app(ProviderCatalogSynchronizer::class)->sync($provider->fresh());
+        $omittedArtworkJob = Queue::pushed(SyncXtreamSeries::class)->last();
+        $this->assertInstanceOf(SyncXtreamSeries::class, $omittedArtworkJob);
+        app()->call([$omittedArtworkJob, 'handle']);
+
+        $episode->refresh();
+        $this->assertSame(
+            'https://image.tmdb.org/t/p/w300/episode-still.jpg',
+            $episode->metadata['poster_url'],
+        );
+        $this->assertSame(
+            'https://image.tmdb.org/t/p/w300/episode-still.jpg',
+            $episode->metadata['backdrop_url'],
+        );
+        $this->assertTrue($episode->metadata['poster_cached']);
+        $this->assertTrue($episode->metadata['backdrop_cached']);
+
+        $source = MediaSource::query()->sole();
+        $replacementToken = str_repeat('8', 26);
+        $source->forceFill([
+            'scan_status' => 'scanning',
+            'active_scan_token' => $replacementToken,
+            'scan_discovery_complete' => true,
+            'scan_discovered' => 1,
+            'scan_processed' => 0,
+            'scan_failed' => 0,
+        ])->save();
+        $this->allowPublicIptvDns();
+        Http::preventStrayRequests();
+        $this->fakeCatalog(
+            episodeArtwork: 'https://image.tmdb.org/t/p/w300/episode-replacement.jpg',
+        );
+        $changedArtworkJob = new SyncXtreamSeries(
+            $provider->id,
+            $source->id,
+            '901',
+            'Example Show',
+            $replacementToken,
+        );
+        app()->call([$changedArtworkJob, 'handle']);
+
+        $episode->refresh();
+        $this->assertSame(
+            'https://image.tmdb.org/t/p/w300/episode-replacement.jpg',
+            $episode->metadata['poster_url'],
+        );
+        $this->assertSame(
+            'https://image.tmdb.org/t/p/w300/episode-replacement.jpg',
+            $episode->metadata['backdrop_url'],
+        );
+        $this->assertFalse($episode->metadata['poster_cached']);
+        $this->assertFalse($episode->metadata['backdrop_cached']);
+    }
+
     public function test_empty_series_episode_response_preserves_established_episodes_for_retry(): void
     {
         Queue::fake([EnrichMediaItem::class, SyncXtreamSeries::class]);
@@ -606,6 +765,60 @@ class IptvVodCatalogTest extends TestCase
         );
     }
 
+    public function test_artwork_refresh_invalidates_cache_when_the_source_url_changes(): void
+    {
+        Queue::fake([EnrichMediaItem::class, SyncXtreamSeries::class]);
+        User::factory()->create(['is_admin' => true, 'is_active' => true]);
+        $provider = $this->makeProvider(['name' => 'Nera IPTV']);
+        $this->fakeCatalog();
+        app(ProviderCatalogSynchronizer::class)->sync($provider);
+
+        $movie = MediaItem::query()
+            ->where('metadata->kind', 'movie')
+            ->sole();
+        $movieMetadata = $movie->metadata;
+        $movieMetadata['poster_url'] =
+            'https://image.tmdb.org/t/p/w500/old-movie.jpg';
+        $movieMetadata['poster_cached'] = true;
+        $movie->update(['metadata' => $movieMetadata]);
+
+        $show = MediaItem::query()
+            ->where('metadata->kind', 'series')
+            ->sole();
+        $showMetadata = $show->metadata;
+        $showMetadata['poster_url'] =
+            'https://image.tmdb.org/t/p/w500/old-show.jpg';
+        $showMetadata['backdrop_url'] =
+            'https://image.tmdb.org/t/p/w1280/old-show-backdrop.jpg';
+        $showMetadata['poster_cached'] = true;
+        $showMetadata['backdrop_cached'] = true;
+        $show->update(['metadata' => $showMetadata]);
+
+        $this->assertSame(
+            ['movies' => 1, 'series' => 1, 'updated' => 2],
+            app(XtreamVodArtworkSynchronizer::class)->sync($provider),
+        );
+
+        $movie->refresh();
+        $this->assertSame(
+            'https://image.tmdb.org/t/p/w500/movie.jpg',
+            $movie->metadata['poster_url'],
+        );
+        $this->assertFalse($movie->metadata['poster_cached']);
+
+        $show->refresh();
+        $this->assertSame(
+            'https://image.tmdb.org/t/p/w500/show.jpg',
+            $show->metadata['poster_url'],
+        );
+        $this->assertSame(
+            'https://image.tmdb.org/t/p/w1280/show-backdrop.jpg',
+            $show->metadata['backdrop_url'],
+        );
+        $this->assertFalse($show->metadata['poster_cached']);
+        $this->assertFalse($show->metadata['backdrop_cached']);
+    }
+
     public function test_iptv_vod_uses_the_authenticated_media_proxy_with_ranges(): void
     {
         $viewer = User::factory()->create(['is_active' => true]);
@@ -672,10 +885,13 @@ class IptvVodCatalogTest extends TestCase
     private function fakeCatalog(
         string $season = '1',
         bool $withEpisodeArtwork = true,
+        string $episodeArtwork =
+            'https://image.tmdb.org/t/p/w300/episode-still.jpg',
     ): void {
         Http::fake(function (Request $request) use (
             $season,
             $withEpisodeArtwork,
+            $episodeArtwork,
         ) {
             parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
 
@@ -721,7 +937,7 @@ class IptvVodCatalogTest extends TestCase
                                 'plot' => 'The first episode.',
                                 'rating' => '8.1',
                                 'movie_image' => $withEpisodeArtwork
-                                    ? 'https://image.tmdb.org/t/p/w300/episode-still.jpg'
+                                    ? $episodeArtwork
                                     : null,
                             ],
                         ]],

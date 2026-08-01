@@ -5,6 +5,7 @@ namespace App\Jobs\Media;
 use App\Models\MediaItem;
 use App\Services\IntegrationSettings;
 use App\Services\Media\ArtworkManager;
+use App\Services\Media\ArtworkMetadataMerger;
 use App\Services\Media\TmdbMetadataProvider;
 use App\Services\Media\TvmazeMetadataProvider;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -37,6 +38,7 @@ class EnrichMediaItem implements ShouldBeUnique, ShouldQueue
         TmdbMetadataProvider $tmdb,
         TvmazeMetadataProvider $tvmaze,
         ArtworkManager $artwork,
+        ArtworkMetadataMerger $artworkMetadata,
     ): void {
         $item = MediaItem::query()->find($this->mediaItemId);
         if ($item === null || $item->media_kind !== 'video') {
@@ -57,11 +59,14 @@ class EnrichMediaItem implements ShouldBeUnique, ShouldQueue
             if ($kind === 'episode' && $tvMetadata === []) {
                 unset($tmdbMetadata['title']);
             }
-            $metadata = array_filter(
-                array_merge($parsed, $tmdbMetadata, $tvMetadata),
-                fn (mixed $value): bool => $value !== null
-                    && $value !== ''
-                    && $value !== [],
+            $metadata = $artworkMetadata->merge(
+                $parsed,
+                array_filter(
+                    array_merge($parsed, $tmdbMetadata, $tvMetadata),
+                    fn (mixed $value): bool => $value !== null
+                        && $value !== ''
+                        && $value !== [],
+                ),
             );
             $item->forceFill([
                 'title' => $metadata['title'] ?? $item->title,

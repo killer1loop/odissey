@@ -32,6 +32,7 @@ class MediaPlaybackTest extends TestCase
         $this->temporaryPath = sys_get_temp_dir().'/odissey-media-tests-'.Str::uuid();
         File::ensureDirectoryExists($this->temporaryPath);
         config([
+            'odissey.artwork_path' => $this->temporaryPath.'/artwork',
             'odissey.e2e_path' => $this->temporaryPath.'/e2e',
             'odissey.transcode_path' => $this->temporaryPath.'/transcodes',
         ]);
@@ -98,6 +99,60 @@ class MediaPlaybackTest extends TestCase
         $this->actingAs($otherUser)
             ->get(route('media.direct', $item))
             ->assertNotFound();
+    }
+
+    public function test_browser_catalogs_and_player_render_existing_posters_without_metadata_hints(): void
+    {
+        $owner = User::factory()->create(['is_active' => true]);
+        $movie = $this->mediaItem(
+            $owner,
+            $this->temporaryPath.'/cached-movie.mp4',
+            title: 'Cached movie poster',
+        );
+        $movie->forceFill(['metadata' => [
+            'kind' => 'movie',
+            'poster_cached' => null,
+        ]])->save();
+        $series = $this->mediaItem(
+            $owner,
+            $this->temporaryPath.'/cached-series.mp4',
+            title: 'Cached series poster',
+        );
+        $series->forceFill(['metadata' => [
+            'kind' => 'series',
+            'series_title' => 'Cached series poster',
+        ]])->save();
+
+        foreach ([$movie, $series] as $item) {
+            $directory = config('odissey.artwork_path').'/'.$item->getKey();
+            File::ensureDirectoryExists($directory);
+            File::put($directory.'/poster.jpg', 'cached poster');
+        }
+
+        $movieArtwork = route('media.artwork', [$movie, 'poster']);
+        $seriesArtwork = route('media.artwork', [$series, 'poster']);
+
+        $this->actingAs($owner)
+            ->get(route('media.index', [
+                'kind' => 'video',
+                'library' => 'movies',
+            ]))
+            ->assertOk()
+            ->assertSee('src="'.$movieArtwork.'"', escape: false);
+
+        $this->actingAs($owner)
+            ->get(route('media.index', [
+                'kind' => 'video',
+                'library' => 'tv',
+            ]))
+            ->assertOk()
+            ->assertSee('src="'.$seriesArtwork.'"', escape: false);
+
+        $this->actingAs($owner)
+            ->get(route('media.show', $movie))
+            ->assertOk()
+            ->assertSee('class="player-media-poster"', escape: false)
+            ->assertSee('src="'.$movieArtwork.'"', escape: false);
     }
 
     public function test_progress_heartbeats_are_monotonic_and_isolated_per_user(): void

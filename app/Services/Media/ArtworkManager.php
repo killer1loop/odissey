@@ -10,6 +10,8 @@ use Throwable;
 
 class ArtworkManager
 {
+    private const ARTWORK_KINDS = ['poster', 'backdrop'];
+
     public const MIN_VARIANT_DIMENSION = 32;
 
     public const MAX_VARIANT_DIMENSION = 3840;
@@ -46,6 +48,12 @@ class ArtworkManager
         );
         $metadata = $item->metadata ?? [];
         foreach (['poster', 'backdrop'] as $kind) {
+            if ($this->path($item, $kind) !== null) {
+                $metadata[$kind.'_cached'] = true;
+
+                continue;
+            }
+
             $url = $metadata[$kind.'_url'] ?? null;
             if ($url) {
                 $host = strtolower((string) parse_url($url, PHP_URL_HOST));
@@ -114,7 +122,11 @@ class ArtworkManager
                 }
             }
         }
-        if (empty($metadata['poster_cached']) && $localPath && $item->media_kind === 'video') {
+        if (
+            $this->path($item->forceFill(['metadata' => $metadata]), 'poster') === null
+            && $localPath
+            && $item->media_kind === 'video'
+        ) {
             $directory = $this->directory($item);
             $path = $directory.'/poster.jpg';
             $temporary = $path.'.'.Str::lower((string) Str::ulid()).'.tmp';
@@ -196,13 +208,28 @@ class ArtworkManager
 
     public function path(MediaItem $item, string $kind): ?string
     {
-        if (($item->metadata[$kind.'_cached'] ?? false) !== true) {
+        if (! in_array($kind, self::ARTWORK_KINDS, true)) {
+            return null;
+        }
+        if (($item->metadata[$kind.'_cached'] ?? null) === false) {
             return null;
         }
 
-        $path = $this->root()
-            .DIRECTORY_SEPARATOR.$item->getKey()
-            .DIRECTORY_SEPARATOR.$kind.'.jpg';
+        $key = (string) $item->getKey();
+        if (
+            $key === ''
+            || str_contains($key, DIRECTORY_SEPARATOR)
+            || str_contains($key, "\0")
+        ) {
+            return null;
+        }
+
+        $directory = $this->root().DIRECTORY_SEPARATOR.$key;
+        if (is_link($directory) || ! File::isDirectory($directory)) {
+            return null;
+        }
+
+        $path = $directory.DIRECTORY_SEPARATOR.$kind.'.jpg';
 
         return File::isFile($path) && ! is_link($path) ? $path : null;
     }
