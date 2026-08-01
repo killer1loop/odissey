@@ -1,19 +1,19 @@
 @extends('layouts.app')
 
 @php
-    $heading = $kind === 'music' ? 'Music' : ($library === 'tv' ? 'TV Shows' : 'Movies');
+    $heading = $kind === 'music' ? 'Music' : ($library === 'tv' ? 'Series' : 'Movies');
 @endphp
 
 @section('title', $heading.' · Odissey')
 
 @section('content')
     <section class="page-section" aria-labelledby="media-heading">
-        <header class="page-header">
+        <header class="page-header media-library-header">
             <div>
                 <p class="eyebrow">Your libraries</p>
                 <h1 id="media-heading">{{ $series ?? $heading }}</h1>
                 @if ($series)
-                    <p><a href="{{ route('media.index', array_filter(['kind' => 'video', 'library' => 'tv', 'source' => request('source')])) }}">TV Shows</a> / {{ $series }}</p>
+                    <p><a href="{{ route('media.index', array_filter(['kind' => 'video', 'library' => 'tv', 'source' => request('source')])) }}">Series</a> / {{ $series }}</p>
                 @endif
             </div>
 
@@ -46,7 +46,7 @@
 
         <nav class="filter-tabs" aria-label="Library type">
             <a class="{{ $kind === 'video' && $library === 'movies' ? 'is-active' : '' }}" href="{{ route('media.index', ['kind' => 'video', 'library' => 'movies']) }}">Movies</a>
-            <a class="{{ $kind === 'video' && $library === 'tv' ? 'is-active' : '' }}" href="{{ route('media.index', ['kind' => 'video', 'library' => 'tv']) }}">TV Shows</a>
+            <a class="{{ $kind === 'video' && $library === 'tv' ? 'is-active' : '' }}" href="{{ route('media.index', ['kind' => 'video', 'library' => 'tv']) }}">Series</a>
             <a class="{{ $kind === 'music' ? 'is-active' : '' }}" href="{{ route('media.index', ['kind' => 'music']) }}">Music</a>
         </nav>
 
@@ -58,7 +58,7 @@
         @else
             @if ($seriesGroups->isNotEmpty())
                 <section class="library-section" aria-labelledby="series-heading">
-                    <div class="shelf-heading"><h2 id="series-heading">TV series</h2></div>
+                    <div class="shelf-heading"><h2 id="series-heading">Series</h2></div>
                     <div class="library-grid">
                         @foreach ($seriesGroups as $group)
                             @php
@@ -113,8 +113,14 @@
                                         @else
                                             <span class="media-placeholder">
                                                 <svg aria-hidden="true" viewBox="0 0 64 64">
-                                                    <rect x="8" y="14" width="48" height="36" rx="2"/>
-                                                    <path d="m26 24 15 8-15 8z"/>
+                                                    @if ($kind === 'music')
+                                                        <path d="M25 48V15l25-5v32"/>
+                                                        <circle cx="17" cy="48" r="8"/>
+                                                        <circle cx="42" cy="42" r="8"/>
+                                                    @else
+                                                        <rect x="8" y="14" width="48" height="36" rx="2"/>
+                                                        <path d="m26 24 15 8-15 8z"/>
+                                                    @endif
                                                 </svg>
                                             </span>
                                         @endif
@@ -140,8 +146,15 @@
                                 <form class="card-favorite" method="POST" action="{{ $item->favorites->isEmpty() ? route('media.favorites.store', $item) : route('media.favorites.destroy', $item) }}">
                                     @csrf
                                     @if ($item->favorites->isNotEmpty()) @method('DELETE') @endif
-                                    <button class="favorite-button" type="submit" aria-label="{{ $item->favorites->isEmpty() ? 'Add '.$item->title.' to favorites' : 'Remove '.$item->title.' from favorites' }}">
-                                        {{ $item->favorites->isEmpty() ? '☆' : '★' }}
+                                    <button
+                                        class="favorite-button"
+                                        type="submit"
+                                        aria-label="{{ $item->favorites->isEmpty() ? 'Add '.$item->title.' to favorites' : 'Remove '.$item->title.' from favorites' }}"
+                                        aria-pressed="{{ $item->favorites->isNotEmpty() ? 'true' : 'false' }}"
+                                    >
+                                        <svg aria-hidden="true" viewBox="0 0 24 24" @if($item->favorites->isNotEmpty()) data-filled="true" @endif>
+                                            <path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>
+                                        </svg>
                                     </button>
                                 </form>
                             </article>

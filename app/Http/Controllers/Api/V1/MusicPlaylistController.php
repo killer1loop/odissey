@@ -9,6 +9,7 @@ use App\Models\MusicPlaylist;
 use App\Models\MusicPlaylistItem;
 use App\Models\User;
 use App\Services\Api\MusicPlaylistMutationLock;
+use App\Services\Media\MediaArtworkAvailability;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\CursorPaginator;
@@ -333,6 +334,11 @@ class MusicPlaylistController extends Controller
                 'cursor',
                 $useRequestPagination ? null : '',
             );
+        app(MediaArtworkAvailability::class)->prepare(
+            $request,
+            $items->getCollection()
+                ->map(fn (MusicPlaylistItem $item) => $item->mediaItem),
+        );
 
         return [
             ...$this->summary($playlist),

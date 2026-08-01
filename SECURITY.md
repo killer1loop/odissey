@@ -2,8 +2,11 @@
 
 ## Supported versions
 
-Odissey is pre-1.0 software. Security fixes are applied to the latest commit on
-`main`; older snapshots are not supported.
+Odissey is pre-1.0 software. After a beta is published, only the latest
+published beta release and the current development branch receive security
+fixes; older tags and arbitrary snapshots are not supported. Beta operators
+must pin the immutable release identified in its release notes rather than a
+moving `main` branch.
 
 ## Reporting a vulnerability
 

@@ -13,7 +13,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'iptv_provider_id', 'name', 'type', 'configuration', 'capabilities', 'enabled',
     'allow_private_network', 'scan_status', 'active_scan_token',
     'scan_discovery_complete', 'scan_discovered', 'scan_processed',
-    'scan_failed', 'scan_caption_jobs', 'last_error_code', 'last_scanned_at',
+    'scan_failed', 'scan_caption_jobs', 'scan_probe_jobs', 'last_error_code',
+    'last_scanned_at',
 ])]
 class MediaSource extends Model
 {
@@ -49,6 +50,7 @@ class MediaSource extends Model
             'scan_processed' => 'integer',
             'scan_failed' => 'integer',
             'scan_caption_jobs' => 'integer',
+            'scan_probe_jobs' => 'integer',
             'last_scanned_at' => 'datetime',
         ];
     }

@@ -2,7 +2,9 @@
 
 namespace Tests\Feature\Media;
 
+use App\Http\Resources\Api\V1\MediaItemResource;
 use App\Models\MediaItem;
+use App\Models\MediaSource;
 use App\Models\User;
 use App\Services\Media\ArtworkConcurrencyGate;
 use App\Services\Media\ArtworkManager;
@@ -10,7 +12,9 @@ use App\Services\Media\BoundedMediaDownloader;
 use App\Services\Media\MediaAssetStorage;
 use App\Services\Media\MediaProcessFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 use Mockery;
@@ -390,6 +394,204 @@ class MediaArtworkFallbackTest extends TestCase
             $processLock->release();
             File::deleteDirectory($root);
             File::deleteDirectory($root.'-captions');
+        }
+    }
+
+    public function test_native_episode_artwork_falls_back_to_its_series(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $source = MediaSource::query()->create([
+            'name' => 'Shared TV library',
+            'type' => MediaSource::TYPE_WEBDAV,
+            'configuration' => [],
+            'capabilities' => [],
+            'enabled' => true,
+        ]);
+        $series = MediaItem::query()->create([
+            'user_id' => $user->id,
+            'media_source_id' => $source->id,
+            'stable_id' => hash('sha256', 'fallback-series'),
+            'title' => 'Fallback Series',
+            'media_kind' => 'video',
+            'source_type' => MediaSource::TYPE_WEBDAV,
+            'source_locator' => 'series:fallback',
+            'metadata' => [
+                'kind' => 'series',
+                'series_title' => 'Fallback Series',
+                'poster_cached' => true,
+                'backdrop_cached' => true,
+            ],
+        ]);
+        $episode = MediaItem::query()->create([
+            'user_id' => $user->id,
+            'media_source_id' => $source->id,
+            'stable_id' => hash('sha256', 'fallback-episode'),
+            'title' => 'Pilot',
+            'media_kind' => 'video',
+            'source_type' => MediaSource::TYPE_WEBDAV,
+            'source_locator' => 'episode:fallback',
+            'metadata' => [
+                'kind' => 'episode',
+                'series_title' => 'Fallback Series',
+                'season_number' => 1,
+                'episode_number' => 1,
+            ],
+        ]);
+        $orphan = MediaItem::query()->create([
+            'user_id' => $user->id,
+            'media_source_id' => $source->id,
+            'stable_id' => hash('sha256', 'orphan-episode'),
+            'title' => 'Orphan',
+            'media_kind' => 'video',
+            'source_type' => MediaSource::TYPE_WEBDAV,
+            'source_locator' => 'episode:orphan',
+            'metadata' => [
+                'kind' => 'episode',
+                'series_title' => 'Missing Parent',
+                'season_number' => 1,
+                'episode_number' => 1,
+            ],
+        ]);
+        $root = storage_path('framework/testing-artwork-'.Str::ulid());
+        File::ensureDirectoryExists($root.'/'.$series->id, 0700);
+        File::put(
+            $root.'/'.$series->id.'/poster.jpg',
+            $this->jpegWithDimensions(1000, 1500),
+        );
+        File::put(
+            $root.'/'.$series->id.'/backdrop.jpg',
+            $this->jpegWithDimensions(1600, 900),
+        );
+        config([
+            'odissey.artwork_path' => $root,
+            'odissey.caption_path' => $root.'-captions',
+        ]);
+        $token = $this->nativeToken($user);
+
+        try {
+            $detail = $this->withToken($token)
+                ->getJson('/api/v1/media/'.$episode->id)
+                ->assertOk();
+            $this->assertSame(
+                route(
+                    'api.v1.media.artwork',
+                    [$episode->id, 'poster'],
+                ),
+                $detail->json('data.artwork.poster'),
+            );
+            $this->assertSame(
+                route(
+                    'api.v1.media.artwork',
+                    [$episode->id, 'backdrop'],
+                ),
+                $detail->json('data.artwork.backdrop'),
+            );
+            $this->withToken($token)
+                ->get(route(
+                    'api.v1.media.artwork',
+                    [$episode->id, 'poster'],
+                ))
+                ->assertOk()
+                ->assertHeader('Content-Type', 'image/jpeg');
+            $this->withToken($token)
+                ->get(route(
+                    'api.v1.media.artwork',
+                    [$episode->id, 'backdrop'],
+                ))
+                ->assertOk()
+                ->assertHeader('Content-Type', 'image/jpeg');
+
+            $orphanDetail = $this->withToken($token)
+                ->getJson('/api/v1/media/'.$orphan->id)
+                ->assertOk();
+            $this->assertNull($orphanDetail->json('data.artwork.poster'));
+            $this->assertNull($orphanDetail->json('data.artwork.backdrop'));
+            $this->withToken($token)
+                ->get(route(
+                    'api.v1.media.artwork',
+                    [$orphan->id, 'poster'],
+                ))
+                ->assertNotFound();
+        } finally {
+            File::deleteDirectory($root);
+            File::deleteDirectory($root.'-captions');
+        }
+    }
+
+    public function test_native_artwork_collection_batches_parent_resolution(): void
+    {
+        $user = User::factory()->create(['is_active' => true]);
+        $source = MediaSource::query()->create([
+            'name' => 'Large shared TV library',
+            'type' => MediaSource::TYPE_WEBDAV,
+            'configuration' => [],
+            'capabilities' => [],
+            'enabled' => true,
+        ]);
+        $series = MediaItem::query()->create([
+            'user_id' => $user->id,
+            'media_source_id' => $source->id,
+            'stable_id' => hash('sha256', 'batched-series'),
+            'title' => 'Batched Series',
+            'media_kind' => 'video',
+            'source_type' => MediaSource::TYPE_WEBDAV,
+            'source_locator' => 'series:batched',
+            'metadata' => [
+                'kind' => 'series',
+                'series_title' => 'Batched Series',
+                'poster_cached' => true,
+                'backdrop_cached' => true,
+            ],
+        ]);
+        $episodes = collect(range(1, 25))->map(
+            fn (int $number): MediaItem => MediaItem::query()->create([
+                'user_id' => $user->id,
+                'media_source_id' => $source->id,
+                'stable_id' => hash('sha256', 'batched-episode-'.$number),
+                'title' => 'Episode '.$number,
+                'media_kind' => 'video',
+                'source_type' => MediaSource::TYPE_WEBDAV,
+                'source_locator' => 'episode:batched:'.$number,
+                'metadata' => [
+                    'kind' => 'episode',
+                    'series_title' => 'Batched Series',
+                    'season_number' => 1,
+                    'episode_number' => $number,
+                ],
+            ]),
+        );
+        $root = storage_path('framework/testing-artwork-'.Str::ulid());
+        File::ensureDirectoryExists($root.'/'.$series->id, 0700);
+        File::put(
+            $root.'/'.$series->id.'/poster.jpg',
+            $this->jpegWithDimensions(1000, 1500),
+        );
+        File::put(
+            $root.'/'.$series->id.'/backdrop.jpg',
+            $this->jpegWithDimensions(1600, 900),
+        );
+        config(['odissey.artwork_path' => $root]);
+        $request = Request::create('/api/v1/libraries/tv/items');
+        $request->setUserResolver(fn (): User => $user);
+
+        try {
+            DB::flushQueryLog();
+            DB::enableQueryLog();
+            $payload = MediaItemResource::collection($episodes)
+                ->resolve($request);
+            $mediaQueries = collect(DB::getQueryLog())
+                ->filter(fn (array $query): bool => str_contains(
+                    strtolower((string) ($query['query'] ?? '')),
+                    'media_items',
+                ));
+
+            $this->assertCount(25, $payload);
+            $this->assertLessThanOrEqual(2, $mediaQueries->count());
+            $this->assertNotNull($payload[0]['artwork']['poster']);
+            $this->assertNotNull($payload[0]['artwork']['backdrop']);
+        } finally {
+            DB::disableQueryLog();
+            File::deleteDirectory($root);
         }
     }
 

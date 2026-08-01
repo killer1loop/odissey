@@ -2080,8 +2080,8 @@ components:
         artwork:
           type: object
           properties:
-            poster: { type: string, format: uri }
-            backdrop: { type: string, format: uri }
+            poster: { type: [string, 'null'], format: uri }
+            backdrop: { type: [string, 'null'], format: uri }
         updatedAt: { type: [string, 'null'], format: date-time }
     MediaCollection:
       type: object

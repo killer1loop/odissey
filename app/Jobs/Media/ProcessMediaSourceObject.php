@@ -10,9 +10,11 @@ use App\Services\Media\ArtworkManager;
 use App\Services\Media\MediaNameParser;
 use App\Services\Media\MediaProbe;
 use App\Services\Media\MediaScanProgress;
+use App\Services\Media\RemoteMediaProbe;
 use App\Services\Media\SourceMaterializer;
 use App\Services\Media\TmdbMetadataProvider;
 use App\Services\Media\TvmazeMetadataProvider;
+use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\DB;
@@ -20,7 +22,7 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
-class ProcessMediaSourceObject implements ShouldQueue
+class ProcessMediaSourceObject implements ShouldBeEncrypted, ShouldQueue
 {
     use Queueable;
 
@@ -48,6 +50,7 @@ class ProcessMediaSourceObject implements ShouldQueue
         SourceMaterializer $materializer,
         TvmazeMetadataProvider $tvmaze,
         MediaScanProgress $progress,
+        RemoteMediaProbe $remoteProbe,
     ): void {
         $source = MediaSource::query()->find($this->sourceId);
         $participates = $source?->active_scan_token === $this->scanToken;
@@ -71,7 +74,11 @@ class ProcessMediaSourceObject implements ShouldQueue
                 ->where('stable_id', $stable)
                 ->first();
 
-            if ($this->unchanged($existing, $sourceModifiedAt)) {
+            if ($this->unchanged(
+                $existing,
+                $sourceModifiedAt,
+                $remoteProbe,
+            )) {
                 $existing->forceFill([
                     'scan_token' => $this->scanToken,
                     'missing_at' => null,
@@ -82,6 +89,8 @@ class ProcessMediaSourceObject implements ShouldQueue
 
             $snapshot = null;
             $local = null;
+            $remoteProbeVersion = null;
+            $remoteProbeAttempt = null;
             if ($source->type === MediaSource::TYPE_LOCAL) {
                 $snapshot = $materializer->materializeObject(
                     $source,
@@ -93,7 +102,60 @@ class ProcessMediaSourceObject implements ShouldQueue
             }
 
             try {
-                $technical = $probe->inspect($local, $this->path);
+                if ($source->type === MediaSource::TYPE_LOCAL) {
+                    $technical = $probe->inspect($local, $this->path);
+                } else {
+                    $canProbe = $progress->reserveProbeJob(
+                        $source->id,
+                        $this->scanToken,
+                        min(
+                            10000,
+                            max(0, (int) config(
+                                'odissey.remote_probe_max_items_per_scan',
+                                250,
+                            )),
+                        ),
+                    );
+                    $technical = null;
+                    if ($canProbe) {
+                        $remoteProbeAttempt = [
+                            'technical_probe_attempt_version' => RemoteMediaProbe::VERSION,
+                            'technical_probe_attempted_at' => now()
+                                ->utc()
+                                ->toIso8601String(),
+                        ];
+                        $technical = $remoteProbe->inspect(
+                            $source,
+                            $this->locator,
+                            $this->path,
+                        );
+                    }
+
+                    if ($technical === null) {
+                        if ($this->fingerprintMatches(
+                            $existing,
+                            $sourceModifiedAt,
+                        )) {
+                            $updates = [
+                                'scan_token' => $this->scanToken,
+                                'missing_at' => null,
+                            ];
+                            if ($remoteProbeAttempt !== null) {
+                                $updates['metadata'] = array_merge(
+                                    $existing->metadata ?? [],
+                                    $remoteProbeAttempt,
+                                );
+                            }
+                            $existing->forceFill($updates)->save();
+
+                            return;
+                        }
+
+                        $technical = $probe->inspect(null, $this->path);
+                    } else {
+                        $remoteProbeVersion = RemoteMediaProbe::VERSION;
+                    }
+                }
                 $parsed = $technical['media_kind'] === 'music'
                     ? [
                         'kind' => 'music',
@@ -127,6 +189,8 @@ class ProcessMediaSourceObject implements ShouldQueue
                     $parsed,
                     $tags,
                     $enriched,
+                    $remoteProbeVersion,
+                    $remoteProbeAttempt,
                 ): MediaItem {
                     return MediaItem::query()->updateOrCreate(
                         [
@@ -160,8 +224,10 @@ class ProcessMediaSourceObject implements ShouldQueue
                                     'album' => $tags['album'] ?? null,
                                     'track' => $tags['track'] ?? null,
                                     'technical' => $technical['technical'] ?? null,
+                                    'technical_probe_version' => $remoteProbeVersion,
                                     'source_etag' => $this->etag,
                                 ],
+                                $remoteProbeAttempt ?? [],
                             ), fn (mixed $value): bool => $value !== null
                                 && $value !== ''),
                         ],
@@ -206,22 +272,43 @@ class ProcessMediaSourceObject implements ShouldQueue
             }
         } catch (Throwable $exception) {
             $failed = true;
-            Log::warning('Media object scan failed safely.', [
+            Log::warning('Media object scan attempt failed.', [
                 'media_source_id' => $this->sourceId,
                 'exception' => $exception::class,
             ]);
+
+            throw $exception;
         } finally {
-            if ($participates) {
+            if ($participates && ! $failed) {
                 $progress->completeObject(
                     $this->sourceId,
                     $this->scanToken,
-                    $failed,
+                    false,
                 );
             }
         }
     }
 
     private function unchanged(
+        ?MediaItem $item,
+        ?string $sourceModifiedAt,
+        RemoteMediaProbe $remoteProbe,
+    ): bool {
+        if (! $this->fingerprintMatches($item, $sourceModifiedAt)) {
+            return false;
+        }
+
+        if (in_array($item->source_type, [
+            MediaSource::TYPE_S3,
+            MediaSource::TYPE_WEBDAV,
+        ], true)) {
+            return ! $remoteProbe->shouldAttempt($item);
+        }
+
+        return true;
+    }
+
+    private function fingerprintMatches(
         ?MediaItem $item,
         ?string $sourceModifiedAt,
     ): bool {

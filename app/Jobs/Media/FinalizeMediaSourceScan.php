@@ -47,13 +47,15 @@ class FinalizeMediaSourceScan implements ShouldBeUnique, ShouldQueue
                 return;
             }
 
-            MediaItem::query()
-                ->whereBelongsTo($source, 'source')
-                ->where(function ($query): void {
-                    $query->whereNull('scan_token')
-                        ->orWhere('scan_token', '!=', $this->scanToken);
-                })
-                ->update(['missing_at' => now()]);
+            if ($source->scan_failed === 0) {
+                MediaItem::query()
+                    ->whereBelongsTo($source, 'source')
+                    ->where(function ($query): void {
+                        $query->whereNull('scan_token')
+                            ->orWhere('scan_token', '!=', $this->scanToken);
+                    })
+                    ->update(['missing_at' => now()]);
+            }
 
             $source->forceFill([
                 'scan_status' => 'ready',

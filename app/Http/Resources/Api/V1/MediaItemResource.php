@@ -3,6 +3,7 @@
 namespace App\Http\Resources\Api\V1;
 
 use App\Models\MediaItem;
+use App\Services\Media\MediaArtworkAvailability;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -35,7 +36,7 @@ class MediaItemResource extends JsonResource
                 'sequence' => (int) $progress->sequence,
                 'updatedAt' => $progress->updated_at?->utc()->toIso8601String(),
             ],
-            'summary' => $this->safeMetadata($metadata),
+            'summary' => (object) $this->safeMetadata($metadata),
             'technical' => [
                 'container' => $this->container,
                 'mimeType' => $this->mime_type,
@@ -53,14 +54,8 @@ class MediaItemResource extends JsonResource
                 ],
             ),
             'artwork' => [
-                'poster' => route(
-                    'api.v1.media.artwork',
-                    [$this->getKey(), 'poster'],
-                ),
-                'backdrop' => route(
-                    'api.v1.media.artwork',
-                    [$this->getKey(), 'backdrop'],
-                ),
+                'poster' => $this->artworkUrl($request, 'poster'),
+                'backdrop' => $this->artworkUrl($request, 'backdrop'),
             ],
             'updatedAt' => $this->updated_at?->utc()->toIso8601String(),
         ];
@@ -113,6 +108,27 @@ class MediaItemResource extends JsonResource
         }
 
         return $this->media_kind === 'music' ? 'track' : 'movie';
+    }
+
+    protected static function newCollection($resource): MediaItemCollection
+    {
+        return new MediaItemCollection($resource);
+    }
+
+    private function artworkUrl(Request $request, string $kind): ?string
+    {
+        $available = app(MediaArtworkAvailability::class)->available(
+            $request,
+            $this->resource,
+            $kind,
+        );
+
+        return $available
+            ? route(
+                'api.v1.media.artwork',
+                [$this->getKey(), $kind],
+            )
+            : null;
     }
 
     private function stringOrNull(mixed $value, int $limit): ?string

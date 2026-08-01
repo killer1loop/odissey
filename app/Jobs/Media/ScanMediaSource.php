@@ -75,6 +75,7 @@ class ScanMediaSource implements ShouldBeUniqueUntilProcessing, ShouldQueue
             'scan_processed' => 0,
             'scan_failed' => 0,
             'scan_caption_jobs' => 0,
+            'scan_probe_jobs' => 0,
             'last_error_code' => null,
         ])->save();
         $adapter = $registry->for($source);

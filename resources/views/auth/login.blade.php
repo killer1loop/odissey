@@ -5,7 +5,7 @@
 @section('content')
     <section class="auth-card" aria-labelledby="login-heading">
         <h1 id="login-heading">Sign in</h1>
-        <p class="auth-intro">Access your private media libraries and live television.</p>
+        <p class="auth-intro">Access your private media libraries and Live TV.</p>
 
         @if ($errors->any())
             <div class="errors" role="alert">

@@ -303,6 +303,8 @@ function initializePlayer(player) {
     };
     const play = () => {
         video.play().catch(() => {
+            playbackRequested = false;
+            updateControls();
             setStatus('ready', 'Press play to start.');
         });
     };
@@ -362,7 +364,7 @@ function initializePlayer(player) {
         updateControls();
         updateResolution();
         startAmbientLighting();
-        setStatus('healthy', 'Video is playing.');
+        setStatus('healthy', 'Playing.');
     };
     const handlePause = () => {
         stopAmbientLighting();
@@ -379,7 +381,7 @@ function initializePlayer(player) {
     };
     const handleWaiting = () => {
         if (!recoverGrowingHlsPlayback()) {
-            setStatus('buffering', 'Buffering video…');
+            setStatus('buffering', 'Buffering…');
         }
     };
     const handleEnded = () => {
@@ -405,19 +407,21 @@ function initializePlayer(player) {
         updateResolution();
         updateControls();
         updateTimeline();
-        setStatus('ready', 'Video ready.');
+        setStatus('ready', 'Ready to play.');
     };
     const handleCanPlay = () => {
         if (playbackRequested && video.paused) {
             play();
         } else if (video.paused) {
-            setStatus('ready', 'Video ready.');
+            setStatus('ready', 'Ready to play.');
         }
     };
     const handleVideoError = () => {
         playbackRequested = false;
         stopAmbientLighting();
-        setStatus('unavailable', 'This video could not be played.');
+        video.pause();
+        updateControls();
+        setStatus('unavailable', 'This media could not be played.');
     };
     const handleMuteClick = () => {
         video.muted = !video.muted;
@@ -472,7 +476,14 @@ function initializePlayer(player) {
         );
         player.dataset.captions = activeTrack ? 'true' : 'false';
     };
-    const isFullscreen = () => document.fullscreenElement === player
+    const isFallbackFullscreen = () => player.dataset.fullscreenFallback === 'true';
+    const setFallbackFullscreen = (active) => {
+        player.dataset.fullscreenFallback = active ? 'true' : 'false';
+        document.documentElement.classList.toggle('player-fullscreen-fallback', active);
+        handleFullscreenChange();
+    };
+    const isFullscreen = () => isFallbackFullscreen()
+        || document.fullscreenElement === player
         || document.webkitFullscreenElement === player
         || video.webkitDisplayingFullscreen === true;
     const handleFullscreenChange = () => {
@@ -482,7 +493,9 @@ function initializePlayer(player) {
     };
     const toggleFullscreen = async () => {
         try {
-            if (isFullscreen()) {
+            if (isFallbackFullscreen()) {
+                setFallbackFullscreen(false);
+            } else if (isFullscreen()) {
                 if (document.fullscreenElement || document.webkitFullscreenElement) {
                     await (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document);
                 } else {
@@ -493,10 +506,10 @@ function initializePlayer(player) {
             } else if (video.webkitEnterFullscreen) {
                 video.webkitEnterFullscreen();
             } else {
-                announce('Full screen is not supported by this browser.');
+                setFallbackFullscreen(true);
             }
         } catch {
-            announce('Full screen could not be opened.');
+            setFallbackFullscreen(true);
         }
     };
     const setRailOpen = (open, focusRail = false) => {
@@ -534,8 +547,10 @@ function initializePlayer(player) {
         const target = event.target;
         const isTyping = target instanceof HTMLElement
             && (target.matches('input:not([type="range"]), textarea, select') || target.isContentEditable);
+        const usesNativeKeyboard = target instanceof HTMLElement
+            && target.matches('button, a[href], summary, input, select, textarea, [role="button"]');
 
-        if (event.altKey || event.ctrlKey || event.metaKey || event.repeat || isTyping) {
+        if (event.altKey || event.ctrlKey || event.metaKey || event.repeat) {
             return;
         }
 
@@ -543,33 +558,37 @@ function initializePlayer(player) {
         const isBack = event.key === 'BrowserBack' || Number(event.keyCode) === 10009;
         const isPlayPause = event.key === 'MediaPlayPause' || Number(event.keyCode) === 10252;
 
-        if (key === 'f' || event.code === 'KeyF') {
+        if ((key === 'f' || event.code === 'KeyF') && ! isTyping) {
             event.preventDefault();
             event.stopPropagation();
             toggleFullscreen();
         } else if (event.key === 'Escape' || isBack) {
             if (isFullscreen()) {
                 event.preventDefault();
-                (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document);
+                if (isFallbackFullscreen()) {
+                    setFallbackFullscreen(false);
+                } else {
+                    (document.exitFullscreen ?? document.webkitExitFullscreen)?.call(document);
+                }
             } else if (player.dataset.railOpen === 'true') {
                 event.preventDefault();
                 setRailOpen(false);
                 player.focus();
             }
-        } else if (event.key === 'ArrowRight' && player.dataset.railOpen !== 'true') {
+        } else if (railToggle && ! usesNativeKeyboard && event.key === 'ArrowRight' && player.dataset.railOpen !== 'true') {
             event.preventDefault();
             setRailOpen(true, true);
-        } else if (event.key === 'ArrowLeft' && player.dataset.railOpen === 'true') {
+        } else if (railToggle && ! usesNativeKeyboard && event.key === 'ArrowLeft' && player.dataset.railOpen === 'true') {
             event.preventDefault();
             setRailOpen(false);
             player.focus();
-        } else if (event.key === 'ArrowUp' && player.dataset.railOpen === 'true') {
+        } else if (railToggle && ! usesNativeKeyboard && event.key === 'ArrowUp' && player.dataset.railOpen === 'true') {
             event.preventDefault();
             moveHistoryFocus(-1);
-        } else if (event.key === 'ArrowDown' && player.dataset.railOpen === 'true') {
+        } else if (railToggle && ! usesNativeKeyboard && event.key === 'ArrowDown' && player.dataset.railOpen === 'true') {
             event.preventDefault();
             moveHistoryFocus(1);
-        } else if (isPlayPause || event.key === ' ') {
+        } else if ((isPlayPause || event.key === ' ') && ! usesNativeKeyboard && ! isTyping) {
             event.preventDefault();
             handlePlayClick();
             announceNavigation(video.paused ? 'Playback paused.' : 'Playback started.');
@@ -637,6 +656,7 @@ function initializePlayer(player) {
         video.removeEventListener('error', handleVideoError);
         window.removeEventListener('pagehide', handlePageHide);
         stopAmbientLighting();
+        setFallbackFullscreen(false);
         window.clearTimeout(hlsRecoveryTimer);
         hlsRecoveryTimer = null;
         hls?.destroy();
@@ -674,7 +694,7 @@ function initializePlayer(player) {
         hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
             updateResolution();
-            setStatus('ready', 'Video ready.');
+            setStatus('ready', 'Ready to play.');
         });
         hls.on(Hls.Events.LEVEL_SWITCHED, updateResolution);
         hls.on(Hls.Events.ERROR, (_event, data) => {

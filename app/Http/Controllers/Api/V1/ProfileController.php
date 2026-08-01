@@ -84,6 +84,7 @@ class ProfileController extends Controller
             'timezone' => $user->timezone ?: 'UTC',
             'isAdmin' => $user->isAdmin(),
             'preferences' => [
+                'timezone' => $user->timezone ?: 'UTC',
                 'autoplay' => (bool) (
                     $user->preferences['autoplay'] ?? false
                 ),

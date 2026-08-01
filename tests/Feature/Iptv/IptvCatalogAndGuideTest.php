@@ -63,7 +63,7 @@ class IptvCatalogAndGuideTest extends TestCase
         $this->assertNull($provider->last_error_code);
     }
 
-    public function test_catalog_sync_is_batched_idempotent_and_marks_missing_rows_inactive(): void
+    public function test_catalog_sync_is_batched_idempotent_and_rejects_an_empty_replacement_generation(): void
     {
         Queue::fake([EnrichMediaItem::class, SyncXtreamSeries::class]);
         User::factory()->create(['is_admin' => true, 'is_active' => true]);
@@ -144,19 +144,78 @@ class IptvCatalogAndGuideTest extends TestCase
             'authenticate' => [
                 'user_info' => ['auth' => 1, 'status' => 'Active'],
             ],
-            'get_live_categories' => [],
+            'get_live_categories' => [[
+                'category_id' => '7',
+                'category_name' => 'International News',
+            ]],
             'get_live_streams' => [],
             'get_vod_categories' => [],
             'get_vod_streams' => [],
             'get_series_categories' => [],
             'get_series' => [],
         ];
-        $this->assertSame(
-            ['groups' => 0, 'channels' => 0, 'movies' => 0, 'series' => 0],
-            $sync->sync($provider->fresh()),
-        );
-        $this->assertFalse(Channel::query()->sole()->is_active);
-        $this->assertFalse(ChannelGroup::query()->sole()->is_active);
+        try {
+            $sync->sync($provider->fresh());
+            $this->fail(
+                'An empty response must not replace an established catalog.',
+            );
+        } catch (SanitizedIptvException $exception) {
+            $this->assertSame(
+                'provider_catalog_empty',
+                $exception->errorCode,
+            );
+        }
+        $this->assertTrue(Channel::query()->sole()->is_active);
+        $this->assertTrue(ChannelGroup::query()->sole()->is_active);
+    }
+
+    public function test_empty_live_categories_preserve_established_groups(): void
+    {
+        $provider = $this->makeProvider();
+        $channel = $this->makeChannel($provider);
+        $group = $channel->group;
+
+        Http::fake(function (Request $request) {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+            return Http::response(match ($query['action'] ?? 'authenticate') {
+                'authenticate' => [
+                    'user_info' => ['auth' => 1, 'status' => 'Active'],
+                ],
+                'get_live_categories' => [],
+                'get_live_streams' => [[
+                    'stream_id' => '101',
+                    'name' => 'Replacement News',
+                    'category_id' => 'news',
+                ]],
+            });
+        });
+
+        try {
+            app(ProviderCatalogSynchronizer::class)->sync($provider);
+            $this->fail(
+                'Empty live categories must not replace established groups.',
+            );
+        } catch (SanitizedIptvException $exception) {
+            $this->assertSame(
+                'provider_live_categories_empty',
+                $exception->errorCode,
+            );
+            $this->assertStringNotContainsString(
+                'test-user-secret',
+                $exception->getMessage(),
+            );
+            $this->assertStringNotContainsString(
+                'test-password-secret',
+                $exception->getMessage(),
+            );
+        }
+
+        $this->assertTrue($group->refresh()->is_active);
+        $this->assertSame('News', $group->name);
+        $this->assertTrue($channel->refresh()->is_active);
+        $this->assertSame('Example News', $channel->name);
+        Http::assertSentCount(3);
     }
 
     public function test_short_epg_import_is_bounded_and_idempotent(): void

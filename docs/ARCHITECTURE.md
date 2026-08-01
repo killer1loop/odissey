@@ -124,8 +124,8 @@ capabilities()
   prevent traversal and symlink escape.
 - **S3:** use a prefix-scoped, read-only identity. Direct play may use a
   short-lived signed URL when doing so does not expose source credentials.
-- **WebDAV:** use a read-only account. Onboarding probes `PROPFIND`, `HEAD`, and
-  byte-range behavior because seeking support varies by server.
+- **WebDAV:** use a read-only account. Onboarding uses depth-one `PROPFIND` and
+  a ranged `GET` because seeking support varies by server.
 - **IPTV VOD:** Xtream movie and episode identifiers are stored as encrypted
   opaque locators on a provider-managed media source. Credentials remain on
   the encrypted provider record and playback is proxied through the same

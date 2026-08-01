@@ -34,7 +34,10 @@
                         <p>Catalog synced {{ $provider->last_synced_at->diffForHumans() }}.</p>
                     @endif
                     @if ($provider->last_error_code)
-                        <p class="field-error">Last sync did not finish ({{ $provider->last_error_code }}).</p>
+                        <p class="field-error">Last catalog sync did not finish ({{ $provider->last_error_code }}).</p>
+                    @endif
+                    @if ($provider->last_guide_error_code)
+                        <p class="field-error">Last guide sync reported {{ $provider->last_guide_error_code }}.</p>
                     @endif
                     </div>
 

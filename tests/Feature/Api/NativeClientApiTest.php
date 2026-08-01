@@ -224,6 +224,11 @@ class NativeClientApiTest extends TestCase
             'email' => 'viewer@example.test',
             'password' => 'VeryStrong!123',
             'is_active' => true,
+            'timezone' => 'Europe/Zurich',
+            'preferences' => [
+                'autoplay' => true,
+                'preferred_quality' => 'original',
+            ],
         ]);
         $login = $this->postJson('/api/v1/auth/login', [
             'email' => 'VIEWER@EXAMPLE.TEST',
@@ -263,7 +268,16 @@ class NativeClientApiTest extends TestCase
 
         $this->withToken($access)->getJson('/api/v1/me')
             ->assertOk()
-            ->assertJsonPath('data.email', 'viewer@example.test');
+            ->assertJsonPath('data.email', 'viewer@example.test')
+            ->assertJsonPath(
+                'data.preferences.timezone',
+                'Europe/Zurich',
+            )
+            ->assertJsonPath('data.preferences.autoplay', true)
+            ->assertJsonPath(
+                'data.preferences.preferredQuality',
+                'original',
+            );
 
         $rotation = $this->postJson('/api/v1/auth/refresh', [
             'refreshToken' => $refresh,
@@ -444,7 +458,25 @@ class NativeClientApiTest extends TestCase
         $this->withToken($token)
             ->getJson('/api/v1/media/'.$first->id)
             ->assertOk()
-            ->assertJsonPath('data.summary.overview', 'Safe overview');
+            ->assertJsonPath('data.summary.overview', 'Safe overview')
+            ->assertJsonPath('data.artwork.poster', null)
+            ->assertJsonPath('data.artwork.backdrop', null);
+
+        $sparse = $this->withToken($token)
+            ->getJson('/api/v1/media/'.$second->id)
+            ->assertOk()
+            ->assertJsonPath('data.artwork.poster', null)
+            ->assertJsonPath('data.artwork.backdrop', null);
+        $decoded = json_decode(
+            (string) $sparse->getContent(),
+            false,
+            512,
+            JSON_THROW_ON_ERROR,
+        );
+        $this->assertInstanceOf(
+            \stdClass::class,
+            $decoded->data->summary,
+        );
 
         $otherToken = $this->login($other, 'other-device');
         $this->withToken($otherToken)
@@ -1714,6 +1746,42 @@ class NativeClientApiTest extends TestCase
                 ->orderBy('action')
                 ->pluck('action')
                 ->all(),
+        );
+    }
+
+    public function test_admin_role_changes_preserve_an_active_administrator(): void
+    {
+        $admin = User::factory()->create([
+            'is_active' => true,
+            'is_admin' => true,
+        ]);
+        $otherAdmin = User::factory()->create([
+            'is_active' => true,
+            'is_admin' => true,
+        ]);
+        $token = $this->login($admin, 'admin-role-change');
+
+        $this->withToken($token)
+            ->patchJson('/api/v1/admin/users/'.$admin->id, [
+                'isAdmin' => false,
+            ])
+            ->assertStatus(409);
+        $this->assertTrue($admin->refresh()->is_admin);
+
+        $this->withToken($token)
+            ->patchJson('/api/v1/admin/users/'.$otherAdmin->id, [
+                'isAdmin' => false,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.isAdmin', false);
+
+        $this->assertFalse($otherAdmin->refresh()->is_admin);
+        $this->assertSame(
+            1,
+            User::query()
+                ->where('is_admin', true)
+                ->where('is_active', true)
+                ->count(),
         );
     }
 

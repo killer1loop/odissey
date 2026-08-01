@@ -32,7 +32,10 @@ class UpdateIptvProviderRequest extends FormRequest
                 Rule::unique('iptv_providers', 'name')->ignore($this->route('provider')),
             ],
             'base_url' => ['nullable', 'string', 'max:2048', 'url:http,https'],
-            'provider_type' => ['required', 'in:xtream,m3u'],
+            'provider_type' => [
+                'required',
+                Rule::in([(string) ($this->route('provider')?->config['api'] ?? 'xtream')]),
+            ],
             'playlist_url' => ['nullable', 'string', 'max:4096', 'url:http,https'],
             'xmltv_url' => ['nullable', 'string', 'max:4096', 'url:http,https'],
             'max_connections' => ['nullable', 'integer', 'min:1', 'max:100'],

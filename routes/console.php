@@ -32,6 +32,10 @@ Schedule::command('native-client:prune')
     ->hourly()
     ->withoutOverlapping(10);
 
+Schedule::command('queue:prune-failed --hours=168')
+    ->dailyAt('02:37')
+    ->withoutOverlapping(10);
+
 Schedule::command('iptv:epg:prune')
     ->daily()
     ->withoutOverlapping();

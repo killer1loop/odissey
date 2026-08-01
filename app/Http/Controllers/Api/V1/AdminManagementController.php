@@ -25,6 +25,7 @@ use App\Services\Media\MediaScanDispatcher;
 use App\Services\Media\Sources\MediaSourceRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password;
@@ -92,21 +93,6 @@ class AdminManagementController extends Controller
             ],
             'isAdmin' => ['sometimes', 'boolean'],
         ]);
-        if (
-            array_key_exists('isAdmin', $validated)
-            && ! $validated['isAdmin']
-            && $user->is_admin
-        ) {
-            abort_if($user->is($request->user()), 409);
-            abort_if(
-                User::query()
-                    ->where('is_admin', true)
-                    ->where('is_active', true)
-                    ->count() <= 1,
-                409,
-                'The last active administrator cannot be demoted.',
-            );
-        }
         $changes = [];
         if (isset($validated['name'])) {
             $changes['name'] = $validated['name'];
@@ -117,16 +103,53 @@ class AdminManagementController extends Controller
         if (array_key_exists('isAdmin', $validated)) {
             $changes['is_admin'] = $validated['isAdmin'];
         }
-        if ($changes !== []) {
-            $user->update($changes);
-            if (isset($changes['email']) || isset($changes['is_admin'])) {
-                $sessions->revokeAllSessions($user);
+        $updatedUser = DB::transaction(function () use (
+            $changes,
+            $request,
+            $user,
+            $validated,
+        ): User {
+            $target = User::query()
+                ->lockForUpdate()
+                ->findOrFail($user->getKey());
+            $actor = User::query()
+                ->lockForUpdate()
+                ->findOrFail($request->user()->getKey());
+            abort_unless($actor->isActive() && $actor->isAdmin(), 403);
+
+            if (
+                array_key_exists('isAdmin', $validated)
+                && ! $validated['isAdmin']
+                && $target->is_admin
+            ) {
+                abort_if($target->is($actor), 409);
+                abort_if(
+                    User::query()
+                        ->where('is_admin', true)
+                        ->where('is_active', true)
+                        ->count() <= 1,
+                    409,
+                    'The last active administrator cannot be demoted.',
+                );
             }
+
+            if ($changes !== []) {
+                $target->forceFill($changes)->save();
+            }
+
+            return $target->refresh();
+        }, 5);
+        if (isset($changes['email']) || isset($changes['is_admin'])) {
+            $sessions->revokeAllSessions($updatedUser);
         }
-        $auditId = $this->audit->record($request, 'user.update', $user);
+        $auditId = $this->audit->record(
+            $request,
+            'user.update',
+            $updatedUser,
+        );
 
         return response()->json([
-            'data' => $this->userPayload($user->refresh()),
+            'data' => $this->userPayload($updatedUser),
             'auditId' => $auditId,
         ], headers: ['Cache-Control' => 'no-store']);
     }
@@ -892,6 +915,7 @@ class AdminManagementController extends Controller
             'allowInsecureHttp' => (bool) $provider->allow_insecure_http,
             'syncStatus' => $provider->sync_status,
             'lastErrorCode' => $provider->last_error_code,
+            'lastGuideErrorCode' => $provider->last_guide_error_code,
             'usernameConfigured' => trim((string) $provider->username) !== '',
             'passwordConfigured' => trim((string) $provider->password) !== '',
             'playlistConfigured' => trim((string) (

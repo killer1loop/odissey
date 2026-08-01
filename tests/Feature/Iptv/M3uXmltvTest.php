@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Iptv;
 
+use App\Jobs\Iptv\SyncIptvGuide;
 use App\Models\Iptv\Channel;
 use App\Models\Iptv\EpgProgram;
 use App\Models\Iptv\IptvProvider;
@@ -23,6 +24,7 @@ use Illuminate\Support\Str;
 use LengthException;
 use Mockery;
 use ReflectionProperty;
+use RuntimeException;
 use Tests\TestCase;
 
 class M3uXmltvTest extends TestCase
@@ -318,6 +320,173 @@ M3U)]);
         );
     }
 
+    public function test_empty_xmltv_preserves_the_last_future_guide(): void
+    {
+        Http::fake([
+            'guide.example.test/*' => Http::response(
+                '<tv></tv>',
+                200,
+                ['Content-Type' => 'application/xml'],
+            ),
+        ]);
+        $provider = $this->provider();
+        $provider->update([
+            'config' => array_merge($provider->config, [
+                'xmltv_url' => 'https://guide.example.test/guide.xml',
+            ]),
+        ]);
+        $channel = Channel::query()->create([
+            'iptv_provider_id' => $provider->id,
+            'external_id' => '1',
+            'epg_channel_id' => 'news',
+            'name' => 'News',
+        ]);
+        $preserved = EpgProgram::query()->create([
+            'iptv_provider_id' => $provider->id,
+            'channel_id' => $channel->id,
+            'fingerprint' => hash('sha256', 'empty-guide-preserved'),
+            'sync_token' => (string) Str::ulid(),
+            'title' => 'Last known programme',
+            'starts_at' => now()->addHours(2),
+            'ends_at' => now()->addHours(3),
+        ]);
+
+        try {
+            (new SyncIptvGuide($provider->id))
+                ->handle(app(XmltvGuideImporter::class));
+            $this->fail('An empty guide must not be recorded as successful.');
+        } catch (SanitizedIptvException $exception) {
+            $this->assertSame('xmltv_guide_empty', $exception->errorCode);
+        }
+        $provider->refresh();
+        $this->assertSame(
+            'xmltv_guide_empty',
+            $provider->last_guide_error_code,
+        );
+        $this->assertNull($provider->last_guide_synced_at);
+        $this->assertDatabaseHas('epg_programs', ['id' => $preserved->id]);
+    }
+
+    public function test_xmltv_with_no_matching_channels_preserves_the_last_future_guide(): void
+    {
+        $start = now()->utc()->addHour();
+        $xml = sprintf(
+            '<tv><programme channel="unmapped" start="%s +0000" stop="%s +0000"><title>Unmapped programme</title></programme></tv>',
+            $start->format('YmdHis'),
+            $start->copy()->addHour()->format('YmdHis'),
+        );
+        Http::fake([
+            'guide.example.test/*' => Http::response(
+                $xml,
+                200,
+                ['Content-Type' => 'application/xml'],
+            ),
+        ]);
+        $provider = $this->provider();
+        $provider->update([
+            'config' => array_merge($provider->config, [
+                'xmltv_url' => 'https://guide.example.test/guide.xml',
+            ]),
+        ]);
+        $channel = Channel::query()->create([
+            'iptv_provider_id' => $provider->id,
+            'external_id' => '1',
+            'epg_channel_id' => 'news',
+            'name' => 'News',
+        ]);
+        $preserved = EpgProgram::query()->create([
+            'iptv_provider_id' => $provider->id,
+            'channel_id' => $channel->id,
+            'fingerprint' => hash('sha256', 'unmatched-guide-preserved'),
+            'sync_token' => (string) Str::ulid(),
+            'title' => 'Last known programme',
+            'starts_at' => now()->addHours(2),
+            'ends_at' => now()->addHours(3),
+        ]);
+
+        try {
+            (new SyncIptvGuide($provider->id))
+                ->handle(app(XmltvGuideImporter::class));
+            $this->fail(
+                'An unmatched guide must not be recorded as successful.',
+            );
+        } catch (SanitizedIptvException $exception) {
+            $this->assertSame('xmltv_guide_empty', $exception->errorCode);
+        }
+        $provider->refresh();
+        $this->assertSame(
+            'xmltv_guide_empty',
+            $provider->last_guide_error_code,
+        );
+        $this->assertNull($provider->last_guide_synced_at);
+        $this->assertDatabaseHas('epg_programs', ['id' => $preserved->id]);
+        $this->assertDatabaseMissing('epg_programs', [
+            'title' => 'Unmapped programme',
+        ]);
+    }
+
+    public function test_partial_xmltv_only_reconciles_channels_observed_in_the_document(): void
+    {
+        $start = now()->utc()->addHour();
+        $xml = sprintf(
+            '<tv><programme channel="news" start="%s +0000" stop="%s +0000"><title>New news programme</title></programme></tv>',
+            $start->format('YmdHis'),
+            $start->copy()->addHour()->format('YmdHis'),
+        );
+        Http::fake([
+            'guide.example.test/*' => Http::response(
+                $xml,
+                200,
+                ['Content-Type' => 'application/xml'],
+            ),
+        ]);
+        $provider = $this->provider();
+        $provider->update([
+            'config' => array_merge($provider->config, [
+                'xmltv_url' => 'https://guide.example.test/guide.xml',
+            ]),
+        ]);
+        $news = Channel::query()->create([
+            'iptv_provider_id' => $provider->id,
+            'external_id' => '1',
+            'epg_channel_id' => 'news',
+            'name' => 'News',
+        ]);
+        $sports = Channel::query()->create([
+            'iptv_provider_id' => $provider->id,
+            'external_id' => '2',
+            'epg_channel_id' => 'sports',
+            'name' => 'Sports',
+        ]);
+        $oldNews = EpgProgram::query()->create([
+            'iptv_provider_id' => $provider->id,
+            'channel_id' => $news->id,
+            'fingerprint' => hash('sha256', 'old-news'),
+            'title' => 'Old news programme',
+            'starts_at' => now()->addHours(3),
+            'ends_at' => now()->addHours(4),
+        ]);
+        $oldSports = EpgProgram::query()->create([
+            'iptv_provider_id' => $provider->id,
+            'channel_id' => $sports->id,
+            'fingerprint' => hash('sha256', 'old-sports'),
+            'title' => 'Old sports programme',
+            'starts_at' => now()->addHours(3),
+            'ends_at' => now()->addHours(4),
+        ]);
+
+        $this->assertSame(
+            1,
+            app(XmltvGuideImporter::class)->import($provider->fresh()),
+        );
+        $this->assertDatabaseMissing('epg_programs', ['id' => $oldNews->id]);
+        $this->assertDatabaseHas('epg_programs', [
+            'channel_id' => $news->id,
+            'title' => 'New news programme',
+        ]);
+        $this->assertDatabaseHas('epg_programs', ['id' => $oldSports->id]);
+    }
+
     public function test_xmltv_channel_program_and_provider_row_limits_bound_guide_storage(): void
     {
         config()->set('iptv.xmltv_max_channels', 1);
@@ -435,6 +604,7 @@ M3U)]);
         config()->set('iptv.provider_guide_max_rows', 10);
         $provider = $this->provider();
         $provider->update([
+            'last_error_code' => 'catalog_diagnostic_fixture',
             'config' => array_merge($provider->config, [
                 'xmltv_url' => 'https://guide.example.test/guide.xml',
             ]),
@@ -470,13 +640,21 @@ M3U)]);
             ),
         ]);
 
-        $this->assertSame(
-            1,
-            app(XmltvGuideImporter::class)->import($provider->fresh()),
-        );
+        $importer = app(XmltvGuideImporter::class);
+        (new SyncIptvGuide($provider->id))->handle($importer);
+        $this->assertTrue($importer->lastImportWasCapped());
         $this->assertDatabaseHas('epg_programs', ['id' => $preserved->id]);
         $this->assertDatabaseHas('epg_programs', ['title' => 'Imported first']);
         $this->assertDatabaseMissing('epg_programs', ['title' => 'Capped second']);
+        $this->assertSame(
+            'xmltv_guide_truncated',
+            $provider->refresh()->last_guide_error_code,
+        );
+        $this->assertSame(
+            'catalog_diagnostic_fixture',
+            $provider->last_error_code,
+        );
+        $this->assertNotNull($provider->last_guide_synced_at);
     }
 
     public function test_malformed_xmltv_tail_after_cap_rolls_back_and_preserves_last_guide(): void
@@ -530,6 +708,65 @@ M3U)]);
         $this->assertDatabaseMissing('epg_programs', [
             'title' => 'Would be partial',
         ]);
+    }
+
+    public function test_m3u_guide_without_xmltv_configuration_is_not_marked_successful(): void
+    {
+        $provider = $this->provider();
+
+        (new SyncIptvGuide($provider->id))
+            ->handle(app(XmltvGuideImporter::class));
+
+        $provider->refresh();
+        $this->assertSame(
+            'guide_not_configured',
+            $provider->last_guide_error_code,
+        );
+        $this->assertNull($provider->last_guide_synced_at);
+    }
+
+    public function test_unexpected_guide_sync_failure_records_a_generic_error(): void
+    {
+        $provider = $this->provider();
+        $provider->update([
+            'config' => array_merge($provider->config, [
+                'xmltv_url' => 'https://guide.example.test/guide.xml',
+            ]),
+        ]);
+        $importer = Mockery::mock(XmltvGuideImporter::class);
+        $importer->shouldReceive('import')
+            ->once()
+            ->andThrow(new RuntimeException('Synthetic guide failure.'));
+
+        try {
+            (new SyncIptvGuide($provider->id))->handle($importer);
+            $this->fail('Unexpected guide failures must be rethrown.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame(
+                'Synthetic guide failure.',
+                $exception->getMessage(),
+            );
+        }
+
+        $provider->refresh();
+        $this->assertSame(
+            'guide_sync_failed',
+            $provider->last_guide_error_code,
+        );
+        $this->assertNull($provider->last_guide_synced_at);
+    }
+
+    public function test_exhausted_guide_job_records_a_generic_error(): void
+    {
+        $provider = $this->provider();
+
+        (new SyncIptvGuide($provider->id))
+            ->failed(new RuntimeException('Synthetic queue failure.'));
+
+        $this->assertSame(
+            'guide_sync_failed',
+            $provider->refresh()->last_guide_error_code,
+        );
     }
 
     private function provider(): IptvProvider

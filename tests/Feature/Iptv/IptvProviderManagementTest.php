@@ -38,6 +38,52 @@ class IptvProviderManagementTest extends TestCase
             ->assertSee('IPTV providers');
     }
 
+    public function test_generic_m3u_can_be_created_without_xtream_credentials(): void
+    {
+        Queue::fake();
+        $admin = User::factory()->create([
+            'is_active' => true,
+            'is_admin' => true,
+        ]);
+        $form = $this->actingAs($admin)
+            ->get(route('iptv.admin.providers.create'))
+            ->assertOk();
+        $document = new \DOMDocument;
+        $previous = libxml_use_internal_errors(true);
+        try {
+            $document->loadHTML((string) $form->getContent());
+        } finally {
+            libxml_clear_errors();
+            libxml_use_internal_errors($previous);
+        }
+        $xpath = new \DOMXPath($document);
+        foreach (['base_url', 'username', 'password'] as $field) {
+            $input = $xpath->query(
+                sprintf('//input[@name="%s"]', $field),
+            )?->item(0);
+            $this->assertInstanceOf(\DOMElement::class, $input);
+            $this->assertFalse($input->hasAttribute('required'));
+        }
+
+        $this->actingAs($admin)
+            ->post(route('iptv.admin.providers.store'), [
+                'provider_type' => 'm3u',
+                'name' => 'Generic provider',
+                'playlist_url' => 'https://playlist.example.test/live.m3u',
+                'xmltv_url' => 'https://guide.example.test/guide.xml',
+                'max_connections' => 2,
+                'enabled' => '1',
+            ])
+            ->assertRedirect(route('iptv.admin.providers.index'))
+            ->assertSessionDoesntHaveErrors();
+
+        $provider = IptvProvider::query()->sole();
+        $this->assertSame('m3u', $provider->config['api']);
+        $this->assertSame('', $provider->username);
+        $this->assertSame('', $provider->password);
+        Queue::assertPushed(SyncIptvProvider::class);
+    }
+
     public function test_http_provider_requires_explicit_consent_and_secrets_stay_encrypted(): void
     {
         Queue::fake();
@@ -117,5 +163,50 @@ class IptvProviderManagementTest extends TestCase
         $this->assertArrayNotHasKey('base_url', $oldInput);
         $this->assertArrayNotHasKey('username', $oldInput);
         $this->assertArrayNotHasKey('password', $oldInput);
+    }
+
+    public function test_provider_edit_preserves_hidden_m3u_addresses_and_rejects_type_changes(): void
+    {
+        $admin = User::factory()->create(['is_active' => true, 'is_admin' => true]);
+        $provider = $this->makeProvider([
+            'name' => 'Protected M3U provider',
+            'base_url' => 'https://playlist.example.test',
+            'username' => '',
+            'password' => '',
+            'config' => [
+                'api' => 'm3u',
+                'stream_format' => 'hls',
+                'playlist_url' => 'https://playlist.example.test/live.m3u',
+                'xmltv_url' => 'https://guide.example.test/guide.xml',
+                'max_connections' => 2,
+            ],
+        ]);
+
+        $this->actingAs($admin)
+            ->put(route('iptv.admin.providers.update', $provider), [
+                'name' => $provider->name,
+                'provider_type' => 'm3u',
+                'playlist_url' => '',
+                'xmltv_url' => '',
+                'max_connections' => 2,
+                'enabled' => '1',
+            ])
+            ->assertRedirect(route('iptv.admin.providers.index'))
+            ->assertSessionDoesntHaveErrors();
+
+        $provider->refresh();
+        $this->assertSame('m3u', $provider->config['api']);
+        $this->assertSame('https://playlist.example.test/live.m3u', $provider->config['playlist_url']);
+        $this->assertSame('https://guide.example.test/guide.xml', $provider->config['xmltv_url']);
+
+        $this->actingAs($admin)
+            ->from(route('iptv.admin.providers.edit', $provider))
+            ->put(route('iptv.admin.providers.update', $provider), [
+                'name' => $provider->name,
+                'provider_type' => 'xtream',
+                'enabled' => '1',
+            ])
+            ->assertRedirect(route('iptv.admin.providers.edit', $provider))
+            ->assertSessionHasErrors('provider_type');
     }
 }

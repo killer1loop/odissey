@@ -1,0 +1,73 @@
+name: Beta bug report
+description: Report a reproducible problem from an Odissey beta server.
+title: "[Beta] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include provider credentials, private media URLs, playback bearer paths, `.env` files, databases, application keys, or backup archives. Use GitHub private vulnerability reporting for security issues.
+  - type: input
+    id: release
+    attributes:
+      label: Odissey release
+      description: Paste the immutable tag or full commit from `git rev-parse HEAD`.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Server platform
+      description: Linux distribution, CPU architecture, Docker version, and Compose version.
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: Affected area
+      options:
+        - Installation or upgrade
+        - Authentication or users
+        - Local media
+        - S3-compatible media
+        - WebDAV media
+        - IPTV or EPG
+        - Metadata, artwork, or captions
+        - Playback or transcoding
+        - Native API
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Use synthetic or redacted names and list the smallest repeatable sequence.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted logs
+      description: Remove credentials, tokens, private URLs, object keys, media titles, and playback asset paths before pasting a short excerpt.
+      render: shell
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Sensitive-data check
+      options:
+        - label: I verified that this report contains no credentials, private URLs, personal data, databases, keys, backups, or playback bearer paths.
+          required: true

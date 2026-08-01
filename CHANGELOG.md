@@ -34,6 +34,31 @@ All notable changes to Odissey will be documented here. The project follows
   refresh-token hashes, native track selections, administrative audit events,
   and music playlists. Existing web users and media records are retained.
 - Plex-inspired responsive dark interface.
+- Beta installation and operations runbook covering HTTPS, source onboarding,
+  backup, upgrade, rollback, and redacted diagnostics.
+
+### Fixed
+
+- Serialized native profile preferences now match the OpenAPI contract, sparse
+  media summaries remain JSON objects, and unavailable artwork is nullable.
+- Native episode artwork can fall back to the matching parent series.
+- Administrator role changes are atomic and preserve at least one active
+  administrator.
+- Generic M3U providers can be submitted without Xtream-only browser fields.
+- Media discovery and scan queues use retry windows longer than their worker
+  and overlap timeouts.
+- Bounded, credential-safe remote probing can avoid unnecessary native
+  transcoding when an S3 or WebDAV asset exposes sufficient technical metadata
+  in its initial byte range.
+- Failed remote probes use a persistent cooldown and per-scan budget; queued
+  media-object paths are encrypted and transient failures now use real retries.
+- Partial file-library scans, empty IPTV catalog/category/episode responses, and
+  empty or partial guide responses preserve the corresponding last known data.
+- Offline restore verifies that transcode and IPTV VOD workers have been
+  stopped.
+- Guide errors are tracked independently from catalog errors, including empty,
+  unmatched, truncated, unconfigured, and unexpected failures; failed queue
+  records are pruned after seven days.
 
 ### Security
 
@@ -47,3 +72,5 @@ All notable changes to Odissey will be documented here. The project follows
   access logs must redact or exclude `/api/v1/playback/assets/*`.
 - Artwork generation and playlist mutations have dedicated request throttles,
   cross-process locks, and bounded worker admission.
+- Production containers log at `info` by default, and first-launch setup tokens
+  can be cleared after installation state closes setup permanently.

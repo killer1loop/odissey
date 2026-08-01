@@ -102,4 +102,37 @@ class MediaScanProgress
             return true;
         });
     }
+
+    public function reserveProbeJob(
+        string $sourceId,
+        string $scanToken,
+        int $maximum,
+    ): bool {
+        if ($maximum < 1) {
+            return false;
+        }
+
+        return DB::transaction(function () use (
+            $sourceId,
+            $scanToken,
+            $maximum,
+        ): bool {
+            $source = MediaSource::query()
+                ->whereKey($sourceId)
+                ->where('active_scan_token', $scanToken)
+                ->lockForUpdate()
+                ->first();
+            if (
+                $source === null
+                || $source->scan_probe_jobs >= $maximum
+            ) {
+                return false;
+            }
+
+            $source->scan_probe_jobs++;
+            $source->save();
+
+            return true;
+        });
+    }
 }

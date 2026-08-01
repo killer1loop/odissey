@@ -8,6 +8,7 @@ use App\Services\Iptv\XmltvGuideImporter;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Throwable;
 
 class SyncIptvGuide implements ShouldBeUnique, ShouldQueue
 {
@@ -39,23 +40,61 @@ class SyncIptvGuide implements ShouldBeUnique, ShouldQueue
             return;
         }
 
+        if (
+            ($provider->config['api'] ?? 'xtream') === 'm3u'
+            && (
+                ! is_string($provider->config['xmltv_url'] ?? null)
+                || trim($provider->config['xmltv_url']) === ''
+            )
+        ) {
+            $provider->forceFill([
+                'last_guide_error_code' => 'guide_not_configured',
+            ])->save();
+
+            return;
+        }
+
         try {
             if (($provider->config['api'] ?? 'xtream') === 'm3u') {
-                $xmltvImporter->import($provider);
+                $imported = $xmltvImporter->import($provider);
             } else {
-                $xmltvImporter->importXtream($provider);
+                $imported = $xmltvImporter->importXtream($provider);
+            }
+            if ($imported === 0) {
+                throw new SanitizedIptvException(
+                    'xmltv_guide_empty',
+                    422,
+                );
             }
 
             $provider->forceFill([
                 'last_guide_synced_at' => now(),
-                'last_error_code' => null,
+                'last_guide_error_code' => $xmltvImporter->lastImportWasCapped()
+                    ? 'xmltv_guide_truncated'
+                    : null,
             ])->save();
-        } catch (SanitizedIptvException $exception) {
+        } catch (Throwable $exception) {
             $provider->forceFill([
-                'last_error_code' => $exception->errorCode,
+                'last_guide_error_code' => $this->errorCode($exception),
             ])->save();
 
             throw $exception;
         }
+    }
+
+    public function failed(?Throwable $exception): void
+    {
+        IptvProvider::query()
+            ->whereKey($this->providerId)
+            ->update([
+                'last_guide_error_code' => $this->errorCode($exception),
+            ]);
+    }
+
+    private function errorCode(?Throwable $exception): string
+    {
+        return $exception instanceof SanitizedIptvException
+            ? $exception->errorCode
+            : 'guide_sync_failed';
     }
 }

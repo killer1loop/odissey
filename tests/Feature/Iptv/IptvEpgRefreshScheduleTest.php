@@ -56,4 +56,18 @@ class IptvEpgRefreshScheduleTest extends TestCase
         $this->assertTrue($event->withoutOverlapping);
         $this->assertSame(10, $event->expiresAt);
     }
+
+    public function test_failed_queue_records_are_pruned_each_day(): void
+    {
+        $event = collect(app(Schedule::class)->events())
+            ->first(fn ($event) => str_contains(
+                (string) $event->command,
+                'queue:prune-failed --hours=168',
+            ));
+
+        $this->assertNotNull($event);
+        $this->assertSame('37 2 * * *', $event->expression);
+        $this->assertTrue($event->withoutOverlapping);
+        $this->assertSame(10, $event->expiresAt);
+    }
 }

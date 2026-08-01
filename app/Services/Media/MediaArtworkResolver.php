@@ -8,14 +8,25 @@ use Illuminate\Support\Collection;
 
 class MediaArtworkResolver
 {
+    public function __construct(
+        private readonly TrustedArtworkUrl $trustedArtwork,
+        private readonly ArtworkManager $artwork,
+    ) {}
+
     /**
      * Resolve each item to itself or to its parent series artwork item.
      *
      * @param  iterable<int, MediaItem>  $items
      * @return Collection<string, MediaItem>
      */
-    public function resolve(iterable $items, User $user): Collection
-    {
+    public function resolve(
+        iterable $items,
+        User $user,
+        string $kind = 'poster',
+    ): Collection {
+        if (! in_array($kind, ['poster', 'backdrop'], true)) {
+            $kind = 'poster';
+        }
         $items = collect($items)
             ->filter(fn (mixed $item): bool => $item instanceof MediaItem)
             ->values();
@@ -25,7 +36,7 @@ class MediaArtworkResolver
         $episodes = $items->filter(fn (MediaItem $item): bool => (
             ($item->metadata['kind'] ?? null) === 'episode'
             && $item->media_source_id !== null
-            && ! $this->hasPoster($item)
+            && ! $this->isAvailable($item, $kind)
         ));
         if ($episodes->isEmpty()) {
             return $resolved;
@@ -71,7 +82,9 @@ class MediaArtworkResolver
                 }
             })
             ->get()
-            ->filter($this->hasPoster(...));
+            ->filter(
+                fn (MediaItem $item): bool => $this->isAvailable($item, $kind),
+            );
         $bySeriesId = $parents
             ->filter(fn (MediaItem $item): bool => isset(
                 $item->metadata['xtream_series_id'],
@@ -107,13 +120,16 @@ class MediaArtworkResolver
         return $resolved;
     }
 
-    private function hasPoster(MediaItem $item): bool
+    public function isAvailable(MediaItem $item, string $kind): bool
     {
-        return ($item->metadata['poster_cached'] ?? false) === true
-            || (
-                is_string($item->metadata['poster_url'] ?? null)
-                && $item->metadata['poster_url'] !== ''
-            );
+        if (! in_array($kind, ['poster', 'backdrop'], true)) {
+            return false;
+        }
+
+        return $this->artwork->path($item, $kind) !== null
+            || $this->trustedArtwork->normalize(
+                $item->metadata[$kind.'_url'] ?? null,
+            ) !== null;
     }
 
     private function key(string $sourceId, string $series): string

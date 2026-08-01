@@ -15,9 +15,13 @@ use App\Services\Media\MediaProbe;
 use App\Services\Media\MediaScanDispatcher;
 use App\Services\Media\SourceMaterializer;
 use App\Services\Media\Sources\LocalSourceAdapter;
+use Illuminate\Contracts\Encryption\Encrypter;
+use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 use Mockery;
 use RuntimeException;
 use Tests\TestCase;
@@ -90,6 +94,43 @@ class MediaLibrarySourceTest extends TestCase
         $this->assertNotNull($item->fresh()->missing_at);
     }
 
+    public function test_partial_scan_does_not_mark_existing_items_missing(): void
+    {
+        User::factory()->create([
+            'is_admin' => true,
+            'is_active' => true,
+        ]);
+        File::put($this->root.'/Movie.One.mp4', 'synthetic video');
+        $source = MediaSource::create([
+            'name' => 'Partial scan',
+            'type' => 'local',
+            'configuration' => ['path' => $this->root],
+        ]);
+        $this->scan($source);
+        $item = MediaItem::firstOrFail();
+        $scanToken = (string) Str::ulid();
+        $source->forceFill([
+            'scan_status' => 'scanning',
+            'active_scan_token' => $scanToken,
+            'scan_discovery_complete' => true,
+            'scan_discovered' => 1,
+            'scan_processed' => 1,
+            'scan_failed' => 1,
+        ])->save();
+
+        app()->call([
+            new FinalizeMediaSourceScan($source->id, $scanToken),
+            'handle',
+        ]);
+
+        $this->assertNull($item->fresh()->missing_at);
+        $this->assertSame('ready', $source->refresh()->scan_status);
+        $this->assertSame(
+            'source_scan_partial_failure',
+            $source->last_error_code,
+        );
+    }
+
     public function test_discovery_fans_media_objects_out_to_the_bounded_scan_queue(): void
     {
         Queue::fake();
@@ -127,6 +168,42 @@ class MediaLibrarySourceTest extends TestCase
             ->assertSee('hx-trigger="every 3s"', escape: false);
     }
 
+    public function test_media_object_queue_payload_encrypts_locator_and_path(): void
+    {
+        $locator = 's3://private-bucket/customer-42/private-movie.mp4';
+        $path = 'customer-42/library/private-movie.mp4';
+        $job = new ProcessMediaSourceObject(
+            '01J00000000000000000000000',
+            '01J00000000000000000000001',
+            $locator,
+            $path,
+            123456,
+            'sensitive-etag',
+            1710000000,
+        );
+
+        $this->assertInstanceOf(ShouldBeEncrypted::class, $job);
+
+        Queue::connection('database')->push($job, '', 'media-scan');
+
+        $payload = DB::table('jobs')->value('payload');
+        $this->assertIsString($payload);
+        $this->assertStringNotContainsString($locator, $payload);
+        $this->assertStringNotContainsString($path, $payload);
+
+        $decoded = json_decode(
+            $payload,
+            true,
+            flags: JSON_THROW_ON_ERROR,
+        );
+        $serialized = app(Encrypter::class)->decrypt(
+            $decoded['data']['command'],
+        );
+        $this->assertIsString($serialized);
+        $this->assertStringContainsString($locator, $serialized);
+        $this->assertStringContainsString($path, $serialized);
+    }
+
     public function test_unchanged_media_skips_probe_and_artwork_work_on_repeat_scans(): void
     {
         User::factory()->create(['is_admin' => true, 'is_active' => true]);
@@ -161,7 +238,91 @@ class MediaLibrarySourceTest extends TestCase
         $this->assertNull($source->last_error_code);
     }
 
-    public function test_one_media_failure_does_not_stall_parallel_scan_finalization(): void
+    public function test_media_object_succeeds_on_second_attempt_without_counting_first_failure(): void
+    {
+        Queue::fake();
+        User::factory()->create(['is_admin' => true, 'is_active' => true]);
+        $path = $this->root.'/Movie.One.mp4';
+        File::put($path, 'synthetic video');
+        $source = MediaSource::create([
+            'name' => 'Retryable scan',
+            'type' => 'local',
+            'configuration' => ['path' => $this->root],
+        ]);
+        $this->runDiscovery($source);
+        $job = Queue::pushed(ProcessMediaSourceObject::class)->sole();
+        $attempts = 0;
+        $materializer = Mockery::mock(SourceMaterializer::class);
+        $materializer->shouldReceive('materializeObject')
+            ->twice()
+            ->andReturnUsing(function () use (&$attempts, $path): array {
+                if (++$attempts === 1) {
+                    throw new RuntimeException(
+                        'synthetic transient scan failure',
+                    );
+                }
+
+                return ['path' => $path, 'temporary' => false];
+            });
+        $probe = Mockery::mock(MediaProbe::class);
+        $probe->shouldReceive('inspect')
+            ->once()
+            ->with($path, 'Movie.One.mp4')
+            ->andReturn([
+                'media_kind' => 'video',
+                'mime_type' => 'video/mp4',
+                'container' => 'mp4',
+                'video_codec' => 'h264',
+                'audio_codec' => 'aac',
+                'duration_ms' => 120000,
+                'requires_transcode' => false,
+                'technical' => [],
+                'tags' => [],
+            ]);
+        $artwork = Mockery::mock(ArtworkManager::class);
+        $artwork->shouldReceive('populate')->once();
+
+        try {
+            app()->call([$job, 'handle'], [
+                'probe' => $probe,
+                'artwork' => $artwork,
+                'materializer' => $materializer,
+            ]);
+            $this->fail('The first scan attempt should fail.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame(
+                'synthetic transient scan failure',
+                $exception->getMessage(),
+            );
+        }
+
+        $this->assertSame(0, $source->refresh()->scan_processed);
+        $this->assertSame(0, $source->scan_failed);
+        $this->assertDatabaseCount('media_items', 0);
+        Queue::assertNotPushed(FinalizeMediaSourceScan::class);
+
+        app()->call([$job, 'handle'], [
+            'probe' => $probe,
+            'artwork' => $artwork,
+            'materializer' => $materializer,
+        ]);
+
+        $this->assertSame(1, $source->refresh()->scan_processed);
+        $this->assertSame(0, $source->scan_failed);
+        Queue::assertPushed(FinalizeMediaSourceScan::class, 1);
+        foreach (Queue::pushed(FinalizeMediaSourceScan::class) as $finalizer) {
+            app()->call([$finalizer, 'handle']);
+        }
+
+        $this->assertDatabaseHas('media_items', [
+            'media_source_id' => $source->id,
+            'title' => 'Movie One',
+        ]);
+        $this->assertSame('ready', $source->refresh()->scan_status);
+        $this->assertNull($source->last_error_code);
+    }
+
+    public function test_exhausted_media_object_retries_count_one_failure_and_allow_finalization(): void
     {
         Queue::fake();
         User::factory()->create(['is_admin' => true, 'is_active' => true]);
@@ -172,17 +333,39 @@ class MediaLibrarySourceTest extends TestCase
             'configuration' => ['path' => $this->root],
         ]);
         $this->runDiscovery($source);
+        $job = Queue::pushed(ProcessMediaSourceObject::class)->sole();
+        $this->assertSame(2, $job->tries);
         $materializer = Mockery::mock(SourceMaterializer::class);
         $materializer->shouldReceive('materializeObject')
-            ->once()
+            ->times($job->tries)
             ->andThrow(new RuntimeException('synthetic scan failure'));
+        $lastException = null;
 
-        foreach (Queue::pushed(ProcessMediaSourceObject::class) as $job) {
-            app()->call(
-                [$job, 'handle'],
-                ['materializer' => $materializer],
-            );
+        foreach (range(1, $job->tries) as $attempt) {
+            try {
+                app()->call(
+                    [$job, 'handle'],
+                    ['materializer' => $materializer],
+                );
+                $this->fail('The failed scan attempt should be retried.');
+            } catch (RuntimeException $exception) {
+                $this->assertSame(
+                    'synthetic scan failure',
+                    $exception->getMessage(),
+                );
+                $lastException = $exception;
+                $this->assertSame(0, $source->refresh()->scan_processed);
+                $this->assertSame(0, $source->scan_failed);
+                Queue::assertNotPushed(FinalizeMediaSourceScan::class);
+            }
         }
+        $this->assertInstanceOf(RuntimeException::class, $lastException);
+
+        $job->failed($lastException);
+
+        $this->assertSame(1, $source->refresh()->scan_processed);
+        $this->assertSame(1, $source->scan_failed);
+        Queue::assertPushed(FinalizeMediaSourceScan::class, 1);
         foreach (Queue::pushed(FinalizeMediaSourceScan::class) as $job) {
             app()->call([$job, 'handle']);
         }

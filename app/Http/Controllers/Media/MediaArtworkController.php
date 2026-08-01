@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Media;
 use App\Http\Controllers\Controller;
 use App\Models\MediaItem;
 use App\Services\Media\ArtworkManager;
+use App\Services\Media\MediaArtworkResolver;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
@@ -12,8 +13,13 @@ use Throwable;
 
 class MediaArtworkController extends Controller
 {
-    public function __invoke(Request $request, ArtworkManager $artwork, string $media, string $kind): BinaryFileResponse
-    {
+    public function __invoke(
+        Request $request,
+        ArtworkManager $artwork,
+        MediaArtworkResolver $resolver,
+        string $media,
+        string $kind,
+    ): BinaryFileResponse {
         abort_unless(in_array($kind, ['poster', 'backdrop'], true), 404);
         $dimensions = $request->validate([
             'width' => [
@@ -46,7 +52,11 @@ class MediaArtworkController extends Controller
                 ],
             ]);
         }
-        $item = MediaItem::accessibleTo($request->user())->findOrFail($media);
+        $requestedItem = MediaItem::accessibleTo($request->user())
+            ->findOrFail($media);
+        $item = $resolver
+            ->resolve([$requestedItem], $request->user(), $kind)
+            ->get((string) $requestedItem->getKey(), $requestedItem);
         $path = $artwork->path($item, $kind);
         if (
             $path === null

@@ -44,6 +44,30 @@ return [
             'after_commit' => false,
         ],
 
+        'database-media-discovery' => [
+            'driver' => 'database',
+            'connection' => env('DB_QUEUE_CONNECTION'),
+            'table' => env('DB_QUEUE_TABLE', 'jobs'),
+            'queue' => 'media-discovery',
+            'retry_after' => (int) env(
+                'DB_MEDIA_DISCOVERY_QUEUE_RETRY_AFTER',
+                3770,
+            ),
+            'after_commit' => false,
+        ],
+
+        'database-media-scan' => [
+            'driver' => 'database',
+            'connection' => env('DB_QUEUE_CONNECTION'),
+            'table' => env('DB_QUEUE_TABLE', 'jobs'),
+            'queue' => 'media-scan',
+            'retry_after' => (int) env(
+                'DB_MEDIA_SCAN_QUEUE_RETRY_AFTER',
+                970,
+            ),
+            'after_commit' => false,
+        ],
+
         'database-transcodes' => [
             'driver' => 'database',
             'connection' => env('DB_QUEUE_CONNECTION'),

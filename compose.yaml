@@ -8,7 +8,7 @@ services:
     restart: unless-stopped
     stop_grace_period: 12m
     cpus: "${ODISSEY_CONTAINER_CPUS:-4.0}"
-    mem_limit: "${ODISSEY_CONTAINER_MEMORY:-6g}"
+    mem_limit: "${ODISSEY_CONTAINER_MEMORY:-8g}"
     pids_limit: "${ODISSEY_CONTAINER_PIDS:-512}"
     security_opt:
       - no-new-privileges:true
@@ -17,14 +17,14 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     environment:
-      APP_URL: http://localhost:8000
-      ODISSEY_RELEASE: local
-      ODISSEY_SETUP_TOKEN: "${ODISSEY_SETUP_TOKEN:?Set ODISSEY_SETUP_TOKEN before starting Odissey}"
-      SESSION_SECURE_COOKIE: "false"
+      APP_URL: "${APP_URL:-http://localhost:8000}"
+      ODISSEY_RELEASE: "${ODISSEY_RELEASE:-local}"
+      ODISSEY_SETUP_TOKEN: "${ODISSEY_SETUP_TOKEN:-}"
+      SESSION_SECURE_COOKIE: "${SESSION_SECURE_COOKIE:-false}"
     volumes:
       - odissey-data:/var/lib/odissey
     tmpfs:
-      - /var/cache/odissey/transcodes:uid=33,gid=33,mode=0750,size=4g
+      - /var/cache/odissey/transcodes:uid=33,gid=33,mode=0750,size=${ODISSEY_TRANSCODE_TMPFS_SIZE:-4g}
 
 volumes:
   odissey-data:

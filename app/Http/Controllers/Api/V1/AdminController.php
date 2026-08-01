@@ -52,6 +52,7 @@ class AdminController extends Controller
                 'allowInsecureHttp' => (bool) $provider->allow_insecure_http,
                 'syncStatus' => $provider->sync_status,
                 'lastErrorCode' => $provider->last_error_code,
+                'lastGuideErrorCode' => $provider->last_guide_error_code,
                 'lastSyncedAt' => $provider->last_synced_at?->utc()
                     ->toIso8601String(),
                 'lastGuideSyncedAt' => $provider->last_guide_synced_at?->utc()

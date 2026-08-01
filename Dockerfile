@@ -54,12 +54,15 @@ ENV APP_NAME=Odissey \
     APP_DEBUG=false \
     LOG_CHANNEL=stderr \
     LOG_STACK=stderr \
+    LOG_LEVEL=info \
     DB_CONNECTION=sqlite \
     DB_DATABASE=/var/lib/odissey/database.sqlite \
     DB_BUSY_TIMEOUT=5000 \
     DB_JOURNAL_MODE=WAL \
     DB_SYNCHRONOUS=NORMAL \
     DB_QUEUE_RETRY_AFTER=720 \
+    DB_MEDIA_DISCOVERY_QUEUE_RETRY_AFTER=3770 \
+    DB_MEDIA_SCAN_QUEUE_RETRY_AFTER=970 \
     DB_TRANSCODE_QUEUE_RETRY_AFTER=21720 \
     SESSION_DRIVER=database \
     SESSION_ENCRYPT=true \
@@ -73,7 +76,10 @@ ENV APP_NAME=Odissey \
     SERVER_NAME=:8000 \
     ODISSEY_DATA_PATH=/var/lib/odissey \
     ODISSEY_RELEASE=${ODISSEY_RELEASE} \
-    ODISSEY_TRANSCODE_PATH=/var/cache/odissey/transcodes
+    ODISSEY_TRANSCODE_PATH=/var/cache/odissey/transcodes \
+    ODISSEY_REMOTE_PROBE_MAX_BYTES=16777216 \
+    ODISSEY_REMOTE_PROBE_MAX_ITEMS_PER_SCAN=250 \
+    ODISSEY_REMOTE_PROBE_RETRY_DAYS=30
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

@@ -19,6 +19,7 @@ class IptvProvider extends Model
         'enabled',
         'sync_status',
         'last_error_code',
+        'last_guide_error_code',
         'last_synced_at',
         'last_guide_synced_at',
     ];

@@ -5,6 +5,7 @@ namespace App\Services\Iptv;
 use App\Models\Iptv\Channel;
 use App\Models\Iptv\ChannelGroup;
 use App\Models\Iptv\IptvProvider;
+use App\Services\Iptv\Exceptions\SanitizedIptvException;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -75,6 +76,18 @@ class ProviderCatalogSynchronizer
             ];
         }
 
+        if (
+            $groupRows === []
+            && ChannelGroup::query()
+                ->where('iptv_provider_id', $provider->id)
+                ->where('is_active', true)
+                ->exists()
+        ) {
+            throw new SanitizedIptvException(
+                'provider_live_categories_empty',
+            );
+        }
+
         $channelRows = [];
 
         foreach ($streams as $position => $stream) {
@@ -113,6 +126,17 @@ class ProviderCatalogSynchronizer
                 'created_at' => $now,
                 'updated_at' => $now,
             ];
+        }
+
+        if (
+            $channelRows === []
+            && $provider->channels()
+                ->where('is_active', true)
+                ->exists()
+        ) {
+            throw new SanitizedIptvException(
+                'provider_catalog_empty',
+            );
         }
 
         $result = DB::transaction(function () use (

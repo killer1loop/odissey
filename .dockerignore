@@ -8,7 +8,9 @@
 .phpunit.cache
 .phpunit.result.cache
 bootstrap/cache/**
+backups
 build
+compose.override.yaml
 database/*.sqlite
 database/*.sqlite-*
 docs

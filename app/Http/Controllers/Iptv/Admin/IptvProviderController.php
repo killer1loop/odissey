@@ -53,7 +53,7 @@ class IptvProviderController extends Controller
             }
         } catch (SanitizedIptvException) {
             throw ValidationException::withMessages([
-                'base_url' => 'The provider address cannot be used.',
+                $providerType === 'm3u' ? 'playlist_url' : 'base_url' => 'The provider address cannot be used.',
             ]);
         }
 
@@ -114,7 +114,7 @@ class IptvProviderController extends Controller
             $config['playlist_url'] = $validated['playlist_url'];
             $invalidatePlayback = true;
         }
-        if (array_key_exists('xmltv_url', $validated)) {
+        if (! empty($validated['xmltv_url'])) {
             $config['xmltv_url'] = $validated['xmltv_url'];
         }
         if (! empty($validated['max_connections'])) {

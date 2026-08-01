@@ -7,14 +7,17 @@ use App\Jobs\Media\EnrichMediaItem;
 use App\Models\MediaItem;
 use App\Models\MediaSource;
 use App\Models\User;
+use App\Services\Iptv\Exceptions\SanitizedIptvException;
 use App\Services\Iptv\ProviderCatalogSynchronizer;
 use App\Services\Iptv\XtreamClient;
 use App\Services\Iptv\XtreamVodArtworkSynchronizer;
+use App\Services\Iptv\XtreamVodCatalogSynchronizer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Concerns\InteractsWithIptv;
 use Tests\TestCase;
 
@@ -112,8 +115,226 @@ class IptvVodCatalogTest extends TestCase
             ->assertSee('Example Show')
             ->assertDontSee('Self-hosted')
             ->assertSee('Movies')
-            ->assertSee('TV Shows')
+            ->assertSee('Series')
             ->assertSee('Live TV');
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $movies
+     * @param  array<int, array<string, mixed>>  $series
+     */
+    #[DataProvider('emptyVodReplacementResponses')]
+    public function test_empty_vod_response_preserves_the_established_generation(
+        array $movies,
+        array $series,
+    ): void {
+        Queue::fake([EnrichMediaItem::class, SyncXtreamSeries::class]);
+        User::factory()->create([
+            'is_admin' => true,
+            'is_active' => true,
+        ]);
+        $provider = $this->makeProvider(['name' => 'Nera IPTV']);
+        $this->fakeCatalog();
+        app(ProviderCatalogSynchronizer::class)->sync($provider);
+
+        $source = MediaSource::query()->sole();
+        $scanToken = $source->active_scan_token;
+        $scanStatus = $source->scan_status;
+        $itemIds = MediaItem::query()
+            ->whereBelongsTo($source, 'source')
+            ->whereIn('metadata->xtream_type', ['movie', 'series'])
+            ->orderBy('id')
+            ->pluck('id')
+            ->all();
+        $vodCategories = [[
+            'category_id' => '10',
+            'category_name' => 'Drama',
+        ]];
+        $seriesCategories = [[
+            'category_id' => '20',
+            'category_name' => 'TV Drama',
+        ]];
+
+        try {
+            app(XtreamVodCatalogSynchronizer::class)->sync(
+                $provider->fresh(),
+                $vodCategories,
+                $movies,
+                $seriesCategories,
+                $series,
+            );
+            $this->fail(
+                'An empty response must not replace established VOD.',
+            );
+        } catch (SanitizedIptvException $exception) {
+            $this->assertSame(
+                'provider_vod_catalog_empty',
+                $exception->errorCode,
+            );
+        }
+
+        $source->refresh();
+        $this->assertSame($scanToken, $source->active_scan_token);
+        $this->assertSame($scanStatus, $source->scan_status);
+        $this->assertSame(
+            $itemIds,
+            MediaItem::query()
+                ->whereBelongsTo($source, 'source')
+                ->whereIn('metadata->xtream_type', ['movie', 'series'])
+                ->whereNull('missing_at')
+                ->orderBy('id')
+                ->pluck('id')
+                ->all(),
+        );
+    }
+
+    /**
+     * @return iterable<string, array{
+     *     array<int, array<string, mixed>>,
+     *     array<int, array<string, mixed>>
+     * }>
+     */
+    public static function emptyVodReplacementResponses(): iterable
+    {
+        yield 'movies endpoint is empty' => [
+            [],
+            [[
+                'series_id' => '999',
+                'name' => 'Replacement Show',
+            ]],
+        ];
+
+        yield 'series endpoint is empty' => [
+            [[
+                'stream_id' => '999',
+                'name' => 'Replacement Movie',
+                'container_extension' => 'mp4',
+            ]],
+            [],
+        ];
+
+        yield 'entire VOD response is empty' => [[], []];
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $vodCategories
+     * @param  array<int, array<string, mixed>>  $seriesCategories
+     */
+    #[DataProvider('emptyVodCategoryReplacementResponses')]
+    public function test_empty_vod_category_response_preserves_categorized_assets(
+        array $vodCategories,
+        array $seriesCategories,
+        string $expectedErrorCode,
+    ): void {
+        Queue::fake([EnrichMediaItem::class, SyncXtreamSeries::class]);
+        User::factory()->create([
+            'is_admin' => true,
+            'is_active' => true,
+        ]);
+        $provider = $this->makeProvider(['name' => 'Nera IPTV']);
+        $this->fakeCatalog();
+        app(ProviderCatalogSynchronizer::class)->sync($provider);
+
+        $source = MediaSource::query()->sole();
+        $scanToken = $source->active_scan_token;
+        $scanStatus = $source->scan_status;
+        $items = MediaItem::query()
+            ->whereBelongsTo($source, 'source')
+            ->whereIn('metadata->xtream_type', ['movie', 'series'])
+            ->orderBy('id')
+            ->get()
+            ->mapWithKeys(fn (MediaItem $item): array => [
+                $item->id => [
+                    'title' => $item->title,
+                    'category' => $item->metadata['category'],
+                ],
+            ])
+            ->all();
+        $movies = [[
+            'stream_id' => '999',
+            'name' => 'Replacement Movie',
+            'category_id' => '10',
+            'container_extension' => 'mp4',
+        ]];
+        $series = [[
+            'series_id' => '998',
+            'name' => 'Replacement Show',
+            'category_id' => '20',
+        ]];
+
+        try {
+            app(XtreamVodCatalogSynchronizer::class)->sync(
+                $provider->fresh(),
+                $vodCategories,
+                $movies,
+                $seriesCategories,
+                $series,
+            );
+            $this->fail(
+                'Empty category endpoints must not replace categorized VOD.',
+            );
+        } catch (SanitizedIptvException $exception) {
+            $this->assertSame(
+                $expectedErrorCode,
+                $exception->errorCode,
+            );
+            $this->assertStringNotContainsString(
+                'test-user-secret',
+                $exception->getMessage(),
+            );
+            $this->assertStringNotContainsString(
+                'test-password-secret',
+                $exception->getMessage(),
+            );
+        }
+
+        $source->refresh();
+        $this->assertSame($scanToken, $source->active_scan_token);
+        $this->assertSame($scanStatus, $source->scan_status);
+        $this->assertSame(
+            $items,
+            MediaItem::query()
+                ->whereBelongsTo($source, 'source')
+                ->whereIn('metadata->xtream_type', ['movie', 'series'])
+                ->whereNull('missing_at')
+                ->orderBy('id')
+                ->get()
+                ->mapWithKeys(fn (MediaItem $item): array => [
+                    $item->id => [
+                        'title' => $item->title,
+                        'category' => $item->metadata['category'],
+                    ],
+                ])
+                ->all(),
+        );
+    }
+
+    /**
+     * @return iterable<string, array{
+     *     array<int, array<string, mixed>>,
+     *     array<int, array<string, mixed>>,
+     *     string
+     * }>
+     */
+    public static function emptyVodCategoryReplacementResponses(): iterable
+    {
+        yield 'movie categories endpoint is empty' => [
+            [],
+            [[
+                'category_id' => '20',
+                'category_name' => 'TV Drama',
+            ]],
+            'provider_vod_categories_empty',
+        ];
+
+        yield 'series categories endpoint is empty' => [
+            [[
+                'category_id' => '10',
+                'category_name' => 'Drama',
+            ]],
+            [],
+            'provider_series_categories_empty',
+        ];
     }
 
     public function test_series_details_are_flattened_into_playable_episodes(): void
@@ -157,6 +378,102 @@ class IptvVodCatalogTest extends TestCase
         $this->assertSame('ready', $source->refresh()->scan_status);
         $this->assertSame(1, $source->scan_processed);
         $this->assertSame('ready', $provider->refresh()->sync_status);
+    }
+
+    public function test_empty_series_episode_response_preserves_established_episodes_for_retry(): void
+    {
+        Queue::fake([EnrichMediaItem::class, SyncXtreamSeries::class]);
+        User::factory()->create(['is_admin' => true, 'is_active' => true]);
+        $provider = $this->makeProvider(['name' => 'Nera IPTV']);
+        $this->fakeCatalog();
+        app(ProviderCatalogSynchronizer::class)->sync($provider);
+        $source = MediaSource::query()->sole();
+
+        $initialJob = Queue::pushed(SyncXtreamSeries::class)->first();
+        $this->assertInstanceOf(SyncXtreamSeries::class, $initialJob);
+        app()->call([$initialJob, 'handle']);
+
+        $episode = MediaItem::query()
+            ->where('metadata->kind', 'episode')
+            ->sole();
+        $originalScanToken = $episode->scan_token;
+        $replacementToken = str_repeat('9', 26);
+        $source->refresh();
+        $source->forceFill([
+            'scan_status' => 'scanning',
+            'active_scan_token' => $replacementToken,
+            'scan_discovery_complete' => true,
+            'scan_discovered' => 1,
+            'scan_processed' => 0,
+            'scan_failed' => 0,
+        ])->save();
+        $this->assertSame(
+            $replacementToken,
+            $source->fresh()->active_scan_token,
+        );
+        $this->assertTrue(
+            MediaItem::query()
+                ->whereBelongsTo($source, 'source')
+                ->whereNull('missing_at')
+                ->where('metadata->kind', 'episode')
+                ->where('metadata->xtream_series_id', '901')
+                ->exists(),
+        );
+
+        $this->allowPublicIptvDns();
+        Http::preventStrayRequests();
+        Http::fake(function (Request $request) {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+            $this->assertSame('get_series_info', $query['action']);
+            $this->assertSame('901', $query['series_id']);
+
+            return Http::response([
+                'info' => ['name' => 'Example Show'],
+                'episodes' => [],
+            ]);
+        });
+
+        $replacementJob = new SyncXtreamSeries(
+            $provider->id,
+            $source->id,
+            '901',
+            'Example Show',
+            $replacementToken,
+        );
+
+        try {
+            app()->call([$replacementJob, 'handle']);
+            $this->fail(
+                'Empty series details must be retried before replacing episodes.',
+            );
+        } catch (SanitizedIptvException $exception) {
+            $this->assertSame(
+                'provider_series_episodes_empty',
+                $exception->errorCode,
+            );
+            $this->assertStringNotContainsString(
+                'test-user-secret',
+                $exception->getMessage(),
+            );
+            $this->assertStringNotContainsString(
+                'test-password-secret',
+                $exception->getMessage(),
+            );
+        }
+
+        $this->assertSame(3, $replacementJob->tries);
+        $this->assertSame(
+            $originalScanToken,
+            $episode->refresh()->scan_token,
+        );
+        $this->assertNull($episode->missing_at);
+        $this->assertSame('Pilot', $episode->title);
+        $this->assertSame(
+            $replacementToken,
+            $source->refresh()->active_scan_token,
+        );
+        $this->assertSame('scanning', $source->scan_status);
+        $this->assertSame(0, $source->scan_processed);
     }
 
     public function test_episode_pages_fallback_to_parent_series_artwork(): void

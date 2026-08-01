@@ -3,7 +3,7 @@
 @php
     $isVideo = $item->media_kind === 'video';
     $isEpisode = ($item->metadata['kind'] ?? '') === 'episode';
-    $libraryLabel = $isEpisode ? 'TV Shows' : 'Movies';
+    $libraryLabel = $isEpisode ? 'Series' : 'Movies';
     $libraryUrl = route('media.index', array_filter([
         'kind' => $item->media_kind,
         'library' => $isEpisode ? 'tv' : ($isVideo ? 'movies' : null),
@@ -332,18 +332,20 @@
             <p class="sr-only" role="status" aria-live="polite" data-player-navigation-status></p>
         </section>
     @else
-        <section class="media-detail" aria-labelledby="player-heading">
+        <section class="media-detail music-detail" aria-labelledby="player-heading">
             <div class="media-detail-content">
                 <header class="page-header media-detail-header">
                     <div>
-                        <p class="eyebrow">Direct play</p>
+                        <p class="eyebrow">Music</p>
                         <h1 id="player-heading">{{ $item->title }}</h1>
+                        <p>{{ $item->metadata['artist'] ?? 'Unknown artist' }}@if($item->metadata['album'] ?? null) · {{ $item->metadata['album'] }}@endif</p>
                     </div>
                     <a class="button button-muted" href="{{ $libraryUrl }}">Back to library</a>
                 </header>
-                <div class="media-player-panel">
+                <div class="media-player-panel music-player-panel">
                     @include('media.partials.player', [
                         'item' => $item,
+                        'itemArtwork' => $itemArtwork,
                         'progress' => $progress,
                         'sourceType' => 'direct',
                         'sourceUrl' => route('media.direct', $item),

@@ -6,6 +6,7 @@ use App\Jobs\Media\EnrichMediaItem;
 use App\Models\Iptv\IptvProvider;
 use App\Models\MediaItem;
 use App\Models\MediaSource;
+use App\Services\Iptv\Exceptions\SanitizedIptvException;
 use App\Services\Iptv\IptvVodImportProgress;
 use App\Services\Iptv\XtreamClient;
 use App\Services\Media\TrustedArtworkUrl;
@@ -90,6 +91,20 @@ class SyncXtreamSeries implements ShouldBeUniqueUntilProcessing, ShouldQueue
         );
         if (count($episodes) > $maximum) {
             throw new \RuntimeException('provider_vod_episode_limit');
+        }
+
+        if (
+            $episodes === []
+            && MediaItem::query()
+                ->whereBelongsTo($source, 'source')
+                ->whereNull('missing_at')
+                ->where('metadata->kind', 'episode')
+                ->where('metadata->xtream_series_id', $this->seriesId)
+                ->exists()
+        ) {
+            throw new SanitizedIptvException(
+                'provider_series_episodes_empty',
+            );
         }
 
         $ownerId = MediaItem::query()

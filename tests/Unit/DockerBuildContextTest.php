@@ -13,8 +13,18 @@ class DockerBuildContextTest extends TestCase
 
         $this->assertIsString($ignore);
         $this->assertStringContainsString('bootstrap/cache/**', $ignore);
+        $this->assertStringContainsString('backups', $ignore);
+        $this->assertStringContainsString('compose.override.yaml', $ignore);
         $this->assertStringContainsString('storage/**', $ignore);
         $this->assertStringContainsString('database/*.sqlite-*', $ignore);
+
+        $gitIgnore = file_get_contents(dirname(__DIR__, 2).'/.gitignore');
+        $this->assertIsString($gitIgnore);
+        $this->assertStringContainsString('/backups/', $gitIgnore);
+        $this->assertStringContainsString(
+            '/compose.override.yaml',
+            $gitIgnore,
+        );
     }
 
     public function test_runtime_and_vendor_stages_use_selective_source_copies(): void
@@ -62,7 +72,7 @@ class DockerBuildContextTest extends TestCase
             $supervisor,
         );
         $this->assertStringContainsString(
-            'memory_limit=256M artisan queue:work --queue=media-discovery',
+            'memory_limit=256M artisan queue:work database-media-discovery --queue=media-discovery',
             $supervisor,
         );
         $this->assertStringContainsString(
@@ -70,7 +80,7 @@ class DockerBuildContextTest extends TestCase
             $supervisor,
         );
         $this->assertStringContainsString(
-            "numprocs=2\ncommand=php -d memory_limit=384M artisan queue:work --queue=media-scan",
+            "numprocs=2\ncommand=php -d memory_limit=384M artisan queue:work database-media-scan --queue=media-scan",
             $supervisor,
         );
         $this->assertStringContainsString(
@@ -105,14 +115,113 @@ class DockerBuildContextTest extends TestCase
 
         $this->assertIsString($compose);
         $this->assertStringContainsString(
-            'ODISSEY_SETUP_TOKEN: "${ODISSEY_SETUP_TOKEN:?',
+            'ODISSEY_SETUP_TOKEN: "${ODISSEY_SETUP_TOKEN:-}"',
             $compose,
         );
         $this->assertStringContainsString('no-new-privileges:true', $compose);
         $this->assertStringContainsString("cap_drop:\n      - ALL", $compose);
         $this->assertStringContainsString('pids_limit:', $compose);
         $this->assertStringContainsString('mem_limit:', $compose);
+        $this->assertStringContainsString(
+            'ODISSEY_CONTAINER_MEMORY:-8g',
+            $compose,
+        );
         $this->assertStringContainsString('cpus:', $compose);
+        $this->assertStringContainsString(
+            'APP_URL: "${APP_URL:-http://localhost:8000}"',
+            $compose,
+        );
+        $this->assertStringContainsString(
+            'SESSION_SECURE_COOKIE: "${SESSION_SECURE_COOKIE:-false}"',
+            $compose,
+        );
+        $this->assertStringContainsString(
+            'size=${ODISSEY_TRANSCODE_TMPFS_SIZE:-4g}',
+            $compose,
+        );
+
+        $dockerEnvironment = file_get_contents(
+            dirname(__DIR__, 2).'/.env.docker.example',
+        );
+        $this->assertIsString($dockerEnvironment);
+        $this->assertStringContainsString(
+            'APP_URL=http://localhost:8000',
+            $dockerEnvironment,
+        );
+        $this->assertStringContainsString(
+            'SESSION_SECURE_COOKIE=false',
+            $dockerEnvironment,
+        );
+        $this->assertStringContainsString(
+            "ODISSEY_SETUP_TOKEN=\n",
+            $dockerEnvironment,
+        );
+        $this->assertStringNotContainsString(
+            'replace-with-a-random-64-character-hex-value',
+            $dockerEnvironment,
+        );
+        $this->assertStringContainsString(
+            'ODISSEY_RELEASE=replace-with-the-release-tag-or-commit',
+            $dockerEnvironment,
+        );
+    }
+
+    public function test_beta_runbook_keeps_backups_outside_the_checkout_and_restores_as_the_image_user(): void
+    {
+        $guide = file_get_contents(
+            dirname(__DIR__, 2).'/docs/BETA_INSTALLATION.md',
+        );
+
+        $this->assertIsString($guide);
+        $this->assertStringContainsString(
+            '/srv/odissey-backups',
+            $guide,
+        );
+        $this->assertStringNotContainsString(
+            './backups/odissey-backup.zip',
+            $guide,
+        );
+        $this->assertStringContainsString(
+            "'umask 077; cat > /tmp/odissey-restore.zip'",
+            $guide,
+        );
+        $this->assertStringContainsString(
+            'rm -f /tmp/odissey-restore.zip',
+            $guide,
+        );
+        $this->assertStringContainsString(
+            'ROLLBACK_RELEASE="<full-commit-recorded-for-that-backup>"',
+            $guide,
+        );
+        $this->assertStringContainsString(
+            'ODISSEY_RELEASE=${NEW_COMMIT}',
+            $guide,
+        );
+        $this->assertStringContainsString(
+            'compose.override.yaml',
+            $guide,
+        );
+        $this->assertStringContainsString(
+            '--wait --wait-timeout 180',
+            $guide,
+        );
+    }
+
+    public function test_example_environment_keeps_immediate_sqlite_transactions(): void
+    {
+        $environment = file_get_contents(
+            dirname(__DIR__, 2).'/.env.example',
+        );
+
+        $this->assertIsString($environment);
+        $this->assertSame(
+            1,
+            substr_count($environment, 'DB_TRANSACTION_MODE=IMMEDIATE'),
+        );
+        $this->assertStringNotContainsString(
+            'DB_TRANSACTION_MODE=DEFERRED',
+            $environment,
+        );
     }
 
     public function test_entrypoint_fails_closed_for_interrupted_restore_or_missing_key(): void
@@ -178,6 +287,10 @@ class DockerBuildContextTest extends TestCase
         );
         $this->assertStringContainsString(
             'queue-iptv-vod_03',
+            $restore,
+        );
+        $this->assertStringContainsString(
+            "'queue-transcodes'",
             $restore,
         );
     }

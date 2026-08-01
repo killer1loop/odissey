@@ -8,6 +8,7 @@ use App\Models\Iptv\IptvProvider;
 use App\Models\MediaItem;
 use App\Models\MediaSource;
 use App\Models\User;
+use App\Services\Iptv\Exceptions\SanitizedIptvException;
 use App\Services\Media\TrustedArtworkUrl;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -38,35 +39,67 @@ class XtreamVodCatalogSynchronizer
             ->where('is_admin', true)
             ->orderBy('id')
             ->firstOrFail();
-        $source = MediaSource::query()->updateOrCreate(
-            ['iptv_provider_id' => $provider->id],
-            [
-                'name' => Str::limit(
-                    $provider->name.' · IPTV #'.$provider->id,
-                    255,
-                    '',
-                ),
-                'type' => MediaSource::TYPE_IPTV,
-                'configuration' => ['managed' => true],
-                'capabilities' => [
-                    'range' => true,
-                    'seekable' => true,
-                    'read_only' => true,
-                ],
-                'enabled' => $provider->enabled,
-                'allow_private_network' => false,
-                'scan_status' => 'scanning',
-                'active_scan_token' => $scanToken,
-                'scan_discovery_complete' => false,
-                'scan_discovered' => 0,
-                'scan_processed' => 0,
-                'scan_failed' => 0,
-                'scan_caption_jobs' => 0,
-                'last_error_code' => null,
+        $sourceAttributes = [
+            'name' => Str::limit(
+                $provider->name.' · IPTV #'.$provider->id,
+                255,
+                '',
+            ),
+            'type' => MediaSource::TYPE_IPTV,
+            'configuration' => ['managed' => true],
+            'capabilities' => [
+                'range' => true,
+                'seekable' => true,
+                'read_only' => true,
             ],
+            'enabled' => $provider->enabled,
+            'allow_private_network' => false,
+            'scan_status' => 'scanning',
+            'active_scan_token' => $scanToken,
+            'scan_discovery_complete' => false,
+            'scan_discovered' => 0,
+            'scan_processed' => 0,
+            'scan_failed' => 0,
+            'scan_caption_jobs' => 0,
+            'last_error_code' => null,
+        ];
+        $source = MediaSource::query()->firstOrCreate(
+            ['iptv_provider_id' => $provider->id],
+            $sourceAttributes,
         );
+        $hasEstablishedMovies = $source->items()
+            ->whereNull('missing_at')
+            ->where('metadata->xtream_type', 'movie')
+            ->exists();
+        $hasEstablishedSeries = $source->items()
+            ->whereNull('missing_at')
+            ->where('metadata->xtream_type', 'series')
+            ->exists();
+        $hasEstablishedCategorizedMovies = $source->items()
+            ->whereNull('missing_at')
+            ->where('metadata->xtream_type', 'movie')
+            ->whereNotNull('metadata->category')
+            ->exists();
+        $hasEstablishedCategorizedSeries = $source->items()
+            ->whereNull('missing_at')
+            ->where('metadata->xtream_type', 'series')
+            ->whereNotNull('metadata->category')
+            ->exists();
         $movieCategories = $this->categories($vodCategories);
         $showCategories = $this->categories($seriesCategories);
+
+        if ($movieCategories === [] && $hasEstablishedCategorizedMovies) {
+            throw new SanitizedIptvException(
+                'provider_vod_categories_empty',
+            );
+        }
+
+        if ($showCategories === [] && $hasEstablishedCategorizedSeries) {
+            throw new SanitizedIptvException(
+                'provider_series_categories_empty',
+            );
+        }
+
         $vodCategories = [];
         $seriesCategories = [];
         $movieRows = [];
@@ -100,12 +133,24 @@ class XtreamVodCatalogSynchronizer
             }
         }
 
+        if (
+            ($movieRows === [] && $hasEstablishedMovies)
+            || ($seriesRows === [] && $hasEstablishedSeries)
+        ) {
+            throw new SanitizedIptvException(
+                'provider_vod_catalog_empty',
+            );
+        }
+
         DB::transaction(function () use (
             $source,
+            $sourceAttributes,
             $scanToken,
             $movieRows,
             $seriesRows,
         ): void {
+            $source->forceFill($sourceAttributes)->save();
+
             foreach (array_chunk([...$movieRows, ...$seriesRows], 250) as $rows) {
                 DB::table('media_items')->upsert(
                     $rows,

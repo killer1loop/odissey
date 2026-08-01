@@ -12,7 +12,7 @@
             </div>
         </header>
 
-        <form class="settings-form" method="POST" action="{{ route('iptv.admin.providers.update', $provider) }}" autocomplete="off">
+        <form class="settings-form onboarding-form" method="POST" action="{{ route('iptv.admin.providers.update', $provider) }}" autocomplete="off" data-provider-config>
             @include('iptv.admin.providers.form', ['provider' => $provider])
         </form>
     </section>

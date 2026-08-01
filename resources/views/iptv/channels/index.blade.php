@@ -17,7 +17,7 @@
     <section class="page-section live-tv-page">
         <header class="page-header live-tv-header">
             <div>
-                <p class="eyebrow">{{ $favoritesOnly ? 'Your live television' : 'Live television' }}</p>
+                <p class="eyebrow">{{ $favoritesOnly ? 'Your Live TV' : 'Live TV' }}</p>
                 <h1>{{ $pageTitle }}</h1>
                 <p>
                     {{ $favoritesOnly

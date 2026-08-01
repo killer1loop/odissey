@@ -32,7 +32,7 @@
                     </div>
                     <div class="card-copy">
                         <h3>Live TV</h3>
-                        <p>Channels, groups, favorites, and programme guide</p>
+                        <p>Channels, groups, favorites, and TV guide</p>
                     </div>
                 </a>
 
@@ -45,7 +45,7 @@
                         <span class="source-badge">Direct + HLS</span>
                     </div>
                     <div class="card-copy">
-                        <h3>Movies & TV</h3>
+                        <h3>Movies & Series</h3>
                         <p>Your connected video libraries</p>
                     </div>
                 </a>

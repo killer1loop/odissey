@@ -48,7 +48,7 @@
                         </div>
                     @endfor
                     @if ($nowIsVisible)
-                        <div class="epg-now-marker epg-now-marker-header" style="left: {{ $nowPosition }}%" aria-hidden="true">
+                        <div class="epg-now-marker epg-now-marker-header {{ $nowPosition < 4 ? 'is-start' : ($nowPosition > 96 ? 'is-end' : '') }}" style="left: {{ $nowPosition }}%" aria-hidden="true">
                             <span>Now</span>
                         </div>
                     @endif
@@ -135,13 +135,14 @@
                                 $durationSeconds = max(1, $visibleEnd - $visibleStart);
                                 $programStart = ($offsetSeconds / $windowSeconds) * 100;
                                 $programWidth = ($durationSeconds / $windowSeconds) * 100;
+                                $isCompact = $programWidth < 0.9;
                                 $isLive = $program->starts_at <= $guideNow && $program->ends_at > $guideNow;
                                 $viewerStart = $program->starts_at->timezone($viewerTimezone)->format('H:i');
                                 $viewerEnd = $program->ends_at->timezone($viewerTimezone)->format('H:i');
                             @endphp
                             @continue($visibleEnd <= $visibleStart)
                             <form
-                                class="epg-program-block {{ $isLive ? 'is-live' : '' }}"
+                                class="epg-program-block {{ $isLive ? 'is-live' : '' }} {{ $isCompact ? 'is-compact' : '' }}"
                                 method="POST"
                                 action="{{ route('iptv.playback.store', $channel) }}"
                                 style="left: {{ $programStart }}%; width: {{ $programWidth }}%"

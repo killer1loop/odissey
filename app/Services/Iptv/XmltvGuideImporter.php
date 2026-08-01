@@ -13,6 +13,8 @@ use XMLReader;
 
 class XmltvGuideImporter
 {
+    private bool $lastImportCapped = false;
+
     /**
      * XMLReader receives an in-memory document from the bounded fetcher. Its
      * decoded tree fragments can be several times larger than the wire
@@ -42,6 +44,7 @@ class XmltvGuideImporter
 
     public function import(IptvProvider $provider): int
     {
+        $this->lastImportCapped = false;
         $url = $provider->config['xmltv_url'] ?? null;
 
         if (! is_string($url) || $url === '') {
@@ -61,6 +64,7 @@ class XmltvGuideImporter
 
     public function importXtream(IptvProvider $provider): int
     {
+        $this->lastImportCapped = false;
         $baseUrl = $this->urlGuard->normalizeBaseUrl(
             $provider->base_url,
             (bool) $provider->allow_insecure_http,
@@ -265,10 +269,17 @@ class XmltvGuideImporter
             $this->persistStagedPrograms($staging);
 
             if (! $capped) {
-                $this->reconcile($provider, $syncToken);
+                $this->reconcile(
+                    $provider,
+                    $syncToken,
+                    array_map('intval', array_keys($channelCounts)),
+                );
             }
 
-            $this->guideLimiter->enforce($provider);
+            if ($count > 0) {
+                $this->guideLimiter->enforce($provider);
+            }
+            $this->lastImportCapped = $capped;
 
             return $count;
         } catch (SanitizedIptvException $exception) {
@@ -283,6 +294,11 @@ class XmltvGuideImporter
             libxml_clear_errors();
             libxml_use_internal_errors($previousInternalErrors);
         }
+    }
+
+    public function lastImportWasCapped(): bool
+    {
+        return $this->lastImportCapped;
     }
 
     /**
@@ -429,26 +445,32 @@ class XmltvGuideImporter
         ];
     }
 
+    /**
+     * @param  list<int>  $observedChannelIds
+     */
     private function reconcile(
         IptvProvider $provider,
         string $syncToken,
+        array $observedChannelIds,
     ): void {
         $now = CarbonImmutable::now();
 
-        EpgProgram::query()
-            ->where('iptv_provider_id', $provider->id)
-            ->where('ends_at', '>', $now)
-            ->where(function ($query) use ($syncToken): void {
-                $query->whereNull('sync_token')
-                    ->orWhere('sync_token', '!=', $syncToken);
-            })
-            ->delete();
+        if ($observedChannelIds !== []) {
+            EpgProgram::query()
+                ->where('iptv_provider_id', $provider->id)
+                ->whereIn('channel_id', $observedChannelIds)
+                ->where('ends_at', '>', $now)
+                ->where(function ($query) use ($syncToken): void {
+                    $query->whereNull('sync_token')
+                        ->orWhere('sync_token', '!=', $syncToken);
+                })
+                ->delete();
+        }
 
         EpgProgram::query()
             ->where('iptv_provider_id', $provider->id)
             ->where('ends_at', '<', $now->subDay())
             ->delete();
-
     }
 
     private function date(?string $value): CarbonImmutable

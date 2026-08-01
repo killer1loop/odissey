@@ -71,9 +71,12 @@ The image supplies secure production defaults. Set at least:
 
 ```text
 APP_URL=https://media.example.com
-ODISSEY_SETUP_TOKEN=a-long-random-one-time-secret
+ODISSEY_SETUP_TOKEN=
 ODISSEY_RELEASE=the-deployed-tag-or-commit
 ```
+
+Populate the setup token with the output of `openssl rand -hex 32` before
+first launch. The blank value shown above is intentionally non-claimable.
 
 You may supply `APP_KEY` through a secret manager. If omitted, the entrypoint
 creates `/var/lib/odissey/app.key` with mode `0600`; preserve it with the data
@@ -152,6 +155,9 @@ ODISSEY_FFMPEG_MAX_ALLOC_BYTES=268435456
 ODISSEY_FFMPEG_MAX_PIXELS=33177600
 ODISSEY_FFMPEG_MAX_VIDEO_BITRATE_KBPS=10000
 ODISSEY_SOURCE_CATALOG_MAX_ITEMS=100000
+ODISSEY_REMOTE_PROBE_MAX_BYTES=16777216
+ODISSEY_REMOTE_PROBE_MAX_ITEMS_PER_SCAN=250
+ODISSEY_REMOTE_PROBE_RETRY_DAYS=30
 ODISSEY_PLAYBACK_HISTORY_RETENTION_DAYS=365
 IPTV_IMPORT_MEMORY_LIMIT_MB=768
 IPTV_GUIDE_CHANNEL_LIMIT=20
@@ -160,6 +166,12 @@ IPTV_GUIDE_CHANNEL_LIMIT=20
 Transient HLS is also pruned every ten minutes. The byte quota is enforced
 during conversion even when the deployment platform does not mount the
 transcode path as tmpfs.
+
+The supplied Compose profile reserves 8 GiB for the container and permits its
+transcode tmpfs to grow to 4 GiB. Tmpfs pages count against the container
+memory limit and host RAM; use a host with at least 12 GiB for the default
+fixed worker pool and one concurrent FFmpeg process. Do not reduce the memory
+limit independently of the tmpfs, worker, and FFmpeg peak-memory budgets.
 
 Large Xtream live, VOD, series, and external-logo catalogs run in the single
 background worker with a temporary memory budget clamped between 256 MiB and
@@ -172,6 +184,11 @@ probe and enrich separate files concurrently. Two 256 MiB enrichment workers
 handle metadata and caption network work without blocking discovery or IPTV
 synchronization. These fixed counts intentionally limit SQLite write
 contention and peak memory.
+
+Discovery and per-item scan workers use separate database queue connections.
+Their `retry_after` values must remain longer than the corresponding worker
+timeout, job timeout, and overlap-lock expiry. Do not collapse them back to the
+generic 720-second database queue setting.
 
 Never use provider or storage secrets as Docker build arguments. They must be
 runtime secrets and later be stored encrypted through Odissey's admin UI.
@@ -195,6 +212,8 @@ complete. It never promotes the first user implicitly.
 ## Docker
 
 ```sh
+ODISSEY_SETUP_TOKEN="$(openssl rand -hex 32)"
+printf 'First-launch setup token: %s\n' "$ODISSEY_SETUP_TOKEN"
 docker build -t odissey:test .
 docker run --detach \
   --name odissey \
@@ -203,8 +222,9 @@ docker run --detach \
   --tmpfs /var/cache/odissey/transcodes:uid=33,gid=33,mode=0750,size=4g \
   --env APP_URL=http://localhost:8000 \
   --env SESSION_SECURE_COOKIE=false \
-  --env ODISSEY_SETUP_TOKEN=replace-with-a-long-random-secret \
+  --env ODISSEY_SETUP_TOKEN="$ODISSEY_SETUP_TOKEN" \
   odissey:test
+unset ODISSEY_SETUP_TOKEN
 ```
 
 Verify:
@@ -217,8 +237,19 @@ docker exec odissey sqlite3 /var/lib/odissey/database.sqlite \
   'PRAGMA integrity_check; PRAGMA journal_mode; PRAGMA foreign_key_check;'
 ```
 
-Expected results are HTTP 200, nine `RUNNING` processes, all migrations
+Expected results are HTTP 200, 14 `RUNNING` processes, all migrations
 applied, `ok`, `wal`, and no foreign-key errors.
+
+For a new independent server, use the complete
+[beta installation and operations guide](BETA_INSTALLATION.md). It covers
+supported resources, an HTTPS Caddy deployment, source onboarding, immutable
+version pinning, upgrades, rollback, and redacted problem reports.
+
+For loopback-only Compose evaluation, `.env.docker.example` deliberately uses
+`APP_URL=http://localhost:8000`, `SESSION_SECURE_COOKIE=false`, and an empty
+setup token. Before adding an HTTPS route, set the public `https://` URL,
+enable secure cookies, generate a fresh setup token, and use
+`docker compose --env-file .env.docker up -d --wait --wait-timeout 180`.
 
 ## Dokploy
 
@@ -278,7 +309,32 @@ have access to this repository. Keep the repository private throughout testing.
 After the application is public, retain the same `main`-branch trigger and
 record the source commit for each release and rollback.
 
-## Backup and restore
+## Compose upgrades, backup, and restore
+
+Before an upgrade, create a verified backup, check out an immutable tag or full
+commit, and update `ODISSEY_RELEASE` to the exact checked-out commit before
+building. This keeps health responses and backup manifests auditable:
+
+```sh
+NEW_RELEASE="<new-release-tag-or-full-commit>"
+git fetch --tags
+git checkout --detach "$NEW_RELEASE"
+NEW_COMMIT="$(git rev-parse HEAD)"
+grep -q '^ODISSEY_RELEASE=' .env.docker
+sed -i "s/^ODISSEY_RELEASE=.*/ODISSEY_RELEASE=${NEW_COMMIT}/" .env.docker
+docker compose --env-file .env.docker build --pull
+docker compose --env-file .env.docker up -d --remove-orphans \
+  --wait --wait-timeout 180
+```
+
+For a rollback, do not recreate the service after building until the database
+has also been restored. Inspect the chosen backup with
+`unzip -p "$BACKUP_FILE" manifest.json`, check out the exact full commit
+recorded when that backup was created, set `ODISSEY_RELEASE` to that commit,
+and build it. Leave the newer container running long enough to perform the
+offline restore below, then `up --force-recreate` starts the matching older
+image and database together. Never start old application code against a newer
+database.
 
 Use SQLite's online backup API, `.backup`, or `VACUUM INTO`; do not copy only a
 live main database file. A usable backup consists of:
@@ -291,10 +347,22 @@ Restore into a new data volume, run migrations, perform
 `PRAGMA integrity_check`, and verify an encrypted test setting before switching
 traffic.
 
-Built-in commands create and validate the database/key pair:
+Built-in commands create and validate the database/key pair. From the standard
+Compose deployment, create the archive inside the container and copy it out:
 
 ```sh
-php artisan odissey:backup /safe/off-host/odissey.zip
+sudo install -d -m 0700 -o "$(id -u)" -g "$(id -g)" \
+  /srv/odissey-backups
+BACKUP_FILE="/srv/odissey-backups/odissey-$(date -u +%Y%m%dT%H%M%SZ).zip"
+docker compose --env-file .env.docker exec -T app \
+  php artisan odissey:backup /tmp/odissey-backup.zip
+docker compose --env-file .env.docker cp \
+  app:/tmp/odissey-backup.zip "$BACKUP_FILE"
+chmod 600 "$BACKUP_FILE"
+unzip -t "$BACKUP_FILE"
+unzip -p "$BACKUP_FILE" manifest.json
+docker compose --env-file .env.docker exec -T app \
+  rm -f /tmp/odissey-backup.zip
 ```
 
 The destination must be absolute, its parent directory must already exist, and
@@ -311,17 +379,29 @@ plaintext copy of every stored credential: retain mode `0600`, transfer only
 over an authenticated encrypted channel, and place it in encrypted off-host
 storage.
 
-Restore is deliberately offline. In the production container, stop every
-database-using program, run the command with both confirmations, and restart
-the container immediately:
+Restore is deliberately offline. Do not use `docker compose cp` to copy the
+archive into the container: Docker creates container-bound files as
+`root:root`, while the image runs as `www-data`. Stream the archive as the
+image user, stop every database-using program, run the command with both
+confirmations, remove the temporary plaintext archive, and recreate the
+container immediately:
 
 ```sh
-docker exec odissey supervisorctl \
+set -eu
+BACKUP_FILE="/srv/odissey-backups/<verified-backup>.zip"
+docker compose --env-file .env.docker exec -T app sh -c \
+  'umask 077; cat > /tmp/odissey-restore.zip' < "$BACKUP_FILE"
+docker compose --env-file .env.docker exec -T app supervisorctl \
   -c /etc/supervisor/conf.d/odissey.conf \
-  stop web queue queue-media-discovery queue-media-scan:* queue-media-enrichment:* scheduler media-supervisor
-docker exec odissey php artisan odissey:restore \
-  /safe/off-host/odissey.zip --force --offline
-docker restart odissey
+  stop web queue queue-transcodes 'queue-iptv-vod:*' \
+  queue-media-discovery 'queue-media-scan:*' \
+  'queue-media-enrichment:*' scheduler media-supervisor
+docker compose --env-file .env.docker exec -T app \
+  php artisan odissey:restore /tmp/odissey-restore.zip --force --offline
+docker compose --env-file .env.docker exec -T app \
+  rm -f /tmp/odissey-restore.zip
+docker compose --env-file .env.docker up -d --force-recreate \
+  --wait --wait-timeout 180
 ```
 
 The command independently verifies the Supervisor state when its socket is

@@ -8,11 +8,11 @@
             <div>
                 <p class="eyebrow">IPTV onboarding</p>
                 <h1>Add provider</h1>
-                <p>Enter Xtream-compatible account details. Secrets are encrypted before storage.</p>
+                <p>Connect an Xtream-compatible account or a generic M3U playlist. Secrets are encrypted before storage.</p>
             </div>
         </header>
 
-        <form class="settings-form" method="POST" action="{{ route('iptv.admin.providers.store') }}" autocomplete="off">
+        <form class="settings-form onboarding-form" method="POST" action="{{ route('iptv.admin.providers.store') }}" autocomplete="off" data-provider-config>
             @include('iptv.admin.providers.form', ['provider' => null])
         </form>
     </section>
