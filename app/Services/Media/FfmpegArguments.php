@@ -27,7 +27,9 @@ class FfmpegArguments
             $sourcePath,
         ) === 1
             ? 'file,pipe,http,tcp'
-            : 'file,pipe';
+            : ($sourcePath === 'cache:pipe:0'
+                ? 'file,pipe,cache'
+                : 'file,pipe');
         $arguments = [
             $this->binary(),
             '-hide_banner',
@@ -43,13 +45,23 @@ class FfmpegArguments
             (string) $this->threads(),
             '-protocol_whitelist',
             $protocolWhitelist,
+        ];
+        if ($sourcePath === 'cache:pipe:0') {
+            // FFmpeg caps finite read-ahead values at 2 GiB. The PHP input
+            // stream and quota-visible cache directory provide the real bound.
+            $arguments = array_merge($arguments, [
+                '-read_ahead_limit',
+                '-1',
+            ]);
+        }
+        $arguments = array_merge($arguments, [
             '-i',
             $sourcePath,
             '-map',
             '0:v:0?',
             '-map',
             '0:a:'.($audioTrack ?? 0).'?',
-        ];
+        ]);
         if ($deliveryMode === 'fullTranscode') {
             $arguments = array_merge($arguments, [
                 '-c:v',

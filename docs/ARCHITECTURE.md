@@ -181,11 +181,12 @@ For each playable item:
 
 FFmpeg is executed with an argument array, never a shell command. Protocols,
 threads, resolution, bitrate, concurrent sessions, scratch bytes, and lifetime
-are bounded. Remote media reaches FFmpeg through a short-lived signed loopback
-route backed by the validated source adapter, so credentials and upstream URLs
-never enter FFmpeg arguments or browser responses. The session becomes playable
-as soon as the first complete HLS segment is present; conversion continues on
-the dedicated worker. Signed segment routes verify the user and session before
+are bounded. The validated source adapter feeds remote media to FFmpeg through
+back-pressured standard input, and FFmpeg's seek cache lives inside the active
+quota-tracked session directory. Credentials and upstream URLs therefore never
+enter FFmpeg arguments or browser responses. The session becomes playable as
+soon as the first complete HLS segment is present; conversion continues on the
+dedicated worker. Signed segment routes verify the user and session before
 serving transient output.
 
 The browser sends a sequenced playback heartbeat every 10–15 seconds and on

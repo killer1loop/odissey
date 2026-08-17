@@ -4,8 +4,11 @@ namespace Tests\Unit\Media;
 
 use App\Services\Media\Exceptions\TranscodeQuotaExceeded;
 use App\Services\Media\FfmpegRunner;
-use PHPUnit\Framework\TestCase;
+use GuzzleHttp\Psr7\Utils;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Str;
 use Symfony\Component\Process\Process;
+use Tests\TestCase;
 
 class FfmpegRunnerTest extends TestCase
 {
@@ -66,6 +69,45 @@ class FfmpegRunnerTest extends TestCase
         }
 
         $this->addToAssertionCount(1);
+    }
+
+    public function test_seek_cache_is_quota_visible_and_removed_after_the_process(): void
+    {
+        $root = sys_get_temp_dir().'/odissey-ffmpeg-cache-test-'.Str::uuid();
+        $sessionDirectory = $root.'/session';
+        $manifest = $sessionDirectory.'/index.m3u8';
+        File::ensureDirectoryExists($sessionDirectory);
+        $cacheWasVisible = false;
+
+        try {
+            (new FfmpegRunner)->runWithInput(
+                [
+                    PHP_BINARY,
+                    '-r',
+                    'file_put_contents(getenv("TMPDIR")."/probe", "cache");'
+                        .'usleep(400000); stream_get_contents(STDIN);',
+                    'cache:pipe:0',
+                    $manifest,
+                ],
+                5,
+                Utils::streamFor('streamed media bytes'),
+                function () use ($sessionDirectory, &$cacheWasVisible): bool {
+                    $cacheWasVisible = $cacheWasVisible || File::glob(
+                        $sessionDirectory.'/.ffmpeg-cache-*/probe',
+                    ) !== [];
+
+                    return true;
+                },
+            );
+
+            $this->assertTrue($cacheWasVisible);
+            $this->assertSame(
+                [],
+                File::glob($sessionDirectory.'/.ffmpeg-cache-*'),
+            );
+        } finally {
+            File::deleteDirectory($root);
+        }
     }
 
     public function test_child_processes_do_not_inherit_application_secrets_or_proxies(): void

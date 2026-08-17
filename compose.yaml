@@ -23,8 +23,6 @@ services:
       SESSION_SECURE_COOKIE: "${SESSION_SECURE_COOKIE:-false}"
     volumes:
       - odissey-data:/var/lib/odissey
-    tmpfs:
-      - /var/cache/odissey/transcodes:uid=33,gid=33,mode=0750,size=${ODISSEY_TRANSCODE_TMPFS_SIZE:-4g}
 
 volumes:
   odissey-data:

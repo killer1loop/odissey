@@ -135,8 +135,9 @@ class DockerBuildContextTest extends TestCase
             'SESSION_SECURE_COOKIE: "${SESSION_SECURE_COOKIE:-false}"',
             $compose,
         );
-        $this->assertStringContainsString(
-            'size=${ODISSEY_TRANSCODE_TMPFS_SIZE:-4g}',
+        $this->assertStringNotContainsString('tmpfs:', $compose);
+        $this->assertStringNotContainsString(
+            'ODISSEY_TRANSCODE_TMPFS_SIZE',
             $compose,
         );
 

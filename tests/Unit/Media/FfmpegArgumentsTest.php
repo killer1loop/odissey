@@ -69,6 +69,31 @@ class FfmpegArgumentsTest extends TestCase
         );
     }
 
+    public function test_hls_uses_a_bounded_local_seek_cache_for_remote_stdin(): void
+    {
+        $arguments = (new FfmpegArguments)->hls(
+            'cache:pipe:0',
+            '/cache/index.m3u8',
+            '/cache/segment-%05d.ts',
+        );
+        $protocolIndex = array_search(
+            '-protocol_whitelist',
+            $arguments,
+            true,
+        );
+        $readAheadIndex = array_search(
+            '-read_ahead_limit',
+            $arguments,
+            true,
+        );
+
+        $this->assertIsInt($protocolIndex);
+        $this->assertSame('file,pipe,cache', $arguments[$protocolIndex + 1]);
+        $this->assertIsInt($readAheadIndex);
+        $this->assertSame('-1', $arguments[$readAheadIndex + 1]);
+        $this->assertContains('cache:pipe:0', $arguments);
+    }
+
     public function test_subtitle_input_is_limited_to_local_file_protocols(): void
     {
         $arguments = (new FfmpegArguments)->subtitle(

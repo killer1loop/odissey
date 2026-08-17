@@ -70,15 +70,21 @@ class TranscodeSourceController extends Controller
             ->for($item->source)
             ->open($item->source, $item->source_locator, $start, $end);
         $maximumBytes = min(
-            16 * 1024 * 1024 * 1024,
+            64 * 1024 * 1024 * 1024,
             max(
                 1,
                 (int) config(
                     'odissey.remote_transcode_max_source_bytes',
-                    3 * 1024 * 1024 * 1024,
+                    32 * 1024 * 1024 * 1024,
                 ),
             ),
         );
+
+        if ($result->size > $maximumBytes) {
+            $this->closeBody($result->body);
+
+            return response('', 413, $this->headers());
+        }
 
         if ($start !== null && $end !== null) {
             $maximumBytes = min($maximumBytes, $end - $start + 1);

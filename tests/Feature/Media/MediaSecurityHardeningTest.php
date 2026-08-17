@@ -441,7 +441,7 @@ class MediaSecurityHardeningTest extends TestCase
         $user = User::factory()->create();
         [, $item] = $this->remoteMedia($user, sizeBytes: 0);
         config([
-            'odissey.remote_transcode_max_source_bytes' => 1024,
+            'odissey.remote_materialize_max_source_bytes' => 1024,
             'odissey.transcode_max_bytes' => 16,
         ]);
         $adapter = $this->adapterReturning(

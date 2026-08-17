@@ -3,6 +3,7 @@
 namespace App\Jobs\Media;
 
 use App\Models\TranscodeSession;
+use App\Services\Media\BoundedSourceStream;
 use App\Services\Media\Exceptions\TranscodeQuotaExceeded;
 use App\Services\Media\FfmpegArguments;
 use App\Services\Media\FfmpegRunner;
@@ -10,7 +11,6 @@ use App\Services\Media\SourceMaterializer;
 use App\Services\Media\Sources\MediaSourceRegistry;
 use App\Services\Media\TranscodeConcurrencyGate;
 use App\Services\Media\TranscodeStorage;
-use GuzzleHttp\Psr7\LimitStream;
 use GuzzleHttp\Psr7\Utils;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -71,7 +71,7 @@ class TranscodeMediaToHls implements ShouldQueue
         ?MediaSourceRegistry $registry = null,
     ): void {
         $session = TranscodeSession::query()
-            ->with('mediaItem')
+            ->with('mediaItem.source')
             ->find($this->sessionId);
 
         if ($session === null || $session->isAvailable()) {
@@ -109,6 +109,7 @@ class TranscodeMediaToHls implements ShouldQueue
 
                 if (
                     $sourcePath !== 'pipe:0'
+                    && $sourcePath !== 'cache:pipe:0'
                     && (! File::isFile($sourcePath) || ! File::isReadable($sourcePath))
                 ) {
                     $this->markFailed($session, 'source_unavailable', $storage);
@@ -294,12 +295,12 @@ class TranscodeMediaToHls implements ShouldQueue
         }
 
         $maximumBytes = min(
-            16 * 1024 * 1024 * 1024,
+            64 * 1024 * 1024 * 1024,
             max(
                 1,
                 (int) config(
                     'odissey.remote_transcode_max_source_bytes',
-                    3 * 1024 * 1024 * 1024,
+                    32 * 1024 * 1024 * 1024,
                 ),
             ),
         );
@@ -334,9 +335,12 @@ class TranscodeMediaToHls implements ShouldQueue
             }
 
             return [
-                'path' => 'pipe:0',
+                'path' => 'cache:pipe:0',
                 'temporary' => false,
-                'input' => $result->body,
+                'input' => new BoundedSourceStream(
+                    Utils::streamFor($result->body),
+                    $maximumBytes,
+                ),
             ];
         }
 
@@ -345,9 +349,9 @@ class TranscodeMediaToHls implements ShouldQueue
             : Utils::streamFor($result->body);
 
         return [
-            'path' => 'pipe:0',
+            'path' => 'cache:pipe:0',
             'temporary' => false,
-            'input' => new LimitStream($stream, $maximumBytes),
+            'input' => new BoundedSourceStream($stream, $maximumBytes),
         ];
     }
 }

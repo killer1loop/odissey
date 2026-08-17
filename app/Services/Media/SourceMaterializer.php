@@ -50,7 +50,13 @@ class SourceMaterializer
         $adapter = $this->registry->for($source);
         $sourceLimit = min(
             16 * 1024 * 1024 * 1024,
-            max(1, (int) config('odissey.remote_transcode_max_source_bytes')),
+            max(
+                1,
+                (int) config(
+                    'odissey.remote_materialize_max_source_bytes',
+                    3 * 1024 * 1024 * 1024,
+                ),
+            ),
         );
         $catalogSize = max(0, $catalogSize);
         if ($catalogSize > $sourceLimit) {

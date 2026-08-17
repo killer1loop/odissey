@@ -32,7 +32,7 @@ Recommended transient mount:
 /var/cache/odissey/transcodes
 ```
 
-Use tmpfs or disposable local storage with a strict size limit. It is not part
+Use disposable local disk storage with a strict size limit. It is not part
 of backups.
 
 Optional local media mounts are read-only:
@@ -135,11 +135,12 @@ ODISSEY_MAX_TRANSCODES=1
 ODISSEY_MAX_PENDING_TRANSCODES_PER_USER=3
 ODISSEY_MAX_PENDING_TRANSCODES=50
 ODISSEY_TRANSCODE_TTL_MINUTES=30
-ODISSEY_TRANSCODE_MAX_BYTES=5368709120
+ODISSEY_TRANSCODE_MAX_BYTES=34359738368
 ODISSEY_TRANSCODE_MIN_FREE_BYTES=268435456
 ODISSEY_TRANSCODE_TIMEOUT_SECONDS=21600
 ODISSEY_TRANSCODE_SOURCE_MAX_SECONDS=21600
-ODISSEY_REMOTE_TRANSCODE_MAX_SOURCE_BYTES=3221225472
+ODISSEY_REMOTE_MATERIALIZE_MAX_SOURCE_BYTES=3221225472
+ODISSEY_REMOTE_TRANSCODE_MAX_SOURCE_BYTES=34359738368
 ODISSEY_REMOTE_STREAM_MAX_BYTES=34359738368
 ODISSEY_REMOTE_STREAM_MAX_SECONDS=900
 ODISSEY_REMOTE_STREAM_LEASE_SECONDS=915
@@ -163,15 +164,16 @@ IPTV_IMPORT_MEMORY_LIMIT_MB=768
 IPTV_GUIDE_CHANNEL_LIMIT=20
 ```
 
-Transient HLS is also pruned every ten minutes. The byte quota is enforced
-during conversion even when the deployment platform does not mount the
-transcode path as tmpfs.
+The materialization ceiling applies only to explicit temporary snapshots used
+by probing and subtitle extraction. Remote transcoding stays streamed and uses
+the separate 32 GiB source bound; its FFmpeg seek cache remains inside the
+same quota-tracked session directory as the HLS output.
 
-The supplied Compose profile reserves 8 GiB for the container and permits its
-transcode tmpfs to grow to 4 GiB. Tmpfs pages count against the container
-memory limit and host RAM; use a host with at least 12 GiB for the default
-fixed worker pool and one concurrent FFmpeg process. Do not reduce the memory
-limit independently of the tmpfs, worker, and FFmpeg peak-memory budgets.
+Transient HLS and FFmpeg seek caches are pruned with their sessions, and the
+byte quota is enforced while conversion runs. The supplied Compose profile
+uses disposable container disk rather than RAM-backed tmpfs so multi-gigabyte
+movies cannot consume the container memory allowance. Prefer a dedicated local
+ephemeral mount in production and monitor the Docker root filesystem otherwise.
 
 Large Xtream live, VOD, series, and external-logo catalogs run in the single
 background worker with a temporary memory budget clamped between 256 MiB and
@@ -219,7 +221,6 @@ docker run --detach \
   --name odissey \
   --publish 127.0.0.1:8000:8000 \
   --volume odissey-data:/var/lib/odissey \
-  --tmpfs /var/cache/odissey/transcodes:uid=33,gid=33,mode=0750,size=4g \
   --env APP_URL=http://localhost:8000 \
   --env SESSION_SECURE_COOKIE=false \
   --env ODISSEY_SETUP_TOKEN="$ODISSEY_SETUP_TOKEN" \

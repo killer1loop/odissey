@@ -75,6 +75,17 @@ class TranscodeStorage
 
         if (
             preg_match(
+                '/^#EXTINF:([0-9]+(?:\.[0-9]+)?),/m',
+                $manifest,
+                $duration,
+            ) !== 1
+            || (float) $duration[1] <= 0
+        ) {
+            return false;
+        }
+
+        if (
+            preg_match(
                 '/^segment-\d{5}\.(?:ts|m4s)$/m',
                 $manifest,
                 $match,
@@ -83,21 +94,30 @@ class TranscodeStorage
             return false;
         }
 
-        $segmentExists = File::isFile(
-            $this->sessionDirectory($session)
+        try {
+            $segmentPath = $this->sessionDirectory($session)
                 .DIRECTORY_SEPARATOR
-                .$match[0],
-        );
-        if (! $segmentExists) {
+                .$match[0];
+            if (
+                ! File::isFile($segmentPath)
+                || File::size($segmentPath) < 1
+            ) {
+                return false;
+            }
+
+            if (! str_ends_with($match[0], '.m4s')) {
+                return true;
+            }
+
+            $initializationPath = $this->sessionDirectory($session)
+                .DIRECTORY_SEPARATOR
+                .'init.mp4';
+
+            return File::isFile($initializationPath)
+                && File::size($initializationPath) > 0;
+        } catch (Throwable) {
             return false;
         }
-
-        return ! str_ends_with($match[0], '.m4s')
-            || File::isFile(
-                $this->sessionDirectory($session)
-                    .DIRECTORY_SEPARATOR
-                    .'init.mp4',
-            );
     }
 
     public function delete(TranscodeSession $session): void

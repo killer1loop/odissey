@@ -372,7 +372,10 @@ class MediaPlaybackTest extends TestCase
         ]);
         $storage = app(TranscodeStorage::class);
         $storage->prepare($session);
-        File::put($storage->manifestPath($session), "#EXTM3U\nsegment-00000.ts\n");
+        File::put(
+            $storage->manifestPath($session),
+            "#EXTM3U\n#EXTINF:4.0,\nsegment-00000.ts\n",
+        );
         File::put($storage->segmentPath($session, 'segment-00000.ts'), 'segment bytes');
 
         $this->actingAs($owner)

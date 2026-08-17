@@ -68,7 +68,10 @@ class TranscodeMediaToHlsTest extends TestCase
                 $patternIndex = array_search('-hls_segment_filename', $arguments, true);
                 $segmentPattern = $arguments[$patternIndex + 1];
 
-                File::put($manifest, "#EXTM3U\nsegment-00000.ts\n");
+                File::put(
+                    $manifest,
+                    "#EXTM3U\n#EXTINF:4.0,\nsegment-00000.ts\n",
+                );
                 File::put(str_replace('%05d', '00000', $segmentPattern), 'segment');
             }
         };
@@ -147,7 +150,10 @@ class TranscodeMediaToHlsTest extends TestCase
                     true,
                 );
                 $segmentPattern = $arguments[$patternIndex + 1];
-                File::put($manifest, "#EXTM3U\nsegment-00000.ts\n");
+                File::put(
+                    $manifest,
+                    "#EXTM3U\n#EXTINF:4.0,\nsegment-00000.ts\n",
+                );
                 File::put(
                     str_replace('%05d', '00000', $segmentPattern),
                     'segment',
@@ -175,8 +181,9 @@ class TranscodeMediaToHlsTest extends TestCase
         $this->assertNotNull($session->refresh()->finished_at);
     }
 
-    public function test_remote_sources_are_streamed_to_ffmpeg_stdin(): void
+    public function test_large_remote_sources_use_bounded_seekable_ffmpeg_stdin(): void
     {
+        $sourceBytes = 3 * 1024 * 1024 * 1024 + 1;
         $user = User::factory()->create(['is_active' => true]);
         $source = MediaSource::query()->create([
             'name' => 'Remote transcode source',
@@ -194,7 +201,7 @@ class TranscodeMediaToHlsTest extends TestCase
             'source_type' => MediaSource::TYPE_S3,
             'source_locator' => 'fixture.mkv',
             'mime_type' => 'video/x-matroska',
-            'size_bytes' => 19,
+            'size_bytes' => $sourceBytes,
             'requires_transcode' => true,
         ]);
         $session = TranscodeSession::query()->create([
@@ -202,8 +209,10 @@ class TranscodeMediaToHlsTest extends TestCase
             'media_item_id' => $item->getKey(),
             'status' => TranscodeSession::STATUS_PENDING,
         ]);
-        $adapter = new class implements MediaSourceAdapter
+        $adapter = new class($sourceBytes) implements MediaSourceAdapter
         {
+            public function __construct(private readonly int $sourceBytes) {}
+
             public function objects(MediaSource $source): iterable
             {
                 return [];
@@ -223,7 +232,7 @@ class TranscodeMediaToHlsTest extends TestCase
                 return new SourceResponse(
                     Utils::streamFor('streamed media bytes'),
                     200,
-                    19,
+                    $this->sourceBytes,
                     'video/x-matroska',
                 );
             }
@@ -269,7 +278,10 @@ class TranscodeMediaToHlsTest extends TestCase
                     $arguments,
                     true,
                 );
-                File::put($manifest, "#EXTM3U\nsegment-00000.ts\n");
+                File::put(
+                    $manifest,
+                    "#EXTM3U\n#EXTINF:4.0,\nsegment-00000.ts\n",
+                );
                 File::put(
                     str_replace('%05d', '00000', $arguments[$patternIndex + 1]),
                     'segment',
@@ -286,7 +298,7 @@ class TranscodeMediaToHlsTest extends TestCase
             $registry,
         );
 
-        $this->assertSame('pipe:0', $runner->sourceArgument);
+        $this->assertSame('cache:pipe:0', $runner->sourceArgument);
         $this->assertSame('streamed media bytes', $runner->inputBytes);
         $this->assertSame(
             TranscodeSession::STATUS_READY,
@@ -369,6 +381,30 @@ class TranscodeMediaToHlsTest extends TestCase
             File::isDirectory(config('odissey.transcode_path').'/'.$session->getKey()),
         );
         $this->assertTrue(File::isDirectory($orphanDirectory));
+    }
+
+    public function test_empty_or_zero_duration_hls_is_never_marked_complete(): void
+    {
+        [$session] = $this->makeTranscodeSession();
+        $storage = app(TranscodeStorage::class);
+        $storage->prepare($session);
+        $segment = $storage->segmentPath($session, 'segment-00000.ts');
+
+        File::put(
+            $storage->manifestPath($session),
+            "#EXTM3U\n#EXTINF:0.000000,\nsegment-00000.ts\n",
+        );
+        File::put($segment, '');
+        $this->assertFalse($storage->hasCompleteOutput($session));
+
+        File::put(
+            $storage->manifestPath($session),
+            "#EXTM3U\n#EXTINF:4.0,\nsegment-00000.ts\n",
+        );
+        $this->assertFalse($storage->hasCompleteOutput($session));
+
+        File::put($segment, 'playable segment bytes');
+        $this->assertTrue($storage->hasCompleteOutput($session));
     }
 
     /**

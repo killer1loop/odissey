@@ -19,9 +19,8 @@ commit supplied by the maintainer. Do not deploy a moving `main` branch.
   Caddy's [official installation instructions](https://caddyserver.com/docs/install/).
 - Four CPU cores and 12 GiB host RAM recommended for the fixed worker pool and
   one concurrent FFmpeg conversion.
-- At least 20 GiB free local disk in addition to source media. The default
-  transient transcode tmpfs can use up to 4 GiB of RAM and counts against both
-  the container memory limit and host memory.
+- At least 80 GiB free local disk in addition to source media. Transient HLS
+  output and FFmpeg seek caches are bounded and pruned automatically.
 - A domain name pointing to the server, with inbound TCP ports 80 and 443
   available to the HTTPS reverse proxy.
 - Local block storage for the Odissey data volume. Do not put SQLite on NFS.
@@ -63,10 +62,11 @@ cookies, and an empty setup token so an unedited copy cannot expose a
 claimable administrator setup. Never commit or send `.env.docker`; it is
 ignored by Git.
 
-The supplied limits reserve 8 GiB for the container, including a transcode
-tmpfs that can grow to 4 GiB. Do not lower the container limit without also
-measuring the fixed worker pool, FFmpeg peak memory, and tmpfs use. A full
-tmpfs causes conversions to fail; it must not force the host to swap.
+The supplied limits reserve 8 GiB for the container. Transient HLS and FFmpeg
+seek-cache files use bounded disposable local disk. Do not lower the container
+limit without measuring the fixed worker pool and FFmpeg peak memory. Monitor
+Docker disk usage or mount the transcode path on dedicated local ephemeral
+storage for stricter isolation.
 
 ## 3. Build and start
 
