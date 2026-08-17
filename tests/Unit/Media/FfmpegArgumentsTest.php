@@ -69,10 +69,10 @@ class FfmpegArgumentsTest extends TestCase
         );
     }
 
-    public function test_hls_uses_a_bounded_local_seek_cache_for_remote_stdin(): void
+    public function test_hls_limits_sequential_remote_stdin_to_pipe_protocol(): void
     {
         $arguments = (new FfmpegArguments)->hls(
-            'cache:pipe:0',
+            'pipe:0',
             '/cache/index.m3u8',
             '/cache/segment-%05d.ts',
         );
@@ -81,17 +81,12 @@ class FfmpegArgumentsTest extends TestCase
             $arguments,
             true,
         );
-        $readAheadIndex = array_search(
-            '-read_ahead_limit',
-            $arguments,
-            true,
-        );
 
         $this->assertIsInt($protocolIndex);
-        $this->assertSame('file,pipe,cache', $arguments[$protocolIndex + 1]);
-        $this->assertIsInt($readAheadIndex);
-        $this->assertSame('-1', $arguments[$readAheadIndex + 1]);
-        $this->assertContains('cache:pipe:0', $arguments);
+        $this->assertSame('file,pipe', $arguments[$protocolIndex + 1]);
+        $this->assertNotContains('-read_ahead_limit', $arguments);
+        $this->assertNotContains('cache:pipe:0', $arguments);
+        $this->assertContains('pipe:0', $arguments);
     }
 
     public function test_subtitle_input_is_limited_to_local_file_protocols(): void

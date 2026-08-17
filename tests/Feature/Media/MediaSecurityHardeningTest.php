@@ -469,6 +469,47 @@ class MediaSecurityHardeningTest extends TestCase
         $this->assertSame([], File::isDirectory($directory) ? File::files($directory) : []);
     }
 
+    public function test_transcode_materialization_uses_its_explicit_large_source_limit(): void
+    {
+        $catalogBytes = 17 * 1024 * 1024 * 1024;
+        $maximumBytes = 32 * 1024 * 1024 * 1024;
+        $source = new MediaSource;
+        $session = new TranscodeSession;
+        $adapter = Mockery::mock(MediaSourceAdapter::class);
+        $registry = Mockery::mock(MediaSourceRegistry::class);
+        $registry->shouldReceive('for')
+            ->once()
+            ->with($source)
+            ->andReturn($adapter);
+        $storage = Mockery::mock(TranscodeStorage::class);
+        $storage->shouldReceive('sourcePath')
+            ->once()
+            ->with($session, 'mp4')
+            ->andReturn($this->temporaryPath.'/source.mp4');
+        $storage->shouldReceive('reserveSourceBytes')
+            ->once()
+            ->with($maximumBytes, $catalogBytes)
+            ->andReturnNull();
+        $materializer = new SourceMaterializer($registry, $storage);
+
+        try {
+            $materializer->materializeObjectForTranscode(
+                $session,
+                $source,
+                'large.mp4',
+                $catalogBytes,
+                'mp4',
+                $maximumBytes,
+            );
+            $this->fail('Unavailable transcode capacity should be rejected.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame(
+                'remote_source_capacity_exhausted',
+                $exception->getMessage(),
+            );
+        }
+    }
+
     public function test_remote_materialization_reservations_prevent_concurrent_quota_overcommit(): void
     {
         config(['odissey.transcode_max_bytes' => 16]);

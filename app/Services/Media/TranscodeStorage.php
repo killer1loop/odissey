@@ -45,6 +45,26 @@ class TranscodeStorage
             .'segment-%05d.'.$extension;
     }
 
+    public function sourcePath(
+        TranscodeSession $session,
+        string $extension,
+    ): string {
+        $directory = $this->sessionDirectory($session);
+        if (! File::isDirectory($directory) || is_link($directory)) {
+            throw new RuntimeException(
+                'The transcode source directory is unavailable.',
+            );
+        }
+
+        $extension = preg_replace(
+            '/[^a-z0-9]/',
+            '',
+            strtolower($extension ?: 'bin'),
+        ) ?: 'bin';
+
+        return $directory.DIRECTORY_SEPARATOR.'source.'.$extension;
+    }
+
     public function segmentPath(TranscodeSession $session, string $segment): string
     {
         if (

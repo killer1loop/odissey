@@ -135,7 +135,7 @@ ODISSEY_MAX_TRANSCODES=1
 ODISSEY_MAX_PENDING_TRANSCODES_PER_USER=3
 ODISSEY_MAX_PENDING_TRANSCODES=50
 ODISSEY_TRANSCODE_TTL_MINUTES=30
-ODISSEY_TRANSCODE_MAX_BYTES=34359738368
+ODISSEY_TRANSCODE_MAX_BYTES=68719476736
 ODISSEY_TRANSCODE_MIN_FREE_BYTES=268435456
 ODISSEY_TRANSCODE_TIMEOUT_SECONDS=21600
 ODISSEY_TRANSCODE_SOURCE_MAX_SECONDS=21600
@@ -164,16 +164,19 @@ IPTV_IMPORT_MEMORY_LIMIT_MB=768
 IPTV_GUIDE_CHANNEL_LIMIT=20
 ```
 
-The materialization ceiling applies only to explicit temporary snapshots used
-by probing and subtitle extraction. Remote transcoding stays streamed and uses
-the separate 32 GiB source bound; its FFmpeg seek cache remains inside the
-same quota-tracked session directory as the HLS output.
+The general materialization ceiling applies to temporary snapshots used by
+probing and subtitle extraction. Remote MKV, WebM, and transport-stream inputs
+remain bounded, back-pressured streams. Seek-dependent MP4, MOV, M4V, and 3GP
+inputs use the separate 32 GiB transcode source bound and are snapshotted into
+the active session before FFmpeg starts. The default 64 GiB total quota leaves
+up to 32 GiB for HLS output while a maximum-size source snapshot exists.
 
-Transient HLS and FFmpeg seek caches are pruned with their sessions, and the
-byte quota is enforced while conversion runs. The supplied Compose profile
-uses disposable container disk rather than RAM-backed tmpfs so multi-gigabyte
-movies cannot consume the container memory allowance. Prefer a dedicated local
-ephemeral mount in production and monitor the Docker root filesystem otherwise.
+Transient HLS and session-scoped source snapshots are pruned with their
+sessions, and the byte quota is enforced during download and conversion. The
+supplied Compose profile uses disposable container disk rather than RAM-backed
+tmpfs so multi-gigabyte movies cannot consume the container memory allowance.
+Prefer a dedicated local ephemeral mount in production and monitor the Docker
+root filesystem otherwise.
 
 Large Xtream live, VOD, series, and external-logo catalogs run in the single
 background worker with a temporary memory budget clamped between 256 MiB and

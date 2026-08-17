@@ -27,6 +27,19 @@ class TranscodeMediaToHls implements ShouldQueue
 {
     use Queueable;
 
+    /** @var list<string> */
+    private const SEEK_DEPENDENT_CONTAINERS = [
+        '3g2',
+        '3gp',
+        'f4v',
+        'ismv',
+        'm4a',
+        'm4v',
+        'mov',
+        'mp4',
+        'quicktime',
+    ];
+
     public int $backoff = 5;
 
     public bool $failOnTimeout = true;
@@ -101,33 +114,9 @@ class TranscodeMediaToHls implements ShouldQueue
             $materialized = null;
 
             try {
-                $materialized = $this->sourceFor(
-                    $session,
-                    $registry ?? app(MediaSourceRegistry::class),
-                );
-                $sourcePath = $materialized['path'];
-
-                if (
-                    $sourcePath !== 'pipe:0'
-                    && $sourcePath !== 'cache:pipe:0'
-                    && (! File::isFile($sourcePath) || ! File::isReadable($sourcePath))
-                ) {
-                    $this->markFailed($session, 'source_unavailable', $storage);
-
-                    return;
-                }
-
                 $storage->prepare($session);
                 $storage->assertWithinQuota();
                 $lastHeartbeatAt = 0;
-                $ffmpegArguments = $arguments->hls(
-                    $sourcePath,
-                    $storage->manifestPath($session),
-                    $storage->segmentPattern($session),
-                    $session->profile,
-                    $session->audio_track,
-                    $session->delivery_mode,
-                );
                 $watchdog = function () use (
                     $session,
                     $storage,
@@ -158,6 +147,33 @@ class TranscodeMediaToHls implements ShouldQueue
 
                     return $storage->isWithinStorageLimits();
                 };
+
+                $materialized = $this->sourceFor(
+                    $session,
+                    $registry ?? app(MediaSourceRegistry::class),
+                    $storage,
+                    $watchdog,
+                );
+                $sourcePath = $materialized['path'];
+
+                if (
+                    $sourcePath !== 'pipe:0'
+                    && (! File::isFile($sourcePath) || ! File::isReadable($sourcePath))
+                ) {
+                    $this->markFailed($session, 'source_unavailable', $storage);
+
+                    return;
+                }
+
+                $storage->assertWithinQuota();
+                $ffmpegArguments = $arguments->hls(
+                    $sourcePath,
+                    $storage->manifestPath($session),
+                    $storage->segmentPattern($session),
+                    $session->profile,
+                    $session->audio_track,
+                    $session->delivery_mode,
+                );
 
                 if (($materialized['input'] ?? null) !== null) {
                     $runner->runWithInput(
@@ -198,13 +214,13 @@ class TranscodeMediaToHls implements ShouldQueue
             } catch (ProcessFailedException) {
                 $this->markFailed($session, 'transcode_failed', $storage);
             } catch (RuntimeException $exception) {
-                $errorCode = in_array($exception->getMessage(), [
+                $errorCode = match ($exception->getMessage()) {
+                    'remote_source_capacity_exhausted' => 'cache_quota_exceeded',
                     'remote_source_too_large',
                     'source_unavailable',
-                    'source_read_failed',
-                ], true)
-                    ? $exception->getMessage()
-                    : 'transcode_internal';
+                    'source_read_failed' => $exception->getMessage(),
+                    default => 'transcode_internal',
+                };
                 $this->markFailed($session, $errorCode, $storage);
             } catch (Throwable $exception) {
                 Log::warning('Media transcode failed unexpectedly.', [
@@ -214,7 +230,14 @@ class TranscodeMediaToHls implements ShouldQueue
                 $this->markFailed($session, 'transcode_internal', $storage);
             } finally {
                 if (($materialized['temporary'] ?? false) === true) {
-                    File::delete($materialized['path']);
+                    if (
+                        ! File::delete($materialized['path'])
+                        && File::exists($materialized['path'])
+                    ) {
+                        Log::warning('Materialized transcode source cleanup failed.', [
+                            'session_id' => $session->getKey(),
+                        ]);
+                    }
                 }
                 if (is_resource($materialized['input'] ?? null)) {
                     fclose($materialized['input']);
@@ -288,6 +311,8 @@ class TranscodeMediaToHls implements ShouldQueue
     private function sourceFor(
         TranscodeSession $session,
         MediaSourceRegistry $registry,
+        TranscodeStorage $storage,
+        callable $progress,
     ): array {
         if ($session->mediaItem->source === null) {
             return app(SourceMaterializer::class)
@@ -304,6 +329,21 @@ class TranscodeMediaToHls implements ShouldQueue
                 ),
             ),
         );
+
+        $container = $this->sourceContainer($session);
+        if (in_array($container, self::SEEK_DEPENDENT_CONTAINERS, true)) {
+            return (new SourceMaterializer($registry, $storage))
+                ->materializeObjectForTranscode(
+                    $session,
+                    $session->mediaItem->source,
+                    $session->mediaItem->source_locator,
+                    max(0, (int) ($session->mediaItem->size_bytes ?? 0)),
+                    $container,
+                    $maximumBytes,
+                    $progress,
+                );
+        }
+
         $result = $registry
             ->for($session->mediaItem->source)
             ->open(
@@ -335,7 +375,7 @@ class TranscodeMediaToHls implements ShouldQueue
             }
 
             return [
-                'path' => 'cache:pipe:0',
+                'path' => 'pipe:0',
                 'temporary' => false,
                 'input' => new BoundedSourceStream(
                     Utils::streamFor($result->body),
@@ -349,9 +389,36 @@ class TranscodeMediaToHls implements ShouldQueue
             : Utils::streamFor($result->body);
 
         return [
-            'path' => 'cache:pipe:0',
+            'path' => 'pipe:0',
             'temporary' => false,
             'input' => new BoundedSourceStream($stream, $maximumBytes),
         ];
+    }
+
+    private function sourceContainer(TranscodeSession $session): string
+    {
+        $container = strtolower(trim((string) $session->mediaItem->container));
+        if ($container !== '') {
+            return ltrim($container, '.');
+        }
+
+        $path = parse_url(
+            $session->mediaItem->source_locator,
+            PHP_URL_PATH,
+        );
+        $extension = strtolower(pathinfo(
+            is_string($path) ? $path : $session->mediaItem->source_locator,
+            PATHINFO_EXTENSION,
+        ));
+        if ($extension !== '') {
+            return $extension;
+        }
+
+        return match (strtolower((string) $session->mediaItem->mime_type)) {
+            'audio/mp4' => 'm4a',
+            'video/mp4' => 'mp4',
+            'video/quicktime' => 'mov',
+            default => 'bin',
+        };
     }
 }

@@ -20,7 +20,8 @@ commit supplied by the maintainer. Do not deploy a moving `main` branch.
 - Four CPU cores and 12 GiB host RAM recommended for the fixed worker pool and
   one concurrent FFmpeg conversion.
 - At least 80 GiB free local disk in addition to source media. Transient HLS
-  output and FFmpeg seek caches are bounded and pruned automatically.
+  output and seek-dependent source snapshots are bounded and pruned
+  automatically.
 - A domain name pointing to the server, with inbound TCP ports 80 and 443
   available to the HTTPS reverse proxy.
 - Local block storage for the Odissey data volume. Do not put SQLite on NFS.
@@ -62,11 +63,11 @@ cookies, and an empty setup token so an unedited copy cannot expose a
 claimable administrator setup. Never commit or send `.env.docker`; it is
 ignored by Git.
 
-The supplied limits reserve 8 GiB for the container. Transient HLS and FFmpeg
-seek-cache files use bounded disposable local disk. Do not lower the container
-limit without measuring the fixed worker pool and FFmpeg peak memory. Monitor
-Docker disk usage or mount the transcode path on dedicated local ephemeral
-storage for stricter isolation.
+The supplied limits reserve 8 GiB for the container. Transient HLS and
+session-scoped source snapshots use bounded disposable local disk. Do not lower
+the container limit without measuring the fixed worker pool and FFmpeg peak
+memory. Monitor Docker disk usage or mount the transcode path on dedicated local
+ephemeral storage for stricter isolation.
 
 ## 3. Build and start
 

@@ -117,8 +117,9 @@ flowchart LR
 
 Odissey does not upload, overwrite, or delete source media. The persistent
 application volume contains the SQLite database, generated application key,
-metadata, cached artwork, and cached captions. FFmpeg HLS output and seek
-caches are transient and belong on bounded disposable local disk storage.
+metadata, cached artwork, and cached captions. FFmpeg HLS output and
+seek-dependent source snapshots are transient and belong on bounded disposable
+local disk storage.
 
 Odissey contains no application analytics or telemetry. It makes outbound
 requests only to operator-configured storage and IPTV endpoints, optional
@@ -179,8 +180,9 @@ non-secure cookies, and an empty setup token so an unedited copy cannot expose
 a claimable administrator account.
 
 The default profile limits the container to four CPUs and 8 GiB RAM. Transcode
-segments and seek caches use bounded disposable container storage rather than
-RAM-backed tmpfs, which keeps large movies from exhausting the memory limit.
+segments and seek-dependent remote source snapshots use bounded disposable
+container storage rather than RAM-backed tmpfs, which keeps large movies from
+exhausting the memory limit.
 
 ### 3. Build and start
 

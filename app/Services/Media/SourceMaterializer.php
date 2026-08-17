@@ -4,6 +4,8 @@ namespace App\Services\Media;
 
 use App\Models\MediaItem;
 use App\Models\MediaSource;
+use App\Models\TranscodeSession;
+use App\Services\Media\Exceptions\TranscodeQuotaExceeded;
 use App\Services\Media\Sources\MediaSourceRegistry;
 use App\Services\Media\Sources\SourceResponse;
 use Illuminate\Support\Facades\File;
@@ -13,6 +15,10 @@ use Throwable;
 
 class SourceMaterializer
 {
+    private const MATERIALIZE_HARD_MAX_BYTES = 16 * 1024 * 1024 * 1024;
+
+    private const TRANSCODE_HARD_MAX_BYTES = 64 * 1024 * 1024 * 1024;
+
     public function __construct(
         private readonly MediaSourceRegistry $registry,
         private readonly TranscodeStorage $storage,
@@ -47,9 +53,8 @@ class SourceMaterializer
         int $catalogSize,
         string $extension,
     ): array {
-        $adapter = $this->registry->for($source);
         $sourceLimit = min(
-            16 * 1024 * 1024 * 1024,
+            self::MATERIALIZE_HARD_MAX_BYTES,
             max(
                 1,
                 (int) config(
@@ -58,6 +63,66 @@ class SourceMaterializer
                 ),
             ),
         );
+
+        return $this->snapshotObject(
+            $source,
+            $locator,
+            $catalogSize,
+            $extension,
+            $sourceLimit,
+            null,
+            null,
+            'remote_source_too_large',
+        );
+    }
+
+    /**
+     * Materialize a seek-dependent remote input beside its HLS session.
+     *
+     * @param  (callable(): bool)|null  $progress
+     * @return array{path: string, temporary: true}
+     */
+    public function materializeObjectForTranscode(
+        TranscodeSession $session,
+        MediaSource $source,
+        string $locator,
+        int $catalogSize,
+        string $extension,
+        int $maximumBytes,
+        ?callable $progress = null,
+    ): array {
+        $sourceLimit = min(
+            self::TRANSCODE_HARD_MAX_BYTES,
+            max(1, $maximumBytes),
+        );
+
+        return $this->snapshotObject(
+            $source,
+            $locator,
+            $catalogSize,
+            $extension,
+            $sourceLimit,
+            $progress,
+            $this->storage->sourcePath($session, $extension),
+            'remote_source_capacity_exhausted',
+        );
+    }
+
+    /**
+     * @param  (callable(): bool)|null  $progress
+     * @return array{path: string, temporary: true}
+     */
+    private function snapshotObject(
+        MediaSource $source,
+        string $locator,
+        int $catalogSize,
+        string $extension,
+        int $sourceLimit,
+        ?callable $progress,
+        ?string $path,
+        string $knownReservationFailure,
+    ): array {
+        $adapter = $this->registry->for($source);
         $catalogSize = max(0, $catalogSize);
         if ($catalogSize > $sourceLimit) {
             throw new RuntimeException('remote_source_too_large');
@@ -70,30 +135,31 @@ class SourceMaterializer
         if ($reservation === null) {
             throw new RuntimeException(
                 $catalogSize > 0
-                    ? 'remote_source_too_large'
+                    ? $knownReservationFailure
                     : 'remote_source_capacity_exhausted',
             );
         }
 
         $result = null;
-        $directory = $this->storage->transientDirectory(
-            'sources',
-            create: true,
-        );
         $extension = preg_replace(
             '/[^a-z0-9]/',
             '',
             strtolower($extension ?: 'bin'),
         ) ?: 'bin';
-        $path = $directory.'/snapshot-'.Str::lower((string) Str::ulid()).'.'.$extension;
+        $path ??= $this->storage->transientDirectory(
+            'sources',
+            create: true,
+        ).'/snapshot-'.Str::lower((string) Str::ulid()).'.'.$extension;
 
         try {
+            $this->reportProgress($progress);
             $result = $adapter->open(
                 $source,
                 $locator,
                 null,
                 null,
             );
+            $this->reportProgress($progress);
             if (
                 $result->size > 0
                 && $result->size > $reservation->capacityBytes()
@@ -106,7 +172,12 @@ class SourceMaterializer
                     && method_exists($result->body, 'read'))
                 || is_resource($result->body)
             ) {
-                $this->writeStream($result, $path, $reservation);
+                $this->writeStream(
+                    $result,
+                    $path,
+                    $reservation,
+                    $progress,
+                );
             } else {
                 $bytes = is_string($result->body) ? $result->body : (string) $result->body;
                 $length = strlen($bytes);
@@ -126,6 +197,7 @@ class SourceMaterializer
                 }
 
                 $reservation->consume($length);
+                $this->reportProgress($progress);
                 if (! $this->storage->isWithinStorageLimits()) {
                     throw new RuntimeException(
                         'remote_source_capacity_exhausted',
@@ -151,6 +223,7 @@ class SourceMaterializer
         SourceResponse $result,
         string $path,
         TranscodeReservation $reservation,
+        ?callable $progress,
     ): void {
         $output = @fopen($path, 'xb');
 
@@ -161,6 +234,7 @@ class SourceMaterializer
         $writtenBytes = 0;
         $emptyReads = 0;
         $nextStorageCheck = 8 * 1024 * 1024;
+        $nextProgressAt = hrtime(true) + 5_000_000_000;
 
         try {
             while (! $this->bodyAtEof($result->body)) {
@@ -191,7 +265,12 @@ class SourceMaterializer
                 }
 
                 $reservation->consume($length);
-                if ($writtenBytes >= $nextStorageCheck) {
+                $now = hrtime(true);
+                if (
+                    $writtenBytes >= $nextStorageCheck
+                    || $now >= $nextProgressAt
+                ) {
+                    $this->reportProgress($progress);
                     if (! $this->storage->isWithinStorageLimits()) {
                         throw new RuntimeException(
                             'remote_source_capacity_exhausted',
@@ -199,6 +278,7 @@ class SourceMaterializer
                     }
 
                     $nextStorageCheck = $writtenBytes + 8 * 1024 * 1024;
+                    $nextProgressAt = $now + 5_000_000_000;
                 }
             }
 
@@ -209,6 +289,7 @@ class SourceMaterializer
                 throw new RuntimeException('remote_source_write_failed');
             }
 
+            $this->reportProgress($progress);
             if (! $this->storage->isWithinStorageLimits()) {
                 throw new RuntimeException(
                     'remote_source_capacity_exhausted',
@@ -216,6 +297,14 @@ class SourceMaterializer
             }
         } finally {
             fclose($output);
+        }
+    }
+
+    /** @param  (callable(): bool)|null  $progress */
+    private function reportProgress(?callable $progress): void
+    {
+        if ($progress !== null && ! $progress()) {
+            throw new TranscodeQuotaExceeded;
         }
     }
 

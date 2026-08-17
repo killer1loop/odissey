@@ -181,7 +181,7 @@ class TranscodeMediaToHlsTest extends TestCase
         $this->assertNotNull($session->refresh()->finished_at);
     }
 
-    public function test_large_remote_sources_use_bounded_seekable_ffmpeg_stdin(): void
+    public function test_large_sequential_remote_sources_use_bounded_ffmpeg_stdin(): void
     {
         $sourceBytes = 3 * 1024 * 1024 * 1024 + 1;
         $user = User::factory()->create(['is_active' => true]);
@@ -298,7 +298,7 @@ class TranscodeMediaToHlsTest extends TestCase
             $registry,
         );
 
-        $this->assertSame('cache:pipe:0', $runner->sourceArgument);
+        $this->assertSame('pipe:0', $runner->sourceArgument);
         $this->assertSame('streamed media bytes', $runner->inputBytes);
         $this->assertSame(
             TranscodeSession::STATUS_READY,

@@ -22,14 +22,14 @@ return [
     |--------------------------------------------------------------------------
     |
     | FFmpeg may create short-lived HLS manifests and segments while a stream
-    | is active. Deployments should place this path on local ephemeral storage
-    | or tmpfs and enforce both a time-to-live and a size limit.
+    | is active. Seek-dependent remote inputs are also snapshotted here before
+    | conversion. Use local ephemeral storage and enforce TTL and size limits.
     |
     */
     'transcode_path' => env('ODISSEY_TRANSCODE_PATH') ?: '/var/cache/odissey/transcodes',
     'max_transcodes' => (int) env('ODISSEY_MAX_TRANSCODES', 1),
     'transcode_ttl_minutes' => (int) env('ODISSEY_TRANSCODE_TTL_MINUTES', 30),
-    'transcode_max_bytes' => (int) env('ODISSEY_TRANSCODE_MAX_BYTES', 32 * 1024 * 1024 * 1024),
+    'transcode_max_bytes' => (int) env('ODISSEY_TRANSCODE_MAX_BYTES', 64 * 1024 * 1024 * 1024),
     'transcode_failed_retention_minutes' => (int) env('ODISSEY_TRANSCODE_FAILED_RETENTION_MINUTES', 60),
     'transcode_stale_minutes' => (int) env('ODISSEY_TRANSCODE_STALE_MINUTES', 15),
     'transcode_timeout_seconds' => (int) env('ODISSEY_TRANSCODE_TIMEOUT_SECONDS', 21600),
