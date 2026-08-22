@@ -232,7 +232,10 @@ class SourceMaterializer
         }
 
         $writtenBytes = 0;
-        $emptyReads = 0;
+        $stall = StallGuard::fromConfig(
+            'odissey.transcode_source_stall_seconds',
+            60,
+        );
         $nextStorageCheck = 8 * 1024 * 1024;
         $nextProgressAt = hrtime(true) + 5_000_000_000;
 
@@ -241,14 +244,18 @@ class SourceMaterializer
                 $chunk = $this->readBody($result->body, 1024 * 1024);
 
                 if (! is_string($chunk) || $chunk === '') {
-                    if (++$emptyReads >= 3) {
+                    // Slow upstreams pause legitimately; only a sustained
+                    // silence beyond the stall budget aborts the snapshot.
+                    if ($stall->expired()) {
                         throw new RuntimeException('remote_source_read_failed');
                     }
+
+                    usleep(10_000);
 
                     continue;
                 }
 
-                $emptyReads = 0;
+                $stall->reset();
                 $writtenBytes += strlen($chunk);
                 if ($writtenBytes > $reservation->capacityBytes()) {
                     throw new RuntimeException('remote_source_too_large');

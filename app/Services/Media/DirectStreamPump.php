@@ -54,7 +54,10 @@ final class DirectStreamPump
         }
 
         $remaining = $maximumBytes;
-        $emptyReads = 0;
+        $stall = StallGuard::fromConfig(
+            'odissey.direct_stream_stall_seconds',
+            30,
+        );
 
         while (
             $remaining > 0
@@ -64,14 +67,19 @@ final class DirectStreamPump
         ) {
             $chunk = $body->read(min(64 * 1024, $remaining));
             if (! is_string($chunk) || $chunk === '') {
-                if (++$emptyReads >= 3) {
+                // Mid-response there is no error channel left; tolerate
+                // pauses up to the stall budget instead of cutting healthy
+                // slow streams after a fixed number of empty reads.
+                if ($stall->expired()) {
                     break;
                 }
+
+                usleep(10_000);
 
                 continue;
             }
 
-            $emptyReads = 0;
+            $stall->reset();
             $remaining -= strlen($chunk);
             echo $chunk;
             flush();
