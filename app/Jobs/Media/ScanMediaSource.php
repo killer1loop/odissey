@@ -140,6 +140,14 @@ class ScanMediaSource implements ShouldBeUniqueUntilProcessing, ShouldQueue
             Log::warning('Media source discovery failed.', [
                 'source_id' => $source->id,
                 'exception' => $exception::class,
+                'reason' => Str::limit(
+                    trim((string) preg_replace(
+                        '/\s+/',
+                        ' ',
+                        $exception->getMessage(),
+                    )) ?: $exception::class,
+                    200,
+                ),
             ]);
             MediaSource::query()
                 ->whereKey($source->id)
@@ -149,6 +157,12 @@ class ScanMediaSource implements ShouldBeUniqueUntilProcessing, ShouldQueue
                     'active_scan_token' => null,
                     'last_error_code' => 'source_scan_failed',
                 ]);
+            // Surface the failure to the queue layer so the remaining
+            // attempts, backoff, and failed_jobs bookkeeping engage instead
+            // of silently ending the discovery lifecycle. Retries are safe:
+            // each attempt carries a fresh claim token and stale per-object
+            // jobs become no-ops.
+            throw $exception;
         }
     }
 
