@@ -26,9 +26,10 @@ class PruneIptvPlaybackData extends Command
         );
         $cutoff = now()->subHours($retentionHours);
 
+        // chunkById already orders by id; an additional orderBy corrupts the
+        // id cursor and silently skips rows in later chunks.
         IptvPlaybackSession::query()
             ->where('expires_at', '<', $cutoff)
-            ->orderBy('expires_at')
             ->chunkById(250, function ($sessions) use (&$deleted): void {
                 $ids = $sessions->pluck('id');
                 $deleted += IptvPlaybackSession::query()->whereKey($ids)->delete();
