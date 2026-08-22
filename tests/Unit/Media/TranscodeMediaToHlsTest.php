@@ -344,6 +344,30 @@ class TranscodeMediaToHlsTest extends TestCase
         $this->assertSame(TranscodeSession::STATUS_PENDING, $session->refresh()->status);
     }
 
+    public function test_capacity_wait_window_covers_the_conversion_timeout(): void
+    {
+        [$session, $sourcePath] = $this->makeTranscodeSession();
+        File::put($sourcePath, 'unsupported source');
+
+        config([
+            'odissey.transcode_timeout_seconds' => 21600,
+            'odissey.transcode_capacity_retry_seconds' => 5,
+        ]);
+        $job = new TranscodeMediaToHls($session->getKey());
+        $this->assertSame(5, $job->backoff);
+        $this->assertSame(4322, $job->tries);
+        $this->assertGreaterThan(
+            $job->timeout,
+            $job->tries * $job->backoff,
+            'The capacity-wait window must outlast one full conversion.',
+        );
+
+        config(['odissey.transcode_capacity_retry_seconds' => 30]);
+        $stretched = new TranscodeMediaToHls($session->getKey());
+        $this->assertSame(30, $stretched->backoff);
+        $this->assertSame(722, $stretched->tries);
+    }
+
     public function test_job_stops_before_ffmpeg_when_the_transcode_cache_is_over_quota(): void
     {
         [$session, $sourcePath] = $this->makeTranscodeSession();

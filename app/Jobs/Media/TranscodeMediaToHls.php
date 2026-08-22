@@ -40,11 +40,11 @@ class TranscodeMediaToHls implements ShouldQueue
         'quicktime',
     ];
 
-    public int $backoff = 5;
-
     public bool $failOnTimeout = true;
 
-    public int $tries = 60;
+    public int $backoff;
+
+    public int $tries;
 
     public int $timeout;
 
@@ -60,6 +60,15 @@ class TranscodeMediaToHls implements ShouldQueue
                 ),
             ),
         );
+        $retrySeconds = max(
+            1,
+            (int) config('odissey.transcode_capacity_retry_seconds', 5),
+        );
+        // A job waiting for the single conversion slot must stay retriable
+        // for at least one full conversion window; a short fixed attempt
+        // count made the second queued job fail while the first still ran.
+        $this->backoff = $retrySeconds;
+        $this->tries = (int) ceil($this->timeout / $retrySeconds) + 2;
         $this->onConnection('database-transcodes');
         $this->onQueue('transcodes');
     }
