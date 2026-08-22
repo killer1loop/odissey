@@ -4,11 +4,15 @@ import "../styles/global.css";
 interface Props {
   title?: string;
   description?: string;
+  robots?: string;
+  preloadOrbit?: boolean;
 }
 
 const {
   title = "Odissey — Your media. One beautiful home.",
   description = "A fast, private media home for movies, series, music and live TV. Self-hosted for free, with hosted plans coming soon from $10/month.",
+  robots = "index, follow",
+  preloadOrbit = true,
 } = Astro.props;
 
 const canonical = new URL(Astro.url.pathname, Astro.site);
@@ -22,10 +26,10 @@ const canonical = new URL(Astro.url.pathname, Astro.site);
     <meta name="theme-color" content="#0b0d10" />
     <meta name="color-scheme" content="dark" />
     <meta name="description" content={description} />
-    <meta name="robots" content="index, follow" />
+    <meta name="robots" content={robots} />
     <link rel="canonical" href={canonical} />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="preload" href="/odissey-orbit.webp" as="image" type="image/webp" />
+    {preloadOrbit && <link rel="preload" href="/odissey-orbit.webp" as="image" type="image/webp" />}
 
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Odissey" />

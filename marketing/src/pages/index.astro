@@ -85,6 +85,21 @@ productionHtml = replaceOnce(
 );
 productionHtml = replaceOnce(
   productionHtml,
+  `/* ═══════════════════════════════════════════════════════════════
+   ODISSEY · CONCEPT 01 — "AURORA"
+   Ethereal glass, living gradients, scroll-driven choreography.
+   Zero JavaScript. Modern CSS only:
+   @property · scroll()/view() timelines · backdrop-filter ·
+   color-mix · mask-composite · :has() · sticky stacking ·
+   ::details-content · text-wrap: balance
+   ═══════════════════════════════════════════════════════════════ */
+
+`,
+  "",
+  "prototype header comment",
+);
+productionHtml = replaceOnce(
+  productionHtml,
   switcherStyles,
   "",
   "prototype switcher styles",

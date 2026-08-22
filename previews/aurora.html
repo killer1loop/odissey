@@ -28,7 +28,7 @@
   --line-soft:     color-mix(in oklch, #ffffff 6%, transparent);
   --text:          #f7f8fa;
   --muted:         #9aa4b5;
-  --soft:          #66707f;
+  --soft:          #8a94a4;
   --accent:        #f2a441;
   --accent-bright: #ffc66f;
   --accent-ink:    #1e1407;
@@ -109,9 +109,11 @@ body {
   display: block; height: 100%; transform-origin: 0 50%; scale: 0 1;
   background: linear-gradient(90deg, var(--cyan), var(--accent-bright));
 }
+@media (prefers-reduced-motion: no-preference) {
 @supports (animation-timeline: scroll()) {
   .progress i { animation: grow linear both; animation-timeline: scroll(root); }
   @keyframes grow { to { scale: 1 1; } }
+}
 }
 
 /* ── Glass primitives ───────────────────────────────────────── */
@@ -323,6 +325,7 @@ h2 em { font-style: normal; background: linear-gradient(100deg, var(--cyan), #c9
 .sec-head p { margin-top: 20px; color: var(--muted); font-size: 1.02rem; max-width: 540px; text-wrap: pretty; }
 
 /* scroll-driven reveals (enhancement only, gated) */
+@media (prefers-reduced-motion: no-preference) {
 @supports (animation-timeline: view()) {
   .reveal {
     animation: view-rise linear both;
@@ -334,6 +337,7 @@ h2 em { font-style: normal; background: linear-gradient(100deg, var(--cyan), #c9
     to   { opacity: 1; translate: 0 0;    filter: blur(0); }
   }
 }
+}
 
 /* ── Platform · sticky stacking cards ───────────────────────── */
 
@@ -344,6 +348,7 @@ h2 em { font-style: normal; background: linear-gradient(100deg, var(--cyan), #c9
   display: grid; grid-template-columns: 1.05fr .95fr; align-items: center; gap: 40px;
   padding: clamp(32px, 5vw, 68px); border-radius: 28px; overflow: hidden;
 }
+@media (prefers-reduced-motion: no-preference) {
 @supports (animation-timeline: view()) {
   .stack-card {
     animation: stack-away linear both;
@@ -353,6 +358,7 @@ h2 em { font-style: normal; background: linear-gradient(100deg, var(--cyan), #c9
   @keyframes stack-away {
     to { scale: .93; filter: brightness(.5) blur(2px); }
   }
+}
 }
 .stack-card::after { /* top inner highlight */
   content: ""; position: absolute; inset: 0 0 auto; height: 1px;
@@ -411,8 +417,10 @@ h2 em { font-style: normal; background: linear-gradient(100deg, var(--cyan), #c9
   animation: ring-in 1.6s var(--ease-out) both;
 }
 @keyframes ring-in { from { --p: 0; } }
+@media (prefers-reduced-motion: no-preference) {
 @supports (animation-timeline: view()) {
   .profile .ring { animation-timeline: view(); animation-range: entry 20% entry 90%; }
+}
 }
 .profile .ring i {
   width: 74px; aspect-ratio: 1; border-radius: 50%; display: grid; place-items: center;
@@ -723,6 +731,18 @@ footer .fine { font-size: .72rem; }
   .switcher span { display: none; }
 }
 
+/* ── Keyboard focus ─────────────────────────────────────────── */
+
+:focus-visible { outline: 2px solid var(--accent-bright); outline-offset: 3px; border-radius: 6px; }
+.skip-link {
+  position: fixed; left: 16px; top: -48px; z-index: 200;
+  padding: 9px 14px; border-radius: 10px;
+  background: var(--accent); color: var(--accent-ink);
+  font-size: .8rem; font-weight: 740; text-decoration: none;
+  transition: top .18s var(--ease-out);
+}
+.skip-link:focus-visible { top: 12px; }
+
 /* ── Reduced motion ─────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
@@ -733,6 +753,7 @@ footer .fine { font-size: .72rem; }
 </style>
 </head>
 <body>
+<a class="skip-link" href="#top">Skip to content</a>
 
 <div class="progress" aria-hidden="true"><i></i></div>
 
