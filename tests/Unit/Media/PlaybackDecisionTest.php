@@ -153,6 +153,58 @@ class PlaybackDecisionTest extends TestCase
         );
     }
 
+    public function test_web_delivery_mode_copies_h264_video_and_converts_only_audio(): void
+    {
+        $decision = new PlaybackDecision;
+
+        $this->assertSame(
+            'audioTranscode',
+            $decision->deliveryModeFor(
+                $this->item([], [
+                    'video_codec' => 'h264',
+                    'audio_codec' => 'eac3',
+                ]),
+            ),
+        );
+        $this->assertSame(
+            'audioTranscode',
+            $decision->deliveryModeFor(
+                $this->item([], [
+                    'video_codec' => 'H264',
+                    'audio_codec' => 'dts',
+                ]),
+            ),
+        );
+        $this->assertSame(
+            'fullTranscode',
+            $decision->deliveryModeFor(
+                $this->item([], [
+                    'video_codec' => 'hevc',
+                    'audio_codec' => 'eac3',
+                ]),
+            ),
+        );
+        $this->assertSame(
+            'fullTranscode',
+            $decision->deliveryModeFor(
+                $this->item([], [
+                    'video_codec' => null,
+                    'audio_codec' => 'ac3',
+                ]),
+            ),
+        );
+        $this->assertSame(
+            'fullTranscode',
+            $decision->deliveryModeFor(
+                $this->item([], [
+                    'media_kind' => 'music',
+                    'video_codec' => null,
+                    'audio_codec' => 'flac',
+                ]),
+            ),
+        );
+    }
+
     /**
      * @param  array<string, mixed>  $technical
      * @param  array<string, mixed>  $overrides

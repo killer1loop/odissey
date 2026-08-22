@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\Media\TranscodeMediaToHls;
 use App\Models\MediaItem;
 use App\Models\TranscodeSession;
+use App\Services\Media\PlaybackDecision;
 use App\Services\Media\TranscodeStorage;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -93,6 +94,7 @@ class TranscodeController extends Controller
                     'media_item_id' => $item->getKey(),
                     'status' => TranscodeSession::STATUS_PENDING,
                     'profile' => $selection['profile'] ?? 'auto',
+                    'delivery_mode' => app(PlaybackDecision::class)->deliveryModeFor($item),
                     'audio_track' => $selection['audio_track'] ?? null,
                 ]),
                 true,

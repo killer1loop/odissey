@@ -19,6 +19,30 @@ class PlaybackDecision
     }
 
     /**
+     * Pick the cheapest safe conversion mode for a web transcode session.
+     * H.264 video can always be stream-copied into HLS, so only the audio
+     * track needs converting when it is the sole incompatibility. Anything
+     * else (unknown codecs, HEVC, non-video kinds) falls back to the full
+     * conversion path.
+     */
+    public function deliveryModeFor(MediaItem $item): string
+    {
+        $videoCodec = strtolower(trim((string) $item->video_codec));
+        $audioCodec = strtolower(trim((string) $item->audio_codec));
+
+        if (
+            $item->media_kind !== 'music'
+            && $videoCodec === 'h264'
+            && $audioCodec !== ''
+            && ! in_array($audioCodec, ['aac', 'mp3'], true)
+        ) {
+            return 'audioTranscode';
+        }
+
+        return 'fullTranscode';
+    }
+
+    /**
      * Make a conservative native-client decision from probed media and a
      * bounded, server-validated capability declaration.
      *

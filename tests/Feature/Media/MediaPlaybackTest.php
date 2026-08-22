@@ -281,6 +281,33 @@ class MediaPlaybackTest extends TestCase
         );
     }
 
+    public function test_h264_with_incompatible_audio_transcodes_audio_only(): void
+    {
+        Queue::fake();
+        $owner = User::factory()->create(['is_active' => true]);
+        $item = MediaItem::query()->create([
+            'user_id' => $owner->getKey(),
+            'title' => 'Copyable video with theater audio',
+            'source_type' => 'local',
+            'source_locator' => $this->temporaryPath.'/movie.mkv',
+            'mime_type' => 'video/x-matroska',
+            'container' => 'matroska',
+            'video_codec' => 'h264',
+            'audio_codec' => 'eac3',
+            'duration_ms' => 60_000,
+            'requires_transcode' => true,
+        ]);
+
+        $this->actingAs($owner)
+            ->post(route('media.transcodes.store', $item))
+            ->assertRedirect(route('media.show', $item));
+
+        $this->assertSame(
+            'audioTranscode',
+            TranscodeSession::query()->sole()->delivery_mode,
+        );
+    }
+
     public function test_missing_ephemeral_output_does_not_leave_a_ready_session_stuck(): void
     {
         Queue::fake();
