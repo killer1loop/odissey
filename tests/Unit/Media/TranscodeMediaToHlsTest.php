@@ -124,6 +124,55 @@ class TranscodeMediaToHlsTest extends TestCase
         );
     }
 
+    public function test_late_runner_failure_keeps_a_watchdog_completed_output(): void
+    {
+        [$session, $sourcePath] = $this->makeTranscodeSession();
+        File::put($sourcePath, 'unsupported source');
+        $runner = new class extends FfmpegRunner
+        {
+            public function run(
+                array $arguments,
+                int $timeoutSeconds,
+                ?callable $shouldContinue = null,
+            ): void {
+                $manifest = $arguments[array_key_last($arguments)];
+                File::put(
+                    $manifest,
+                    "#EXTM3U\n#EXTINF:4.0,\nsegment-00000.ts\n",
+                );
+                File::put(
+                    str_replace(
+                        '%05d',
+                        '00000',
+                        $arguments[array_search('-hls_segment_filename', $arguments, true) + 1],
+                    ),
+                    'segment',
+                );
+
+                if ($shouldContinue !== null) {
+                    $shouldContinue();
+                }
+
+                throw new RuntimeException('late shutdown failure');
+            }
+        };
+
+        (new TranscodeMediaToHls($session->getKey()))->handle(
+            $runner,
+            app(FfmpegArguments::class),
+            app(TranscodeStorage::class),
+            app(TranscodeConcurrencyGate::class),
+        );
+
+        $session->refresh();
+        $this->assertSame(TranscodeSession::STATUS_READY, $session->status);
+        $this->assertNotNull($session->finished_at);
+        $this->assertTrue(
+            File::isFile(config('odissey.transcode_path').'/'.$session->getKey().'/index.m3u8'),
+            'A watchdog-completed output must survive a late runner failure.',
+        );
+    }
+
     public function test_session_becomes_playable_after_the_first_hls_segment(): void
     {
         [$session, $sourcePath] = $this->makeTranscodeSession();
@@ -177,7 +226,9 @@ class TranscodeMediaToHlsTest extends TestCase
             TranscodeSession::STATUS_READY,
             $runner->statusDuringRun,
         );
-        $this->assertFalse($runner->finishedDuringRun);
+        // Watchdog promotion completes the session so late runner failures
+        // cannot delete the playable output.
+        $this->assertTrue($runner->finishedDuringRun);
         $this->assertNotNull($session->refresh()->finished_at);
     }
 

@@ -145,9 +145,21 @@ class TranscodeMediaToHls implements ShouldQueue
                                 === TranscodeSession::STATUS_PROCESSING
                             && $storage->hasCompleteOutput($session)
                         ) {
+                            // Stamp finished_at so later job-level failures
+                            // cannot delete an already-playable output.
                             $updates += [
                                 'status' => TranscodeSession::STATUS_READY,
                                 'manifest_relative_path' => 'index.m3u8',
+                                'finished_at' => now(),
+                                'expires_at' => now()->addMinutes(
+                                    max(
+                                        1,
+                                        (int) config(
+                                            'odissey.transcode_ttl_minutes',
+                                            30,
+                                        ),
+                                    ),
+                                ),
                             ];
                         }
 
@@ -217,11 +229,23 @@ class TranscodeMediaToHls implements ShouldQueue
                     ),
                 ]);
             } catch (TranscodeQuotaExceeded) {
-                $this->markFailed($session, 'cache_quota_exceeded', $storage);
+                $this->markFailedUnlessReady(
+                    $session,
+                    'cache_quota_exceeded',
+                    $storage,
+                );
             } catch (ProcessTimedOutException) {
-                $this->markFailed($session, 'transcode_timeout', $storage);
+                $this->markFailedUnlessReady(
+                    $session,
+                    'transcode_timeout',
+                    $storage,
+                );
             } catch (ProcessFailedException) {
-                $this->markFailed($session, 'transcode_failed', $storage);
+                $this->markFailedUnlessReady(
+                    $session,
+                    'transcode_failed',
+                    $storage,
+                );
             } catch (RuntimeException $exception) {
                 $errorCode = match ($exception->getMessage()) {
                     'remote_source_capacity_exhausted' => 'cache_quota_exceeded',
@@ -230,13 +254,17 @@ class TranscodeMediaToHls implements ShouldQueue
                     'source_read_failed' => $exception->getMessage(),
                     default => 'transcode_internal',
                 };
-                $this->markFailed($session, $errorCode, $storage);
+                $this->markFailedUnlessReady($session, $errorCode, $storage);
             } catch (Throwable $exception) {
                 Log::warning('Media transcode failed unexpectedly.', [
                     'session_id' => $session->getKey(),
                     'exception' => $exception::class,
                 ]);
-                $this->markFailed($session, 'transcode_internal', $storage);
+                $this->markFailedUnlessReady(
+                    $session,
+                    'transcode_internal',
+                    $storage,
+                );
             } finally {
                 if (($materialized['temporary'] ?? false) === true) {
                     if (
@@ -312,6 +340,34 @@ class TranscodeMediaToHls implements ShouldQueue
             'finished_at' => now(),
             'expires_at' => null,
         ]);
+    }
+
+    /**
+     * The completion watchdog may have promoted an in-flight session to
+     * READY once its HLS output became playable. In that case a later
+     * runner failure (for example a shutdown timeout after the final
+     * segment) must not delete the usable output.
+     */
+    private function markFailedUnlessReady(
+        TranscodeSession $session,
+        string $errorCode,
+        TranscodeStorage $storage,
+    ): void {
+        $session->refresh();
+
+        if (
+            $session->status === TranscodeSession::STATUS_READY
+            && $session->finished_at !== null
+        ) {
+            Log::info('Transcode output kept after late runner failure.', [
+                'session_id' => $session->getKey(),
+                'late_error_code' => $errorCode,
+            ]);
+
+            return;
+        }
+
+        $this->markFailed($session, $errorCode, $storage);
     }
 
     /**
