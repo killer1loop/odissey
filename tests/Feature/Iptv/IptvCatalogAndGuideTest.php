@@ -22,6 +22,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Tests\Concerns\InteractsWithIptv;
 use Tests\TestCase;
+use Throwable;
 
 class IptvCatalogAndGuideTest extends TestCase
 {
@@ -536,6 +537,79 @@ class IptvCatalogAndGuideTest extends TestCase
         $this->assertCount(
             21313,
             app(XtreamClient::class)->liveStreams($provider),
+        );
+    }
+
+    public function test_failed_live_catalog_write_restores_the_previous_catalog(): void
+    {
+        $provider = $this->makeProvider();
+        $existing = $this->makeChannel($provider, [
+            'external_id' => '260',
+            'epg_channel_id' => 'news.260',
+        ]);
+
+        $streams = [];
+        foreach (range(1, 300) as $streamId) {
+            $streams[] = [
+                'stream_id' => (string) $streamId,
+                'name' => "Channel {$streamId}",
+                'category_id' => 'news',
+            ];
+        }
+
+        Http::fake(function (Request $request) use ($streams) {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+
+            return match ($query['action'] ?? 'authenticate') {
+                'authenticate' => Http::response(['user_info' => ['auth' => 1]]),
+                'get_live_categories' => Http::response([
+                    ['category_id' => 'news', 'category_name' => 'News'],
+                ]),
+                'get_live_streams' => Http::response($streams),
+                default => Http::response([]),
+            };
+        });
+
+        DB::statement(
+            'CREATE TRIGGER abort_restored_channel_update '.
+            'BEFORE UPDATE ON channels '.
+            "WHEN NEW.external_id = '260' AND NEW.is_active = 1 ".
+            'AND OLD.name <> NEW.name '.
+            "BEGIN SELECT RAISE(ABORT, 'synthetic live catalog write failure'); END",
+        );
+
+        try {
+            app(ProviderCatalogSynchronizer::class)->sync($provider);
+            $this->fail('The injected write failure must abort the sync.');
+        } catch (Throwable) {
+            // Expected: the second chunk hits the synthetic abort trigger.
+        }
+
+        // The pre-existing channel must be visible again, the first committed
+        // chunk remains active, and everything after the failed chunk stays
+        // inactive until the next successful sync.
+        $this->assertTrue($existing->refresh()->is_active);
+        $this->assertSame(
+            251,
+            Channel::query()
+                ->where('iptv_provider_id', $provider->id)
+                ->where('is_active', true)
+                ->count(),
+        );
+        // The aborted chunk rolled back completely: those channels were
+        // never persisted.
+        $this->assertNull(
+            Channel::query()
+                ->where('iptv_provider_id', $provider->id)
+                ->where('external_id', '300')
+                ->value('is_active'),
+        );
+        $this->assertSame(
+            1,
+            ChannelGroup::query()
+                ->where('iptv_provider_id', $provider->id)
+                ->where('is_active', true)
+                ->count(),
         );
     }
 

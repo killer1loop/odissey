@@ -14,6 +14,7 @@ use App\Services\Media\TrustedArtworkUrl;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Throwable;
 
 class XtreamVodCatalogSynchronizer
 {
@@ -144,36 +145,49 @@ class XtreamVodCatalogSynchronizer
             );
         }
 
+        $source->forceFill($sourceAttributes)->save();
+        $combinedRows = array_merge($movieRows, $seriesRows);
+
+        try {
+            foreach (array_chunk($combinedRows, 250) as $rows) {
+                DB::transaction(function () use ($source, $rows): void {
+                    $rows = $this->preserveArtworkMetadata($source, $rows);
+                    DB::table('media_items')->upsert(
+                        $rows,
+                        ['media_source_id', 'stable_id'],
+                        [
+                            'scan_token',
+                            'title',
+                            'source_locator',
+                            'relative_path',
+                            'mime_type',
+                            'container',
+                            'requires_transcode',
+                            'source_modified_at',
+                            'missing_at',
+                            'metadata',
+                            'updated_at',
+                        ],
+                    );
+                });
+            }
+        } catch (Throwable $exception) {
+            // Keep the previously synced catalog visible and record the
+            // failure instead of holding one long exclusive write transaction.
+            $source->forceFill([
+                'scan_status' => 'failed',
+                'active_scan_token' => null,
+                'last_error_code' => 'provider_vod_catalog_write_failed',
+            ])->save();
+
+            throw $exception;
+        }
+
         DB::transaction(function () use (
             $source,
-            $sourceAttributes,
             $scanToken,
-            $movieRows,
             $seriesRows,
         ): void {
-            $source->forceFill($sourceAttributes)->save();
-
-            foreach (array_chunk([...$movieRows, ...$seriesRows], 250) as $rows) {
-                $rows = $this->preserveArtworkMetadata($source, $rows);
-                DB::table('media_items')->upsert(
-                    $rows,
-                    ['media_source_id', 'stable_id'],
-                    [
-                        'scan_token',
-                        'title',
-                        'source_locator',
-                        'relative_path',
-                        'mime_type',
-                        'container',
-                        'requires_transcode',
-                        'source_modified_at',
-                        'missing_at',
-                        'metadata',
-                        'updated_at',
-                    ],
-                );
-            }
-
             MediaItem::query()
                 ->whereBelongsTo($source, 'source')
                 ->whereIn('metadata->xtream_type', ['movie', 'series'])
@@ -201,7 +215,7 @@ class XtreamVodCatalogSynchronizer
 
         $this->dispatchEnrichment(
             $source,
-            $movieRows,
+            $combinedRows,
             $seriesRows,
             $scanToken,
         );
@@ -252,12 +266,12 @@ class XtreamVodCatalogSynchronizer
     }
 
     /**
-     * @param  array<int, array<string, mixed>>  $movieRows
+     * @param  array<int, array<string, mixed>>  $rows
      * @param  array<int, array<string, mixed>>  $seriesRows
      */
     private function dispatchEnrichment(
         MediaSource $source,
-        array $movieRows,
+        array $rows,
         array $seriesRows,
         string $scanToken,
     ): void {
@@ -265,15 +279,18 @@ class XtreamVodCatalogSynchronizer
             50000,
             max(0, (int) config('iptv.vod_metadata_jobs_per_sync', 10000)),
         );
-        $stableIds = collect([...$movieRows, ...$seriesRows])
+
+        collect($rows)
             ->pluck('stable_id')
             ->take($maximumMetadataJobs)
-            ->all();
-        MediaItem::query()
-            ->whereBelongsTo($source, 'source')
-            ->whereIn('stable_id', $stableIds)
-            ->pluck('id')
-            ->each(fn (string $id) => EnrichMediaItem::dispatch($id));
+            ->chunk(500)
+            ->each(function ($stableIds) use ($source): void {
+                MediaItem::query()
+                    ->whereBelongsTo($source, 'source')
+                    ->whereIn('stable_id', $stableIds->all())
+                    ->pluck('id')
+                    ->each(fn (string $id) => EnrichMediaItem::dispatch($id));
+            });
 
         foreach ($seriesRows as $row) {
             $metadata = json_decode($row['metadata'], true);

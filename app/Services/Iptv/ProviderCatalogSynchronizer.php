@@ -9,6 +9,7 @@ use App\Services\Iptv\Exceptions\SanitizedIptvException;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Throwable;
 
 class ProviderCatalogSynchronizer
 {
@@ -139,21 +140,30 @@ class ProviderCatalogSynchronizer
             );
         }
 
-        $result = DB::transaction(function () use (
-            $provider,
-            $logoResolution,
-            &$groupRows,
-            &$channelRows,
-        ): array {
-            ChannelGroup::query()
-                ->where('iptv_provider_id', $provider->id)
-                ->update(['is_active' => false]);
+        $previouslyActiveGroupIds = ChannelGroup::query()
+            ->where('iptv_provider_id', $provider->id)
+            ->where('is_active', true)
+            ->pluck('id')
+            ->all();
+        $previouslyActiveChannelIds = Channel::query()
+            ->where('iptv_provider_id', $provider->id)
+            ->where('is_active', true)
+            ->pluck('id')
+            ->all();
+        $groupCount = count($groupRows);
+        $channelCount = count($channelRows);
 
-            Channel::query()
-                ->where('iptv_provider_id', $provider->id)
-                ->update(['is_active' => false]);
+        try {
+            DB::transaction(function () use ($provider): void {
+                ChannelGroup::query()
+                    ->where('iptv_provider_id', $provider->id)
+                    ->update(['is_active' => false]);
 
-            $groupCount = count($groupRows);
+                Channel::query()
+                    ->where('iptv_provider_id', $provider->id)
+                    ->update(['is_active' => false]);
+            });
+
             $chunk = [];
 
             foreach ($groupRows as $externalId => $groupRow) {
@@ -161,13 +171,13 @@ class ProviderCatalogSynchronizer
                 unset($groupRows[$externalId]);
 
                 if (count($chunk) === 250) {
-                    $this->upsertGroups($chunk);
+                    DB::transaction(fn () => $this->upsertGroups($chunk));
                     $chunk = [];
                 }
             }
 
             if ($chunk !== []) {
-                $this->upsertGroups($chunk);
+                DB::transaction(fn () => $this->upsertGroups($chunk));
             }
 
             $groups = ChannelGroup::query()
@@ -175,7 +185,6 @@ class ProviderCatalogSynchronizer
                 ->where('is_active', true)
                 ->pluck('id', 'external_id');
 
-            $channelCount = count($channelRows);
             $chunk = [];
 
             foreach ($channelRows as $externalId => $channelRow) {
@@ -188,26 +197,32 @@ class ProviderCatalogSynchronizer
                 unset($channelRows[$externalId]);
 
                 if (count($chunk) === 250) {
-                    $this->upsertChannels(
-                        $chunk,
-                        $logoResolution->available,
+                    DB::transaction(
+                        fn () => $this->upsertChannels(
+                            $chunk,
+                            $logoResolution->available,
+                        ),
                     );
                     $chunk = [];
                 }
             }
 
             if ($chunk !== []) {
-                $this->upsertChannels(
-                    $chunk,
-                    $logoResolution->available,
+                DB::transaction(
+                    fn () => $this->upsertChannels(
+                        $chunk,
+                        $logoResolution->available,
+                    ),
                 );
             }
+        } catch (Throwable $exception) {
+            $this->restorePreviouslyActive(
+                $previouslyActiveGroupIds,
+                $previouslyActiveChannelIds,
+            );
 
-            return [
-                'groups' => $groupCount,
-                'channels' => $channelCount,
-            ];
-        });
+            throw $exception;
+        }
 
         unset($categories, $streams, $logoResolution);
 
@@ -238,7 +253,39 @@ class ProviderCatalogSynchronizer
                 : now(),
         ])->save();
 
-        return [...$result, ...$vodResult];
+        return [
+            'groups' => $groupCount,
+            'channels' => $channelCount,
+            ...$vodResult,
+        ];
+    }
+
+    /**
+     * Restore the pre-sync catalog visibility after a partial write so a
+     * failed sync never leaves the provider with a silently emptied catalog.
+     *
+     * @param  array<int, string>  $groupIds
+     * @param  array<int, string>  $channelIds
+     */
+    private function restorePreviouslyActive(
+        array $groupIds,
+        array $channelIds,
+    ): void {
+        try {
+            foreach (array_chunk($groupIds, 500) as $ids) {
+                ChannelGroup::query()
+                    ->whereKey($ids)
+                    ->update(['is_active' => true, 'updated_at' => now()]);
+            }
+
+            foreach (array_chunk($channelIds, 500) as $ids) {
+                Channel::query()
+                    ->whereKey($ids)
+                    ->update(['is_active' => true, 'updated_at' => now()]);
+            }
+        } catch (Throwable) {
+            // Best-effort restoration; the next successful sync heals the catalog.
+        }
     }
 
     private function scalarId(mixed $value): ?string

@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\Queue;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Concerns\InteractsWithIptv;
 use Tests\TestCase;
+use Throwable;
 
 class IptvVodCatalogTest extends TestCase
 {
@@ -117,6 +118,65 @@ class IptvVodCatalogTest extends TestCase
             ->assertSee('Movies')
             ->assertSee('Series')
             ->assertSee('Live TV');
+    }
+
+    public function test_failed_vod_write_marks_the_source_failed_and_keeps_the_old_catalog(): void
+    {
+        Queue::fake([EnrichMediaItem::class, SyncXtreamSeries::class]);
+        User::factory()->create(['is_admin' => true, 'is_active' => true]);
+        $provider = $this->makeProvider(['name' => 'Nera IPTV']);
+        $this->fakeCatalog();
+        app(ProviderCatalogSynchronizer::class)->sync($provider);
+
+        $source = MediaSource::query()->sole();
+
+        DB::statement(
+            'CREATE TRIGGER abort_renamed_movie_update '.
+            'BEFORE UPDATE ON media_items '.
+            "WHEN NEW.title = 'Changed Movie' ".
+            "BEGIN SELECT RAISE(ABORT, 'synthetic VOD write failure'); END",
+        );
+
+        $vodCategories = [['category_id' => '10', 'category_name' => 'Drama']];
+        $movies = [[
+            'stream_id' => '501',
+            'name' => 'Changed Movie',
+            'category_id' => '10',
+            'container_extension' => 'mp4',
+        ]];
+        $seriesCategories = [['category_id' => '20', 'category_name' => 'TV Drama']];
+        $series = [[
+            'series_id' => '901',
+            'name' => 'Example Show',
+            'category_id' => '20',
+        ]];
+
+        try {
+            app(XtreamVodCatalogSynchronizer::class)->sync(
+                $provider->fresh(),
+                $vodCategories,
+                $movies,
+                $seriesCategories,
+                $series,
+            );
+            $this->fail('The injected write failure must abort the sync.');
+        } catch (Throwable) {
+            // Expected: the chunk containing the movie hits the trigger.
+        }
+
+        $source->refresh();
+        $this->assertSame('failed', $source->scan_status);
+        $this->assertNull($source->active_scan_token);
+        $this->assertSame(
+            'provider_vod_catalog_write_failed',
+            $source->last_error_code,
+        );
+
+        $movie = MediaItem::query()->where('metadata->kind', 'movie')->sole();
+        $show = MediaItem::query()->where('metadata->kind', 'series')->sole();
+        $this->assertSame('Example Movie', $movie->title);
+        $this->assertNull($movie->missing_at);
+        $this->assertNull($show->missing_at);
     }
 
     public function test_vod_catalog_resync_preserves_cached_artwork_until_its_url_changes(): void
