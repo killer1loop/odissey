@@ -6,6 +6,43 @@ All notable changes to Odissey will be documented here. The project follows
 
 ## [Unreleased]
 
+### Fixed
+
+- IPTV guide imports apply the import memory budget, and the generic queue
+  worker runs with an explicit limit and restart threshold.
+- Provider catalog synchronization commits in bounded chunks, restores the
+  previous live catalog when a write fails mid-sync, and marks the VOD source
+  failed instead of holding one long exclusive SQLite transaction.
+- Transcode capacity waits now span the full conversion timeout; watchdog-
+  completed outputs survive late runner failures.
+- Web playback of H.264 video with incompatible audio converts only the audio
+  track instead of re-encoding video.
+- Actively watched HLS output has its lease extended during playback.
+- Silent remote inputs fail after a bounded stall deadline; direct streams and
+  source snapshots use time-based stall guards instead of fixed empty-read
+  cutoffs.
+- FFmpeg failures log a bounded, secret-redacted stderr tail for diagnosis.
+- Media source discovery failures propagate to queue retries and failed-job
+  bookkeeping.
+- The LiveTV guide payload caps programmes per channel; channel icon proxying
+  is rate limited per user.
+- IPTV player arrow keys no longer hijack focus over interactive controls,
+  rewind-style recoveries no longer trip the stall watchdog, boosted forms
+  cannot be double-submitted, and TV spatial navigation measures once per
+  keypress with instant scrolling.
+- Web login burns a bcrypt comparison for unknown accounts to equalize
+  response timing.
+- Marketing site: scroll-driven animations honor reduced motion, secondary
+  text meets contrast AA, keyboard focus is visible with a skip link on the
+  production page, HSTS and HTML cache headers ship, workers.dev/preview
+  duplicates are disabled, and the unused animation stack was removed.
+
+### Changed
+
+- Removed the retired signed loopback transcode source feed and its HTTP
+  protocol-whitelist branch.
+- Added catalog, playback-history retention, and foreign key indexes.
+
 ### Added
 
 - Laravel 13, SQLite, Blade, HTMX, hls.js, and FFmpeg application foundation.

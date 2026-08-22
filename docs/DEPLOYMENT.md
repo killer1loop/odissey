@@ -135,6 +135,10 @@ ODISSEY_MAX_TRANSCODES=1
 ODISSEY_MAX_PENDING_TRANSCODES_PER_USER=3
 ODISSEY_MAX_PENDING_TRANSCODES=50
 ODISSEY_TRANSCODE_TTL_MINUTES=30
+ODISSEY_TRANSCODE_CAPACITY_RETRY_SECONDS=5
+ODISSEY_TRANSCODE_SOURCE_STALL_SECONDS=60
+ODISSEY_DIRECT_STREAM_STALL_SECONDS=30
+ODISSEY_FFMPEG_ERROR_TAIL_BYTES=8192
 ODISSEY_TRANSCODE_MAX_BYTES=68719476736
 ODISSEY_TRANSCODE_MIN_FREE_BYTES=268435456
 ODISSEY_TRANSCODE_TIMEOUT_SECONDS=21600
@@ -170,6 +174,22 @@ remain bounded, back-pressured streams. Seek-dependent MP4, MOV, M4V, and 3GP
 inputs use the separate 32 GiB transcode source bound and are snapshotted into
 the active session before FFmpeg starts. The default 64 GiB total quota leaves
 up to 32 GiB for HLS output while a maximum-size source snapshot exists.
+
+Behavioural notes for the knobs above:
+
+- `ODISSEY_TRANSCODE_CAPACITY_RETRY_SECONDS` sets the release delay while a
+  job waits for the single conversion slot; the attempt budget scales with
+  `ODISSEY_TRANSCODE_TIMEOUT_SECONDS`, so a queued title waits out one full
+  conversion window instead of failing after minutes.
+- A completed HLS output stays playable while it is being watched: manifest,
+  segment, and status requests extend the session TTL (writes throttled to at
+  most once per minute per session).
+- Remote reads that deliver nothing for the stall budgets abort the job
+  (`source_read_failed` / truncated stream) rather than holding a conversion
+  slot or connection until the total timeout.
+- FFmpeg failures log a bounded, secret-redacted stderr tail
+  (`ODISSEY_FFMPEG_ERROR_TAIL_BYTES`) to aid diagnosis without unbounded
+  memory use.
 
 Transient HLS and session-scoped source snapshots are pruned with their
 sessions, and the byte quota is enforced during download and conversion. The
