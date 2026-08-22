@@ -4,6 +4,10 @@ namespace Tests\Unit\Media;
 
 use App\Services\Media\Exceptions\TranscodeQuotaExceeded;
 use App\Services\Media\FfmpegRunner;
+use GuzzleHttp\Psr7\StreamDecoratorTrait;
+use GuzzleHttp\Psr7\Utils;
+use Psr\Http\Message\StreamInterface;
+use RuntimeException;
 use Symfony\Component\Process\Process;
 use Tests\TestCase;
 
@@ -66,6 +70,41 @@ class FfmpegRunnerTest extends TestCase
         }
 
         $this->addToAssertionCount(1);
+    }
+
+    public function test_a_silent_upstream_fails_the_stdin_pump_before_the_total_timeout(): void
+    {
+        config(['odissey.transcode_source_stall_seconds' => 1]);
+        $silent = new class implements StreamInterface
+        {
+            use StreamDecoratorTrait;
+
+            public function __construct()
+            {
+                $this->stream = Utils::streamFor('');
+            }
+
+            public function eof(): bool
+            {
+                return false;
+            }
+
+            public function read($length): string
+            {
+                return '';
+            }
+        };
+
+        try {
+            (new FfmpegRunner)->runWithInput(
+                [PHP_BINARY, '-r', 'usleep(3000000);'],
+                30,
+                $silent,
+            );
+            $this->fail('A silent upstream must fail the stdin pump.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('source_read_failed', $exception->getMessage());
+        }
     }
 
     public function test_child_processes_do_not_inherit_application_secrets_or_proxies(): void

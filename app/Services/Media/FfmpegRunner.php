@@ -6,6 +6,7 @@ use App\Services\Media\Exceptions\TranscodeQuotaExceeded;
 use Generator;
 use InvalidArgumentException;
 use Psr\Http\Message\StreamInterface;
+use RuntimeException;
 use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Process;
 
@@ -111,18 +112,34 @@ class FfmpegRunner
      * This keeps remote reads back-pressured by FFmpeg and avoids adapting a
      * PSR stream through PHP's fragile custom stream-wrapper bridge.
      *
+     * A silent upstream must fail the job instead of holding the single
+     * conversion slot until the total timeout; the deadline resets on every
+     * successful read.
+     *
      * @return Generator<int, string>
      */
     private function streamChunks(StreamInterface $stream): Generator
     {
+        $stallSeconds = max(
+            1,
+            (int) config('odissey.transcode_source_stall_seconds', 60),
+        );
+        $deadlineNanoseconds = hrtime(true) + $stallSeconds * 1_000_000_000;
+
         while (! $stream->eof()) {
             $chunk = $stream->read(64 * 1024);
 
             if ($chunk === '') {
+                if (hrtime(true) >= $deadlineNanoseconds) {
+                    throw new RuntimeException('source_read_failed');
+                }
+
                 usleep(10_000);
 
                 continue;
             }
+
+            $deadlineNanoseconds = hrtime(true) + $stallSeconds * 1_000_000_000;
 
             yield $chunk;
         }
