@@ -173,7 +173,11 @@ class LiveTvController extends Controller
                     ->where('ends_at', '>', $start)
                     ->where('starts_at', '<', $end)
                     ->orderBy('starts_at')
-                    ->limit(250),
+                    // A 100-channel page × 250 programs would hydrate and
+                    // encode ~25k rows per request on the largest table in
+                    // the system; the grid only renders a few hours, so a
+                    // bounded slice keeps payloads predictable.
+                    ->limit(32),
             ])
             ->orderBy('channels.name')
             ->orderBy('channels.id')
