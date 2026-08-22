@@ -6,8 +6,10 @@ use App\Services\Media\Exceptions\TranscodeQuotaExceeded;
 use App\Services\Media\FfmpegRunner;
 use GuzzleHttp\Psr7\StreamDecoratorTrait;
 use GuzzleHttp\Psr7\Utils;
+use Illuminate\Support\Facades\Log;
 use Psr\Http\Message\StreamInterface;
 use RuntimeException;
+use Symfony\Component\Process\Exception\ProcessFailedException;
 use Symfony\Component\Process\Process;
 use Tests\TestCase;
 
@@ -105,6 +107,60 @@ class FfmpegRunnerTest extends TestCase
         } catch (RuntimeException $exception) {
             $this->assertSame('source_read_failed', $exception->getMessage());
         }
+    }
+
+    public function test_failures_log_a_bounded_redacted_stderr_tail(): void
+    {
+        $captured = [];
+
+        Log::shouldReceive('warning')->andReturnUsing(function (
+            string $message,
+            array $context = [],
+        ) use (&$captured): void {
+            $captured[] = [$message, $context];
+        });
+
+        try {
+            (new FfmpegRunner)->run([
+                PHP_BINARY,
+                '-r',
+                '$chunk = str_repeat("x", 4096);'
+                    .'for ($i = 0; $i < 40; $i++) { fwrite(STDERR, $chunk." line ".$i.PHP_EOL); }'
+                    .'fwrite(STDERR, "password=hunter2 marker-tail-end".PHP_EOL);'
+                    .'exit(1);',
+            ], 15);
+            $this->fail('A failing process must throw.');
+        } catch (ProcessFailedException) {
+            // Expected.
+        }
+
+        $failures = array_values(array_filter(
+            $captured,
+            fn (array $entry): bool => $entry[0] === 'FFmpeg process failed.',
+        ));
+
+        $this->assertCount(
+            1,
+            $failures,
+            'Exactly one process-failure diagnostic must be logged.',
+        );
+
+        $tail = (string) ($failures[0][1]['stderr_tail'] ?? '');
+        $this->assertStringContainsString('marker-tail-end', $tail);
+        $this->assertStringNotContainsString('hunter2', $tail);
+        $this->assertStringContainsString('[redacted]', $tail);
+        $this->assertLessThanOrEqual(8192, strlen($tail));
+    }
+
+    public function test_successful_processes_do_not_log_diagnostics(): void
+    {
+        Log::shouldReceive('warning')->never();
+
+        (new FfmpegRunner)->run([
+            PHP_BINARY,
+            '-r',
+            'fwrite(STDERR, "harmless warning");',
+        ], 15);
     }
 
     public function test_child_processes_do_not_inherit_application_secrets_or_proxies(): void

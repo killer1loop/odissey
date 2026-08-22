@@ -4,11 +4,14 @@ namespace App\Services\Media;
 
 use App\Services\Media\Exceptions\TranscodeQuotaExceeded;
 use Generator;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use Psr\Http\Message\StreamInterface;
 use RuntimeException;
 use Symfony\Component\Process\Exception\ProcessFailedException;
+use Symfony\Component\Process\Exception\ProcessTimedOutException;
 use Symfony\Component\Process\Process;
+use Throwable;
 
 class FfmpegRunner
 {
@@ -73,38 +76,80 @@ class FfmpegRunner
         }
 
         $process = $this->makeProcess($arguments, $timeoutSeconds);
+        $tail = new FfmpegErrorTail($this->errorTailBytes());
+        $collectError = function (string $type, string $data) use ($tail): void {
+            if ($type === Process::ERR) {
+                $tail->append($data);
+            }
+        };
 
-        if ($input !== null) {
-            $process->setInput(
-                $input instanceof StreamInterface
-                    ? $this->streamChunks($input)
-                    : $input,
-            );
-        }
-
-        if ($shouldContinue === null) {
-            $process->mustRun();
-
-            return;
-        }
-
-        $process->start();
-
-        while ($process->isRunning()) {
-            $process->checkTimeout();
-
-            if (! $shouldContinue()) {
-                $process->stop(0);
-
-                throw new TranscodeQuotaExceeded;
+        try {
+            if ($input !== null) {
+                $process->setInput(
+                    $input instanceof StreamInterface
+                        ? $this->streamChunks($input)
+                        : $input,
+                );
             }
 
-            usleep(250_000);
+            if ($shouldContinue === null) {
+                // Output stays disabled inside Symfony; the callback still
+                // receives chunks, so nothing accumulates internally.
+                $process->run($collectError);
+            } else {
+                $process->start($collectError);
+
+                while ($process->isRunning()) {
+                    $process->checkTimeout();
+
+                    if (! $shouldContinue()) {
+                        Log::warning('FFmpeg process stopped by resource guard.', [
+                            'stderr_tail' => $tail->tail(),
+                        ]);
+                        $process->stop(0);
+
+                        throw new TranscodeQuotaExceeded;
+                    }
+
+                    usleep(250_000);
+                }
+            }
+        } catch (ProcessTimedOutException $exception) {
+            Log::warning('FFmpeg process timed out.', [
+                'stderr_tail' => $tail->tail(),
+            ]);
+
+            throw $exception;
+        } catch (Throwable $exception) {
+            if (! $exception instanceof TranscodeQuotaExceeded) {
+                Log::warning('FFmpeg process aborted.', [
+                    'exception' => $exception::class,
+                    'stderr_tail' => $tail->tail(),
+                ]);
+            }
+
+            throw $exception;
         }
 
         if (! $process->isSuccessful()) {
+            Log::warning('FFmpeg process failed.', [
+                'exit_code' => $process->getExitCode(),
+                'stderr_tail' => $tail->tail(),
+            ]);
+
             throw new ProcessFailedException($process);
         }
+    }
+
+    private function errorTailBytes(): int
+    {
+        return min(
+            65536,
+            max(
+                1024,
+                (int) config('odissey.ffmpeg_error_tail_bytes', 8192),
+            ),
+        );
     }
 
     /**

@@ -36,6 +36,7 @@ return [
     'transcode_source_max_seconds' => (int) env('ODISSEY_TRANSCODE_SOURCE_MAX_SECONDS', 21600),
     'transcode_capacity_retry_seconds' => (int) env('ODISSEY_TRANSCODE_CAPACITY_RETRY_SECONDS', 5),
     'transcode_source_stall_seconds' => (int) env('ODISSEY_TRANSCODE_SOURCE_STALL_SECONDS', 60),
+    'ffmpeg_error_tail_bytes' => (int) env('ODISSEY_FFMPEG_ERROR_TAIL_BYTES', 8192),
     'transcode_min_free_bytes' => (int) env('ODISSEY_TRANSCODE_MIN_FREE_BYTES', 256 * 1024 * 1024),
     'max_pending_transcodes_per_user' => (int) env('ODISSEY_MAX_PENDING_TRANSCODES_PER_USER', 3),
     'max_pending_transcodes' => (int) env('ODISSEY_MAX_PENDING_TRANSCODES', 50),
