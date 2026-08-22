@@ -28,6 +28,8 @@ class HlsManifestController extends Controller
 
         abort_unless($session->isAvailable(), 404);
 
+        $session->extendPlaybackLease();
+
         $path = $storage->manifestPath($session);
         abort_unless(File::isFile($path), 404);
 

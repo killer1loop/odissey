@@ -51,6 +51,35 @@ class TranscodeSession extends Model
             && ($this->expires_at === null || $this->expires_at->isFuture());
     }
 
+    /**
+     * Keep an actively consumed HLS output alive. Playback endpoints call
+     * this so long viewings never hit the fixed post-conversion TTL; writes
+     * are throttled to at most once per minute per session.
+     */
+    public function extendPlaybackLease(): void
+    {
+        if ($this->status !== self::STATUS_READY) {
+            return;
+        }
+
+        if (
+            $this->expires_at !== null
+            && $this->expires_at->gt(now()->addMinute())
+        ) {
+            return;
+        }
+
+        $this->forceFill([
+            'expires_at' => now()->addMinutes(
+                max(
+                    1,
+                    (int) config('odissey.transcode_ttl_minutes', 30),
+                ),
+            ),
+            'heartbeat_at' => now(),
+        ])->save();
+    }
+
     protected function casts(): array
     {
         return [

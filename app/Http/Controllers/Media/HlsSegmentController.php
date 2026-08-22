@@ -30,6 +30,8 @@ class HlsSegmentController extends Controller
 
         abort_unless($session->isAvailable(), 404);
 
+        $session->extendPlaybackLease();
+
         try {
             $path = $storage->segmentPath($session, $segment);
         } catch (RuntimeException) {

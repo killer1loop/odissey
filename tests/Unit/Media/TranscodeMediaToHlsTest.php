@@ -395,6 +395,43 @@ class TranscodeMediaToHlsTest extends TestCase
         $this->assertSame(TranscodeSession::STATUS_PENDING, $session->refresh()->status);
     }
 
+    public function test_active_playback_extends_an_expiring_hls_lease(): void
+    {
+        [$session, $sourcePath] = $this->makeTranscodeSession();
+        File::put($sourcePath, 'unsupported source');
+        $session->forceFill([
+            'status' => TranscodeSession::STATUS_READY,
+            'manifest_relative_path' => 'index.m3u8',
+            'finished_at' => now()->subMinutes(40),
+            'expires_at' => now()->addSeconds(30),
+        ])->save();
+        $staleExpiry = $session->refresh()->expires_at;
+
+        $session->extendPlaybackLease();
+
+        $this->assertGreaterThan(
+            $staleExpiry,
+            $session->refresh()->expires_at,
+        );
+
+        // Throttled: a lease that is still comfortably inside its TTL is
+        // left untouched so segment requests do not write on every hit.
+        $settledExpiry = $session->expires_at;
+        $session->extendPlaybackLease();
+        $this->assertTrue($session->refresh()->expires_at->equalTo($settledExpiry));
+    }
+
+    public function test_non_ready_sessions_never_extend_their_lease(): void
+    {
+        [$session, $sourcePath] = $this->makeTranscodeSession();
+        File::put($sourcePath, 'unsupported source');
+
+        $session->extendPlaybackLease();
+
+        $this->assertNull($session->refresh()->expires_at);
+        $this->assertSame(TranscodeSession::STATUS_PENDING, $session->status);
+    }
+
     public function test_capacity_wait_window_covers_the_conversion_timeout(): void
     {
         [$session, $sourcePath] = $this->makeTranscodeSession();

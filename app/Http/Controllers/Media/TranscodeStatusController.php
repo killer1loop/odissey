@@ -19,6 +19,7 @@ class TranscodeStatusController extends Controller
             ->whereBelongsTo($request->user())
             ->whereBelongsTo($item, 'mediaItem')
             ->findOrFail($session);
+        $session->extendPlaybackLease();
         $progress = $item->progress()
             ->whereBelongsTo($request->user())
             ->first();
