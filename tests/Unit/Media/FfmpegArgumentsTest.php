@@ -33,42 +33,6 @@ class FfmpegArgumentsTest extends TestCase
         $this->assertNotContains('-c', $arguments);
     }
 
-    public function test_hls_allows_http_only_for_the_signed_loopback_source_shape(): void
-    {
-        $arguments = (new FfmpegArguments)->hls(
-            'http://127.0.0.1:8000/_internal/media/transcodes/01kyj20qfzxk7ke5050q2mxas5/source?expires=1&signature=test',
-            '/cache/index.m3u8',
-            '/cache/segment-%05d.ts',
-        );
-        $protocolIndex = array_search(
-            '-protocol_whitelist',
-            $arguments,
-            true,
-        );
-
-        $this->assertIsInt($protocolIndex);
-        $this->assertSame(
-            'file,pipe,http,tcp',
-            $arguments[$protocolIndex + 1],
-        );
-
-        $untrusted = (new FfmpegArguments)->hls(
-            'https://media.example.test/video.mkv',
-            '/cache/index.m3u8',
-            '/cache/segment-%05d.ts',
-        );
-        $untrustedProtocolIndex = array_search(
-            '-protocol_whitelist',
-            $untrusted,
-            true,
-        );
-
-        $this->assertSame(
-            'file,pipe',
-            $untrusted[$untrustedProtocolIndex + 1],
-        );
-    }
-
     public function test_hls_limits_sequential_remote_stdin_to_pipe_protocol(): void
     {
         $arguments = (new FfmpegArguments)->hls(

@@ -15,18 +15,10 @@ use App\Http\Controllers\Media\MediaPlayerController;
 use App\Http\Controllers\Media\PlaybackProgressController;
 use App\Http\Controllers\Media\SubtitleController;
 use App\Http\Controllers\Media\TranscodeController;
-use App\Http\Controllers\Media\TranscodeSourceController;
 use App\Http\Controllers\Media\TranscodeStatusController;
 use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\EnsureUserIsAdmin;
 use Illuminate\Support\Facades\Route;
-
-Route::get(
-    '/_internal/media/transcodes/{session}/source',
-    TranscodeSourceController::class,
-)
-    ->middleware('signed:relative')
-    ->name('internal.media.transcodes.source');
 
 Route::middleware(['auth', EnsureUserIsActive::class])
     ->prefix('media')

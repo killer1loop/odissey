@@ -22,12 +22,6 @@ class FfmpegArguments
         )) {
             $deliveryMode = 'fullTranscode';
         }
-        $protocolWhitelist = preg_match(
-            '#\Ahttp://127\.0\.0\.1:8000/_internal/media/transcodes/[0-9A-HJKMNP-TV-Z]{26}/source\?#i',
-            $sourcePath,
-        ) === 1
-            ? 'file,pipe,http,tcp'
-            : 'file,pipe';
         $arguments = [
             $this->binary(),
             '-hide_banner',
@@ -42,7 +36,7 @@ class FfmpegArguments
             '-threads',
             (string) $this->threads(),
             '-protocol_whitelist',
-            $protocolWhitelist,
+            'file,pipe',
         ];
         $arguments = array_merge($arguments, [
             '-i',
