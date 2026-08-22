@@ -49,25 +49,33 @@ function visibleFocusableElements() {
             return false;
         }
 
-        const rect = element.getBoundingClientRect();
         const style = window.getComputedStyle(element);
+        if (style.visibility === 'hidden' || style.display === 'none') {
+            return false;
+        }
 
-        return rect.width > 0
-            && rect.height > 0
-            && style.visibility !== 'hidden'
-            && style.display !== 'none';
+        const rect = element.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+            return false;
+        }
+
+        // Cache the rect for this navigation pass so scoring does not force
+        // a second full measurement sweep over hundreds of EPG nodes.
+        element.__tvRect = rect;
+
+        return true;
     });
 }
 
 function directionalCandidate(active, direction, candidates) {
-    const activeRect = active.getBoundingClientRect();
+    const activeRect = active.__tvRect ?? active.getBoundingClientRect();
     const originX = activeRect.left + activeRect.width / 2;
     const originY = activeRect.top + activeRect.height / 2;
 
     return candidates
         .filter((candidate) => candidate !== active)
         .map((candidate) => {
-            const rect = candidate.getBoundingClientRect();
+            const rect = candidate.__tvRect ?? candidate.getBoundingClientRect();
             const deltaX = rect.left + rect.width / 2 - originX;
             const deltaY = rect.top + rect.height / 2 - originY;
             const primary = direction === 'left' ? -deltaX
@@ -117,7 +125,13 @@ function handleTvKeydown(event) {
 
     if (next) {
         next.focus({ preventScroll: true });
-        next.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+        // Instant scrolling keeps remote-control navigation responsive on
+        // low-end TV hardware where smooth scrolls lag visibly.
+        next.scrollIntoView({
+            behavior: 'instant',
+            block: 'nearest',
+            inline: 'nearest',
+        });
         event.preventDefault();
     }
 }

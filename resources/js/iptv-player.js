@@ -306,6 +306,16 @@ function initialize(container) {
         }
     };
     const handleTimeUpdate = () => {
+        // Recoveries can rewind playback below the previous high-water mark;
+        // treat those jumps as progress so the stall watchdog does not fire
+        // repeatedly on a healthy stream.
+        if (video.currentTime < lastPlaybackTime - 0.5) {
+            lastPlaybackTime = video.currentTime;
+            lastProgressAt = performance.now();
+
+            return;
+        }
+
         if (video.currentTime <= lastPlaybackTime + 0.05) {
             return;
         }
@@ -434,6 +444,11 @@ function initialize(container) {
         setRailOpen(false);
         railToggle?.focus();
     };
+    const isInteractiveTarget = (target) => target instanceof HTMLElement
+        && target.closest(
+            'a[href], button, [role="button"], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        ) !== null;
+
     const handleKeydown = (event) => {
         const target = event.target;
         const isTyping = target instanceof HTMLElement
@@ -465,12 +480,20 @@ function initialize(container) {
                 setRailOpen(false);
                 container.focus();
             }
-        } else if (event.key === 'ArrowUp' || isChannelUp) {
+        } else if (isChannelUp) {
             event.preventDefault();
             switchFavorite(-1);
-        } else if (event.key === 'ArrowDown' || isChannelDown) {
+        } else if (isChannelDown) {
             event.preventDefault();
             switchFavorite(1);
+        } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+            // Vertical arrows move focus and scroll lists when an
+            // interactive control (rail entries, topbar buttons) holds
+            // focus; they only switch channels from passive surfaces.
+            if (!isInteractiveTarget(target)) {
+                event.preventDefault();
+                switchFavorite(event.key === 'ArrowUp' ? -1 : 1);
+            }
         } else if (event.key === 'ArrowRight') {
             event.preventDefault();
             setRailOpen(true, true);

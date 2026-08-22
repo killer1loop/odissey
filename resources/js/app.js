@@ -266,6 +266,43 @@ document.addEventListener('htmx:afterSwap', (event) => {
     initializeMobileMenus(event.detail.elt);
 });
 
+// Boosted forms stay interactive during their request; disable the submit
+// controls for the duration so double clicks cannot fire a second mutation
+// (favorite toggles, session starts, admin actions) before the swap lands.
+const submitButtonsIn = (root) => root instanceof HTMLFormElement
+    ? [...root.querySelectorAll('button[type="submit"], button:not([type])')]
+    : [];
+
+document.addEventListener('htmx:beforeRequest', (event) => {
+    if (isBackgroundRequest(event)) {
+        return;
+    }
+
+    submitButtonsIn(event.detail.elt).forEach((button) => {
+        button.disabled = true;
+    });
+});
+
+const reEnableSubmitButtons = (event) => {
+    const form = event.detail.elt;
+
+    if (!(form instanceof HTMLFormElement) || !form.isConnected) {
+        return;
+    }
+
+    // The next frame: swaps triggered by this request settle first, so
+    // freshly rendered replacement content is never touched.
+    window.requestAnimationFrame(() => {
+        submitButtonsIn(form).forEach((button) => {
+            button.disabled = false;
+        });
+    });
+};
+
+document.addEventListener('htmx:afterRequest', reEnableSubmitButtons);
+document.addEventListener('htmx:responseError', reEnableSubmitButtons);
+document.addEventListener('htmx:sendError', reEnableSubmitButtons);
+
 document.addEventListener('htmx:responseError', () => {
     const announcer = document.querySelector('[data-request-announcer]');
 
