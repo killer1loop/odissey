@@ -170,7 +170,8 @@ Route::prefix('v1')
                 Route::get(
                     '/live/channels/{channel}/icon',
                     ChannelIconController::class,
-                )->name('live.channels.icon');
+                )->name('live.channels.icon')
+                    ->middleware('throttle:600,1,channel-icon:');
                 Route::get('/live/guide', [LiveTvController::class, 'guide'])
                     ->name('live.guide');
                 Route::get(

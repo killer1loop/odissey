@@ -21,7 +21,8 @@ Route::middleware(['auth', EnsureUserIsActive::class])
         Route::get('/', ChannelBrowserController::class)->name('channels.index');
         Route::get('/guide', GuideController::class)->name('guide');
         Route::get('/channels/{channel}/icon', ChannelIconController::class)
-            ->name('channels.icon');
+            ->name('channels.icon')
+            ->middleware('throttle:120,1,channel-icon:');
 
         Route::post('/channels/{channel}/favorite', [ChannelFavoriteController::class, 'store'])
             ->name('favorites.store');
