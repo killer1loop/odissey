@@ -9,6 +9,7 @@ use App\Models\Iptv\IptvProvider;
 use App\Services\Iptv\BoundedResponseSink;
 use App\Services\Iptv\ConfidentialHttpFactory;
 use App\Services\Iptv\Exceptions\SanitizedIptvException;
+use App\Services\Iptv\IptvImportMemoryBudget;
 use App\Services\Iptv\M3uClient;
 use App\Services\Iptv\PinnedUpstreamTarget;
 use App\Services\Iptv\UpstreamUrlGuard;
@@ -353,7 +354,10 @@ M3U)]);
 
         try {
             (new SyncIptvGuide($provider->id))
-                ->handle(app(XmltvGuideImporter::class));
+                ->handle(
+                    app(XmltvGuideImporter::class),
+                    app(IptvImportMemoryBudget::class),
+                );
             $this->fail('An empty guide must not be recorded as successful.');
         } catch (SanitizedIptvException $exception) {
             $this->assertSame('xmltv_guide_empty', $exception->errorCode);
@@ -406,7 +410,10 @@ M3U)]);
 
         try {
             (new SyncIptvGuide($provider->id))
-                ->handle(app(XmltvGuideImporter::class));
+                ->handle(
+                    app(XmltvGuideImporter::class),
+                    app(IptvImportMemoryBudget::class),
+                );
             $this->fail(
                 'An unmatched guide must not be recorded as successful.',
             );
@@ -641,7 +648,7 @@ M3U)]);
         ]);
 
         $importer = app(XmltvGuideImporter::class);
-        (new SyncIptvGuide($provider->id))->handle($importer);
+        (new SyncIptvGuide($provider->id))->handle($importer, app(IptvImportMemoryBudget::class));
         $this->assertTrue($importer->lastImportWasCapped());
         $this->assertDatabaseHas('epg_programs', ['id' => $preserved->id]);
         $this->assertDatabaseHas('epg_programs', ['title' => 'Imported first']);
@@ -715,7 +722,10 @@ M3U)]);
         $provider = $this->provider();
 
         (new SyncIptvGuide($provider->id))
-            ->handle(app(XmltvGuideImporter::class));
+            ->handle(
+                app(XmltvGuideImporter::class),
+                app(IptvImportMemoryBudget::class),
+            );
 
         $provider->refresh();
         $this->assertSame(
@@ -739,7 +749,7 @@ M3U)]);
             ->andThrow(new RuntimeException('Synthetic guide failure.'));
 
         try {
-            (new SyncIptvGuide($provider->id))->handle($importer);
+            (new SyncIptvGuide($provider->id))->handle($importer, app(IptvImportMemoryBudget::class));
             $this->fail('Unexpected guide failures must be rethrown.');
         } catch (RuntimeException $exception) {
             $this->assertSame(

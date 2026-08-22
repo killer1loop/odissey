@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Iptv\IptvProvider;
+use App\Services\Iptv\IptvImportMemoryBudget;
 use App\Services\Iptv\XtreamVodArtworkSynchronizer;
 use Illuminate\Console\Command;
 use Throwable;
@@ -14,8 +15,12 @@ class RefreshIptvArtwork extends Command
 
     protected $description = 'Import trusted movie and series artwork URLs';
 
-    public function handle(XtreamVodArtworkSynchronizer $artwork): int
-    {
+    public function handle(
+        XtreamVodArtworkSynchronizer $artwork,
+        IptvImportMemoryBudget $memory,
+    ): int {
+        $memory->apply();
+
         $query = IptvProvider::query()->where('enabled', true);
         if ($this->option('provider')) {
             $query->whereKey($this->option('provider'));

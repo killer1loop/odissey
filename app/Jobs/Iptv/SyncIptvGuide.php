@@ -4,6 +4,7 @@ namespace App\Jobs\Iptv;
 
 use App\Models\Iptv\IptvProvider;
 use App\Services\Iptv\Exceptions\SanitizedIptvException;
+use App\Services\Iptv\IptvImportMemoryBudget;
 use App\Services\Iptv\XmltvGuideImporter;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -32,8 +33,12 @@ class SyncIptvGuide implements ShouldBeUnique, ShouldQueue
         return (string) $this->providerId;
     }
 
-    public function handle(XmltvGuideImporter $xmltvImporter): void
-    {
+    public function handle(
+        XmltvGuideImporter $xmltvImporter,
+        IptvImportMemoryBudget $memory,
+    ): void {
+        $memory->apply();
+
         $provider = IptvProvider::query()->find($this->providerId);
 
         if ($provider === null || ! $provider->enabled) {

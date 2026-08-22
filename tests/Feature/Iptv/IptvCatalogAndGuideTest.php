@@ -436,7 +436,10 @@ class IptvCatalogAndGuideTest extends TestCase
         });
 
         (new SyncIptvGuide($provider->id))
-            ->handle(app(XmltvGuideImporter::class));
+            ->handle(
+                app(XmltvGuideImporter::class),
+                app(IptvImportMemoryBudget::class),
+            );
 
         $this->assertDatabaseCount('epg_programs', 26);
         $this->assertDatabaseHas('epg_programs', [
@@ -543,6 +546,31 @@ class IptvCatalogAndGuideTest extends TestCase
 
         config()->set('iptv.import_memory_limit_mb', PHP_INT_MAX);
         $this->assertSame(1024, app(IptvImportMemoryBudget::class)->megabytes());
+    }
+
+    public function test_guide_sync_applies_import_memory_budget(): void
+    {
+        $provider = $this->makeProvider([
+            'config' => ['api' => 'm3u'],
+        ]);
+        $originalLimit = ini_get('memory_limit');
+        config()->set('iptv.import_memory_limit_mb', 333);
+
+        try {
+            (new SyncIptvGuide($provider->id))
+                ->handle(
+                    app(XmltvGuideImporter::class),
+                    app(IptvImportMemoryBudget::class),
+                );
+
+            $this->assertSame('333M', ini_get('memory_limit'));
+            $this->assertSame(
+                'guide_not_configured',
+                $provider->refresh()->last_guide_error_code,
+            );
+        } finally {
+            ini_set('memory_limit', (string) $originalLimit);
+        }
     }
 
     public function test_decoded_xtream_payload_is_bounded_during_response_writes(): void

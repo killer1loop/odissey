@@ -68,6 +68,18 @@ class DockerBuildContextTest extends TestCase
         $this->assertIsString($supervisor);
         $this->assertStringNotContainsString('user=root', $supervisor);
         $this->assertStringContainsString(
+            '[program:queue]',
+            $supervisor,
+        );
+        $this->assertStringContainsString(
+            'php -d memory_limit=512M artisan queue:work --queue=high,default,iptv-sync',
+            $supervisor,
+        );
+        $this->assertStringContainsString(
+            '--timeout=650 --max-time=3600 --memory=448 --no-interaction',
+            $supervisor,
+        );
+        $this->assertStringContainsString(
             '[program:queue-media-discovery]',
             $supervisor,
         );
