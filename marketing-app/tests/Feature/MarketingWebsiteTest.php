@@ -28,6 +28,18 @@ class MarketingWebsiteTest extends TestCase
         $this->get('/health')->assertOk()->assertSeeText('ok');
     }
 
+    public function test_https_links_are_generated_behind_the_private_reverse_proxy(): void
+    {
+        $this->withServerVariables([
+            'REMOTE_ADDR' => '10.0.0.10',
+            'HTTP_X_FORWARDED_HOST' => 'odissey.app',
+            'HTTP_X_FORWARDED_PORT' => '443',
+            'HTTP_X_FORWARDED_PROTO' => 'https',
+        ])->get('http://odissey.app/')
+            ->assertOk()
+            ->assertSee('hx-post="https://odissey.app/subscribe"', false);
+    }
+
     public function test_container_build_context_keeps_runtime_configuration(): void
     {
         $ignored = file_get_contents(base_path('.dockerignore'));
@@ -40,9 +52,11 @@ class MarketingWebsiteTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('/^docker\/?$/m', $ignored);
         $this->assertStringContainsString('docker/entrypoint.sh /usr/local/bin/marketing-entrypoint', $dockerfile);
         $this->assertStringContainsString('COPY docker/Caddyfile', $dockerfile);
+        $this->assertStringContainsString('composer.json ./', $dockerfile);
         $this->assertStringContainsString('pdo_sqlite', $dockerfile);
         $this->assertStringContainsString('APP_URL=https://odissey.app', $dockerfile);
         $this->assertStringContainsString('Content-Security-Policy', $caddyfile);
+        $this->assertStringContainsString('trusted_proxies static private_ranges', $caddyfile);
     }
 
     public function test_launch_signup_is_normalized_and_persisted(): void
