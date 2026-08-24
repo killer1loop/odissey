@@ -13,6 +13,7 @@ RUN composer install \
     --no-scripts \
     --prefer-dist
 
+COPY artisan ./
 COPY app ./app
 COPY bootstrap ./bootstrap
 COPY config ./config
