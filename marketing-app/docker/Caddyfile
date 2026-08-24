@@ -1,0 +1,25 @@
+{
+	admin off
+	auto_https off
+}
+
+:8000 {
+	root * /app/public
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+		-Cache-Control
+	}
+
+	@app-assets path /build/* /vendor/* /favicon.svg /favicon.ico /social-card.png /odissey-mark.webp /odissey-orbit.webp
+	header @app-assets Cache-Control "public, max-age=604800, immutable"
+
+	php_server {
+		trusted_proxies private
+	}
+}
