@@ -4,32 +4,26 @@ namespace Tests\Unit\Media;
 
 use App\Services\Media\DirectStreamLease;
 use App\Services\Media\DirectStreamPump;
-use GuzzleHttp\Psr7\StreamDecoratorTrait;
-use GuzzleHttp\Psr7\Utils;
-use Psr\Http\Message\StreamInterface;
 use Tests\TestCase;
 
-class DirectStreamPumpTest extends TestCase
+class DirectStreamPumpStallTest extends TestCase
 {
     public function test_slow_upstreams_stream_beyond_a_few_empty_reads(): void
     {
-        $body = new class implements StreamInterface
+        $body = new class
         {
-            use StreamDecoratorTrait;
-
             public int $emptyReads = 0;
 
-            public function __construct()
-            {
-                $this->stream = Utils::streamFor('rest-of-media');
-            }
+            private string $payload = 'rest-of-media';
+
+            private int $offset = 0;
 
             public function eof(): bool
             {
-                return $this->stream->eof();
+                return $this->offset >= strlen($this->payload);
             }
 
-            public function read($length): string
+            public function read(int $length): string
             {
                 if ($this->emptyReads < 5) {
                     $this->emptyReads++;
@@ -37,7 +31,10 @@ class DirectStreamPumpTest extends TestCase
                     return '';
                 }
 
-                return $this->stream->read($length);
+                $chunk = substr($this->payload, $this->offset, $length);
+                $this->offset += strlen($chunk);
+
+                return $chunk;
             }
         };
 

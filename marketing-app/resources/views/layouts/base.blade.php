@@ -25,12 +25,13 @@
 <meta name="twitter:title" content="Odissey — Your media. One beautiful home.">
 <meta name="twitter:description" content="A fast, private media home for movies, series, music and live TV. Self-hosted for free, with hosted plans coming soon from $10/month.">
 <meta name="twitter:image" content="{{ rtrim(config('app.url'), '/') }}/social-card.png">
+<meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false,"selfRequestsOnly":true}'>
 
 <title>@yield('title', 'Odissey — Your media. One beautiful home.')</title>
-@vite(['resources/css/app.css', 'resources/js/app.js'])
+@vite('resources/css/app.css')
 <script src="/vendor/htmx.min.js" defer></script>
 </head>
-<body>
+<body style="--orbit-image: url('/odissey-orbit.webp')">
 @yield('content')
 </body>
 </html>

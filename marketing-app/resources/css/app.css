@@ -209,7 +209,7 @@ body {
 }
 .hero-orbit {
   position: absolute; inset: 0; z-index: -1; pointer-events: none;
-  background: url("/odissey-orbit.webp") center 32% / min(1500px, 130vw) no-repeat;
+  background: var(--orbit-image) center 32% / min(1500px, 130vw) no-repeat;
   opacity: .5; mix-blend-mode: screen;
   -webkit-mask: radial-gradient(58% 52% at 50% 38%, #000 30%, transparent 78%);
           mask: radial-gradient(58% 52% at 50% 38%, #000 30%, transparent 78%);
@@ -545,7 +545,7 @@ h2 em { font-style: normal; background: linear-gradient(100deg, var(--cyan), #c9
   background:
     radial-gradient(120% 130% at 20% 0%, #0d2a35 0%, transparent 55%),
     radial-gradient(120% 140% at 90% 100%, #3a2408 0%, transparent 55%),
-    url("/odissey-orbit.webp") center 40% / cover;
+    var(--orbit-image) center 40% / cover;
 }
 .player-screen::before { /* cinematic vignette */
   content: ""; position: absolute; inset: 0;
@@ -669,7 +669,7 @@ h2 em { font-style: normal; background: linear-gradient(100deg, var(--cyan), #c9
 .cta { margin-top: 140px; position: relative; overflow: clip; }
 .cta-bg {
   position: absolute; inset: 0; z-index: -1;
-  background: url("/odissey-orbit.webp") center 46% / cover no-repeat;
+  background: var(--orbit-image) center 46% / cover no-repeat;
   opacity: .4; mix-blend-mode: screen;
   -webkit-mask: linear-gradient(180deg, transparent, #000 30%, #000 70%, transparent);
           mask: linear-gradient(180deg, transparent, #000 30%, #000 70%, transparent);
@@ -689,7 +689,7 @@ footer { border-top: 1px solid var(--line-soft); margin-top: 60px; }
 footer p { font-size: .78rem; color: var(--soft); max-width: 460px; line-height: 1.7; }
 footer .fine { font-size: .72rem; }
 
-* ── Responsive ─────────────────────────────────────────────── */
+/* ── Responsive ────────────────────────────────────────────── */
 
 @media (max-width: 1080px) {
   .chip { display: none; }

@@ -24,7 +24,6 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Queue;
-use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Mockery;
 use RuntimeException;

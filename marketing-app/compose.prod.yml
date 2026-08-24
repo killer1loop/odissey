@@ -5,9 +5,14 @@ services:
       dockerfile: Dockerfile
     image: odissey-website:latest
     restart: unless-stopped
+    volumes:
+      - odissey-website-data:/data
     networks:
       - dokploy-network
 
 networks:
   dokploy-network:
     external: true
+
+volumes:
+  odissey-website-data:

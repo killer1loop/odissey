@@ -12,11 +12,18 @@
         type="email"
         name="email"
         required
+        maxlength="255"
         placeholder="you@example.com"
         autocomplete="email"
+        value="{{ $email ?? '' }}"
+        aria-describedby="subscribe-note{{ ($validationErrors ?? null)?->has('email') ? ' subscribe-error' : '' }}"
+        @if (($validationErrors ?? null)?->has('email')) aria-invalid="true" @endif
     >
     <button type="submit" class="btn-accent">Notify me</button>
-    <p class="subscribe-note">One email at launch. Address is never shared.</p>
+    <p class="subscribe-note" id="subscribe-note">One email at launch. Address is never shared.</p>
+    @if (($validationErrors ?? null)?->has('email'))
+        <p class="subscribe-error" id="subscribe-error" role="alert">{{ $validationErrors->first('email') }}</p>
+    @endif
 </form>
 
 <style>
@@ -36,6 +43,7 @@
         font-weight: 780; font-size: .92rem; letter-spacing: -.01em;
     }
     .subscribe-note { width: 100%; margin: 4px 0 0; color: var(--muted); font-size: .8rem; }
+    .subscribe-error { width: 100%; margin: 0; color: #ff9d9d; font-size: .82rem; font-weight: 700; }
     .subscribe-done {
         padding: 18px 20px; border-radius: 16px; color: var(--green);
         font-weight: 700;

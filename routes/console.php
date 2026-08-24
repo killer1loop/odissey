@@ -45,4 +45,3 @@ Schedule::command('media:sources:scan')
     ->weekly()
     ->withoutOverlapping()
     ->runInBackground();
-

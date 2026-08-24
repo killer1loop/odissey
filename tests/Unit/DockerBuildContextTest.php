@@ -364,8 +364,14 @@ class DockerBuildContextTest extends TestCase
                 file_get_contents($database),
             );
         } finally {
-            @unlink($marker);
-            @unlink($key);
+            if (is_file($marker)) {
+                unlink($marker);
+            }
+
+            if (is_file($key)) {
+                unlink($key);
+            }
+
             @unlink($database);
             @rmdir($transcodes);
             @rmdir($data);

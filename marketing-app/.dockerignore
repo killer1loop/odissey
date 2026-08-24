@@ -8,5 +8,4 @@ storage/logs/*
 tests
 .git
 Dockerfile*
-docker
 README.md

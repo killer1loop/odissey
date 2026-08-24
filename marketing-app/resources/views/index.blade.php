@@ -80,7 +80,7 @@
           <div class="visual">
             <div class="constellation">
               <div class="orbit-path"></div>
-              <img class="core orbit-ring" alt="" src="assets/favicon.svg" style="width:64px;border-radius:14px;-webkit-mask:none;mask:none;background:none;animation:none">
+              <img class="core orbit-ring" alt="" src="/favicon.svg" style="width:64px;border-radius:14px;-webkit-mask:none;mask:none;background:none;animation:none">
               <div class="planet"><b>Local</b></div>
               <div class="planet"><b>S3</b></div>
               <div class="planet"><b>WebDAV</b></div>

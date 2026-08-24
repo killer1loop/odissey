@@ -15,4 +15,8 @@ Standalone Laravel application serving the public marketing site
 
 Dokploy builds `Dockerfile` from this directory (`buildPath: marketing-app`)
 on every push to `main` and serves it via Traefik with Let's Encrypt TLS.
-Required runtime environment: `APP_KEY`, optional `APP_URL`.
+The production image defaults `APP_URL` to `https://odissey.app`; override it
+for another public HTTPS address. You may supply `APP_KEY`; otherwise
+the entrypoint generates it once in `/data/app.key`. Persist `/data` so the key
+and launch signups survive image replacements. The supplied Compose definition
+uses the `odissey-website-data` named volume for that purpose.

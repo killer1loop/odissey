@@ -50,7 +50,9 @@ FROM dunglas/frankenphp:1-php8.5-trixie@sha256:da270879b95225345b2ee984f717aef5c
 ENV APP_NAME="Odissey" \
     APP_ENV=production \
     APP_DEBUG=false \
-    APP_URL=https://marketing.odissey.garavelli.io \
+    APP_URL=https://odissey.app \
+    DB_CONNECTION=sqlite \
+    DB_DATABASE=/data/database.sqlite \
     LOG_CHANNEL=stderr \
     LOG_STACK=stderr \
     SESSION_DRIVER=cookie \
@@ -69,6 +71,7 @@ RUN apt-get update \
         intl \
         mbstring \
         opcache \
+        pdo_sqlite \
     && rm -rf /var/lib/apt/lists/* \
     && mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
 
@@ -95,7 +98,7 @@ RUN mkdir -p \
         storage/logs \
         /data/caddy \
         /config/caddy \
-    && chown -R www-data:www-data bootstrap storage /data/caddy /config/caddy
+    && chown -R www-data:www-data bootstrap storage /data /config/caddy
 
 EXPOSE 8000
 
