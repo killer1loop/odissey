@@ -77,6 +77,7 @@ RUN apt-get update \
 
 WORKDIR /app
 
+COPY --chown=www-data:www-data composer.json ./
 COPY --chown=www-data:www-data artisan ./
 COPY --chown=www-data:www-data app ./app
 COPY --chown=www-data:www-data bootstrap ./bootstrap
